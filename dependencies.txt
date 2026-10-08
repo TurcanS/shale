@@ -1,0 +1,51 @@
+# Arch Linux packages Shale uses, for reference. ./install.sh works out which ones this machine
+# needs (hardware extras such as upower, brightnessctl and bluez only when the hardware exists)
+# and installs them after asking.
+quickshell
+hyprland
+python
+python-dbus-next
+pipewire
+wireplumber
+# Audio for apps and the visualizer; replaces pulseaudio.
+pipewire-pulse
+upower
+networkmanager
+bluez
+bluez-utils
+brightnessctl
+wl-clipboard
+cliphist
+hyprlock
+hypridle
+grim
+slurp
+wf-recorder
+hyprpicker
+xdg-utils
+adwaita-fonts
+# Launcher file search (/) and color emoji (:).
+fd
+noto-fonts-emoji
+# WebP wallpapers and thumbnails.
+qt6-imageformats
+# Wallpapers: one of hyprpaper or awww (swww also works).
+hyprpaper
+# Terminal apps from the launcher open in $TERMINAL, xdg-terminal-exec, or an installed terminal.
+xdg-terminal-exec
+# Around the shell, for a usable Hyprland session: portals (screen sharing, file pickers), password
+# prompts from apps, text in apps, and media keys.
+xdg-desktop-portal-hyprland
+xdg-desktop-portal-gtk
+hyprpolkitagent
+noto-fonts
+playerctl
+# The terminal Hyprland's example config opens with Super+Q (the installer adds the one your config names).
+kitty
+# Power modes on a laptop. Keep any provider you already have (tuned-ppd, see README, is an
+# alternative that conflicts with it); with TLP, auto-cpufreq or TuneD alone, none is added.
+power-profiles-daemon
+# Login screen, only on a fresh setup with no display manager yet.
+sddm
+# Optional: media visualizer.
+# cava
