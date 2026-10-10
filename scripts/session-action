@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Session actions. Hypridle's sleep inhibitor waits for the compositor lock.
+
+Locking uses the shell's own lock screen unless hyprlock is chosen in Settings or the shell is not
+running; hyprlock also takes over if the shell dies or freezes while locked."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "helpers"))
+from runtime import runtime_base  # noqa: E402  (shared with the helper)
+
+def shell(*args, timeout=3):
+    """Call the shell's IPC; returns its output, or None when no shell answers."""
+    try:
+        result = subprocess.run(["quickshell", "ipc", "-p", str(ROOT), "call", "shell", *args],
+                                capture_output=True, text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+def ipc(action):
+    shell("action", action)
+
+def status():
+    try:
+        return json.loads(shell("lockStatus") or "")
+    except ValueError:
+        return None
+
+def hyprlock_config(home=None):
+    """The user's own hyprlock.conf wins over the one Shale installs."""
+    hypr = (home or Path.home()) / ".config/hypr"
+    own = hypr / "hyprlock.conf"
+    return own if own.exists() else hypr / "shale-hyprlock.conf"
+
+def hyprlock():
+    config = hyprlock_config()
+    command = ["hyprlock", "--grace", "0"]
+    if config.exists():
+        command += ["--config", str(config)]
+    ipc("locked")
+    try:
+        return subprocess.call(command)
+    except FileNotFoundError:
+        print("Cannot lock: the shell's lock screen is unavailable and hyprlock is not installed.", file=sys.stderr)
+        return 1
+    finally:
+        ipc("unlocked")
+
+def uptime():
+    return float(Path("/proc/uptime").read_text().split()[0])
+
+def fresh_hyprlock(since):
+    """Process ids of this user's hyprlock started at or after `since` (seconds since boot).
+
+    A stale or foreign hyprlock must never count as the lock this suspend asked for."""
+    result = subprocess.run(["pgrep", "-u", str(os.getuid()), "-x", "hyprlock"], capture_output=True, text=True)
+    ticks = os.sysconf("SC_CLK_TCK")
+    fresh = []
+    for pid in result.stdout.split():
+        try:
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            if int(fields[19]) / ticks >= since - 0.5:
+                fresh.append(int(pid))
+        except (OSError, IndexError, ValueError):
+            continue
+    return fresh
+
+def wait_locked(since, read=status, lockers=fresh_hyprlock, sleep=time.sleep, clock=time.monotonic, timeout=5.0):
+    """True once a lock screen covers the session: the shell's confirmed lock, or a hyprlock that
+    this request started and that is still running after it has had time to cover every output."""
+    deadline = clock() + timeout
+    while clock() < deadline:
+        state = read()
+        if state and state.get("locked") and state.get("secure"):
+            return True
+        started = lockers(since)
+        if started:
+            sleep(1)
+            return any(pid in lockers(since) for pid in started)
+        sleep(0.1)
+    return False
+
+def hypridle_delays_sleep():
+    """Whether this user's hypridle holds a sleep delay inhibitor, i.e. it has a before_sleep_cmd and runs
+    it before the system sleeps (Shale's policy also waits for the lock, inhibit_sleep=3).
+
+    A hypridle without one would let the system sleep unlocked, so suspend has to lock first."""
+    try:
+        result = subprocess.run(["busctl", "call", "--json=short", "org.freedesktop.login1", "/org/freedesktop/login1",
+                                 "org.freedesktop.login1.Manager", "ListInhibitors"], capture_output=True, text=True, timeout=3)
+        inhibitors = json.loads(result.stdout)["data"][0] if result.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, IndexError):
+        return False
+    return any(len(item) == 6 and "sleep" in item[0].split(":") and item[1] == "hypridle" and item[3] == "delay"
+               and item[4] == os.getuid() for item in inhibitors)
+
+def start_unit(*args):
+    """Run this script with `args` as its own user unit. The shell runs each action in a transient unit, and
+    systemd stops whatever is left in it once the action exits, so a child started here would not outlive it."""
+    try:
+        return subprocess.run(["systemd-run", "--user", "--quiet", "--collect", "--", str(Path(__file__).resolve()), *args],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+def suspend():
+    # A hypridle that delays sleep locks in its before_sleep_cmd (Shale's waits until the compositor
+    # reports the session locked); locking here as well would start a second lock screen.
+    if hypridle_delays_sleep():
+        return subprocess.call(["systemctl", "suspend"])
+    # Otherwise lock first, and suspend only once the lock is confirmed. The lock (hyprlock, or the watcher
+    # that hands a crashed lock screen to hyprlock) has to outlive this action.
+    since = uptime()
+    if not start_unit("lock") or not wait_locked(since):
+        print("Not suspending: the session could not be locked first.", file=sys.stderr)
+        return 1
+    return subprocess.call(["systemctl", "suspend"])
+
+def watch(pid, read=status, sleep=time.sleep, clock=time.monotonic, confirm=3.0, stalls=4):
+    """Follow the shell's lock screen until it unlocks.
+
+    Returns "unlocked", "unconfirmed" (the compositor never confirmed the lock) or "lost" (the shell
+    that locked is gone or frozen, so the session stays locked without a working lock screen).
+    """
+    deadline = clock() + confirm
+    missed = 0
+    while True:
+        state = read()
+        if state is None:
+            # A shell that stops answering while locked leaves no way to unlock; give it a few tries.
+            missed += 1
+            if missed >= stalls:
+                return "lost"
+        elif state.get("pid") != pid:
+            return "lost"
+        elif not state.get("locked"):
+            return "unlocked"
+        else:
+            missed = 0
+            if not state.get("secure") and deadline is not None and clock() > deadline:
+                return "unconfirmed"
+            if state.get("secure"):
+                deadline = None
+        sleep(0.2 if deadline is not None else 1)
+
+def lock():
+    runtime = runtime_base()
+    with (runtime / "shale-lock.lock").open("w") as guard:
+        try:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        # The shell answers with its process id when its own lock screen is starting, or with
+        # nothing when hyprlock is preferred; no answer means the shell is not running.
+        pid = shell("lock")
+        if not pid:
+            return hyprlock()
+        outcome = watch(pid)
+        if outcome == "unlocked":
+            return 0
+        if outcome == "unconfirmed":
+            shell("abortLock")
+            return hyprlock()
+        # Hyprland keeps the session locked after its locker dies and lets another take over
+        # (misc:allow_session_lock_restore). A frozen shell still holds the lock, so stop it first.
+        state = status()
+        if state is None and pid.isdigit():
+            try:
+                # Only the frozen shell itself, never a process that reused its id.
+                if Path(f"/proc/{pid}/comm").read_text().strip().startswith("quickshell"):
+                    os.kill(int(pid), signal.SIGKILL)
+            except OSError:
+                pass
+        return hyprlock()
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else ""
+    if action == "lock":
+        return lock()
+    if action == "suspend":
+        return suspend()
+    if action in ("reboot", "shutdown"):
+        return subprocess.call(["systemctl", "reboot" if action == "reboot" else "poweroff"])
+    if action == "logout":
+        if subprocess.run(["sh", "-c", "command -v hyprshutdown"], stdout=subprocess.DEVNULL).returncode == 0:
+            return subprocess.call(["hyprshutdown"])
+        return subprocess.call(["hyprctl", "dispatch", "hl.dsp.exit()"])
+    print("Usage: session-action {lock|suspend|logout|reboot|shutdown}", file=sys.stderr)
+    return 2
+
+if __name__ == "__main__":
+    sys.exit(main())
