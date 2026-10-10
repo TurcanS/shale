@@ -1,0 +1,25 @@
+name: Bug report
+description: Something doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Output of `shale logs`, and of the installer if it's an install problem.
+      render: text
+  - type: input
+    attributes:
+      label: Versions
+      description: "`shale --version`, `pacman -Q hyprland quickshell`"
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Hardware
+      description: Laptop or desktop, GPU, number of monitors.
