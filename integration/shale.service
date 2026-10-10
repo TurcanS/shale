@@ -1,0 +1,16 @@
+[Unit]
+Description=Shale Quickshell desktop
+After=graphical-session.target
+PartOf=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=4
+
+[Service]
+Type=simple
+ExecStart=quickshell --path %h/.config/quickshell/shale --no-duplicate
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=graphical-session.target
