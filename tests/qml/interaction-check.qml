@@ -179,6 +179,19 @@ ShellRoot {
         check(page.appDetail === "zen", "Down and Enter open the next app");
         ShellState.setSetting("activityTracking", "ask");
     }
+    function checkSystem(page) {
+        check(page.resources.length >= 2 && page.resources[0].key === "cpu" && page.resources[1].key === "memory", "System lists CPU and memory first");
+        check(page.sample.cpu.usage >= 0 && page.sample.cpu.usage <= 100 && page.sample.memory.used > 0, "System samples real usage");
+        page.forceActiveFocus();
+        page.selected = "cpu";
+        input.keyClick(Qt.Key_Down);
+        check(page.selected === "memory", "Down selects the next resource");
+        input.keyClick(Qt.Key_End);
+        check(page.selected === page.resources[page.resources.length - 1].key, "End selects the last resource");
+        input.keyClick(Qt.Key_Home);
+        input.keyClick(Qt.Key_Up);
+        check(page.selected === "cpu", "Selection stops at the first resource");
+    }
     function checkTrayMenu() {
         const kinds = () => trayList.rows.map(row => row.kind).join(",");
         const library = {text: "_Library", enabled: true, isSeparator: false, hasChildren: true, buttonType: 0};
@@ -447,6 +460,16 @@ ShellRoot {
                 test.checkActivity(page);
                 test.checkTooltip();
                 test.checkNotificationKeys();
+                test.busy = false;
+                ShellState.open("system");
+                test.step++;
+                break;
+            case 10:
+                // Two samples from the real helper: the second has rates and a two-point history.
+                if (page.sample === undefined || !page.sample || (page.history.cpu || []).length < 2)
+                    return;
+                test.busy = true;
+                test.checkSystem(page);
                 console.log("INTERACTION CHECK COMPLETE", test.failures);
                 Qt.quit();
                 break;

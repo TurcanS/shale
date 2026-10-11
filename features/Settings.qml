@@ -489,6 +489,7 @@ FocusScope {
                                     {title: "Notifications", keys: ["Super", "N"], command: "shale notifications"},
                                     {title: "Workspaces", keys: ["Super", "O"], command: "shale overview"},
                                     {title: "Activity", keys: ["Super", "Shift", "A"], command: "shale activity"},
+                                    {title: "System monitor", keys: ["Ctrl", "Shift", "Esc"], command: "shale system"},
                                     {title: "Wallpapers (opt-in shortcut)", keys: ["Super", "Shift", "W"], command: "shale wallpaper"},
                                     {title: "Settings", keys: ["Super", ","], command: "shale settings"},
                                     {title: "Region screenshot", keys: ["Print"], command: "shale screenshot region"},

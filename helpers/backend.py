@@ -23,6 +23,7 @@ import wallhaven
 import wallpaperscom
 import activity
 import art
+import sysmon
 from runtime import runtime_base
 import clipboard_watch
 import equalizer
@@ -433,6 +434,8 @@ class Backend:
     def __init__(self):
         self.activity = None
         self.activity_snapshot = None
+        # Keeps the previous counters for the system monitor's rates.
+        self.sysmon = sysmon.Sampler(run=run)
         self.activity_locked = False
         self.activity_sleeping = False
         self.lid_fd = None
@@ -1212,6 +1215,8 @@ class Backend:
             value = (await run("hyprpicker", "--format", "hex", timeout=120, cancel_ok=True)).decode().strip()
             await run("wl-copy", data=value.encode())
             return {"color": value}
+        if method == "system.sample":
+            return await self.sysmon.sample()
         if method == "system.stats":
             mem = {}
             for line in Path("/proc/meminfo").read_text().splitlines():

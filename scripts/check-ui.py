@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 from harness import harness
 
-PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity"]
+PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
 SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail in ["wifi", "bluetooth", "audio", "power", "media", "tray"]]
 # Machines without a backlight, Wi-Fi, lid or capture tools.
 SCENARIOS += [("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
@@ -16,6 +16,7 @@ SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "unit
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]
 SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "apps", "app", "optin", "off"]]
 SCENARIOS += [("settings", detail) for detail in ["color-frost", "color-warm"]]
+SCENARIOS += [("system", detail) for detail in ["memory", "disk", "network", "gpu", "gpu-asleep", "bare"]]
 SCENARIOS += [("calendar", detail) for detail in ["weather-forecast", "weather-search"]]
 SCENARIOS += [("lock", detail) for detail in ["", "error", "caps"]]
 parser = argparse.ArgumentParser(description=__doc__)

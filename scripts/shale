@@ -63,9 +63,9 @@ case "$1" in
     esac
     ;;
   --version|version) echo "Shale $(version)" ;;
-  launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity)
+  launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system)
     exec quickshell ipc -p "$config" call shell toggle "$1"
     ;;
-  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' ;;
-  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' >&2; exit 2 ;;
+  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' ;;
+  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' >&2; exit 2 ;;
 esac

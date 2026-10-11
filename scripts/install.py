@@ -43,6 +43,7 @@ SHORTCUTS = [
     ('SUPER + O', 'overview', 'Shale workspace overview'),
     ('SUPER + COMMA', 'settings', 'Shale settings'),
     ('SUPER + SHIFT + A', 'activity', 'Shale activity'),
+    ('CTRL + SHIFT + Escape', 'system', 'Shale system monitor'),
     ('SUPER + M', 'power', 'Shale session menu'),
     ('Print', 'screenshot region', 'Shale region screenshot'),
     ('SUPER + L', 'lock', 'Shale lock screen'),

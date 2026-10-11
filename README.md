@@ -23,6 +23,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Lock screen** with PAM (ext-session-lock); hyprlock as an alternative.
 - **Capture**: screenshots, screen recording with system audio or microphone, color picker.
 - **Activity**: opt-in, local-only app usage history with a yearly heatmap.
+- **System monitor**: live CPU, memory, disks, network, GPUs, temperatures and fans (Ctrl+Shift+Esc). A sleeping laptop GPU is left asleep.
 
 ## Requirements
 
@@ -71,6 +72,7 @@ To undo a single install instead: `python3 scripts/install.py --rollback ~/.loca
 | Super+V | Clipboard |
 | Super+A | Control center |
 | Super+Shift+A | Activity |
+| Ctrl+Shift+Esc | System monitor |
 | Super+N | Notifications |
 | Super+O | Overview |
 | Super+, | Settings |
@@ -81,7 +83,7 @@ To undo a single install instead: `python3 scripts/install.py --rollback ~/.loca
 
 Volume, brightness and media keys come from Hyprland's example config; Shale shows an OSD for them.
 
-Everything is also a command: `shale launcher`, `shale screenshot region`, `shale page wifi`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
+Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
 
 ## Files
 

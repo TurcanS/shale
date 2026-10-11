@@ -9,8 +9,8 @@ Rectangle {
     property bool active: true
     readonly property var pageItem: loader.item
     objectName: "panel-" + panel
-    readonly property int preferredWidth: panel === "wallpaper" ? 1180 : panel === "settings" ? 820 : panel === "activity" ? 720 : panel === "overview" ? 980 : ["control", "notifications"].indexOf(panel) >= 0 ? 420 : panel === "calendar" ? 360 : panel === "power" ? 440 : 580
-    readonly property int preferredHeight: panel === "wallpaper" ? 570 : panel === "activity" ? 620 : panel === "launcher" && pageItem && pageItem.calculatorQuery && pageItem.results.length === 0 ? (pageItem.calculationError ? 310 : 250) : panel === "calendar" ? 460 + (pageItem && pageItem.extraHeight ? pageItem.extraHeight : 0) : panel === "power" ? (Theme.body >= 18 ? 470 : 440) : panel === "capture" ? 540 : panel === "settings" ? 600 : panel === "overview" ? 640 : panel === "control" && pageItem && pageItem.preferredContentHeight > 0 ? Math.max(200, Math.min(570, pageItem.preferredContentHeight + 88)) : panel === "control" ? 570 : 520
+    readonly property int preferredWidth: panel === "wallpaper" ? 1180 : panel === "settings" ? 820 : panel === "activity" ? 720 : panel === "system" ? 900 : panel === "overview" ? 980 : ["control", "notifications"].indexOf(panel) >= 0 ? 420 : panel === "calendar" ? 360 : panel === "power" ? 440 : 580
+    readonly property int preferredHeight: panel === "wallpaper" ? 570 : panel === "activity" ? 620 : panel === "system" ? 620 : panel === "launcher" && pageItem && pageItem.calculatorQuery && pageItem.results.length === 0 ? (pageItem.calculationError ? 310 : 250) : panel === "calendar" ? 460 + (pageItem && pageItem.extraHeight ? pageItem.extraHeight : 0) : panel === "power" ? (Theme.body >= 18 ? 470 : 440) : panel === "capture" ? 540 : panel === "settings" ? 600 : panel === "overview" ? 640 : panel === "control" && pageItem && pageItem.preferredContentHeight > 0 ? Math.max(200, Math.min(570, pageItem.preferredContentHeight + 88)) : panel === "control" ? 570 : 520
     color: panel === "wallpaper" ? "transparent" : Theme.panel
     radius: Theme.panelRadius
     border.width: 0
@@ -36,7 +36,7 @@ Rectangle {
                 C.Icon {
                     anchors.centerIn: parent
                     size: 16
-                    name: ({launcher: "grid", clipboard: "clipboard", control: "settings", notifications: "bell", calendar: "calendar", overview: "window", capture: "camera", settings: "settings", power: "power", activity: "activity"})[root.panel] || "grid"
+                    name: ({launcher: "grid", clipboard: "clipboard", control: "settings", notifications: "bell", calendar: "calendar", overview: "window", capture: "camera", settings: "settings", power: "power", activity: "activity", system: "gauge"})[root.panel] || "grid"
                 }
             }
             C.Button {
@@ -59,7 +59,8 @@ Rectangle {
                         capture: "Capture",
                         settings: "Settings",
                         power: "Session",
-                        activity: "Activity"
+                        activity: "Activity",
+                        system: "System"
                     })[root.panel] || "Shale"
                 font.pixelSize: Theme.titleSize
                 font.weight: Font.DemiBold
@@ -114,7 +115,8 @@ Rectangle {
                     settings: "Settings.qml",
                     power: "Power.qml",
                     wallpaper: "Wallpaper.qml",
-                    activity: "Activity.qml"
+                    activity: "Activity.qml",
+                    system: "System.qml"
                 })[root.panel] || "Launcher.qml"
             onLoaded: {
                 pageEntrance.restart();

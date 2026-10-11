@@ -47,7 +47,7 @@ QtObject {
             }
             const item = pending[msg.id];
             delete pending[msg.id];
-            if (!msg.ok && msg.error && msg.error.code !== "cancelled" && (!item || ["calculator", "units.convert", "files.search", "weather.get", "weather.search", "wallhaven.search", "wallpaperscom.search", "media.art"].indexOf(item.method) < 0)) {
+            if (!msg.ok && msg.error && msg.error.code !== "cancelled" && (!item || ["calculator", "units.convert", "files.search", "weather.get", "weather.search", "wallhaven.search", "wallpaperscom.search", "media.art", "system.sample"].indexOf(item.method) < 0)) {
                 lastError = msg.error.message || "Operation failed";
             }
             if (item && item.callback)

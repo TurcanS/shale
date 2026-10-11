@@ -4,7 +4,7 @@ local shortcuts = {
     ["SUPER + SPACE"] = "launcher", ["SUPER + V"] = "clipboard",
     ["SUPER + A"] = "control", ["SUPER + N"] = "notifications",
     ["SUPER + O"] = "overview", ["SUPER + COMMA"] = "settings",
-    ["SUPER + SHIFT + A"] = "activity",
+    ["SUPER + SHIFT + A"] = "activity", ["CTRL + SHIFT + Escape"] = "system",
     ["SUPER + M"] = "power", ["Print"] = "screenshot region",
     ["SUPER + L"] = "lock",
     ["SHIFT + Print"] = "screenshot output", ["SUPER + Print"] = "capture",

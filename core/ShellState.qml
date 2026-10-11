@@ -109,7 +109,7 @@ QtObject {
         });
     }
     property real brightness: -1
-    readonly property var panels: ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity"]
+    readonly property var panels: ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
     signal activitySnapshotRequested()
     property var wallpaperChange: ({})
     property bool wallpaperBusy: false

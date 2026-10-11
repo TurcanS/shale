@@ -36,7 +36,7 @@ with tempfile.TemporaryFile(mode="w+") as log:
             monitors = json.loads(subprocess.check_output(["hyprctl", "monitors", "-j"], text=True))
             output = next((m["name"] for m in monitors if m.get("focused")), monitors[0]["name"])
             call("shell", "close")
-            for panel in ["launcher", "control", "notifications", "calendar", "clipboard", "overview", "capture", "settings", "power", "wallpaper", "activity"]:
+            for panel in ["launcher", "control", "notifications", "calendar", "clipboard", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]:
                 call("shell", "toggle", panel)
                 time.sleep(.4)
                 actual = json.loads(call("surface-" + output, "status"))
