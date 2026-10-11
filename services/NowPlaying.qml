@@ -39,14 +39,43 @@ Singleton {
 
     // Two tones from the cover: its most vivid colour and a contrasting one.
     // Greyscale covers get soft white; no cover falls back to the accent.
-    ColorQuantizer {
+    // The quantizer only reads files, so the helper saves https:// and data: covers first. It exists only while
+    // there is a file: an empty source makes it try to open "".
+    property string artFile: ""
+    property int artRequest: 0
+    onArtUrlChanged: resolveArt()
+    function resolveArt() {
+        const url = root.artUrl;
+        const request = ++artRequest;
+        if (/^file:\/\//i.test(url)) {
+            artFile = url;
+        } else if (/^(https?:|data:image\/)/i.test(url) && Backend.ready) {
+            Backend.request("media.art", {url: url}, (result, error) => {
+                if (request === root.artRequest)
+                    root.artFile = error ? "" : "file://" + result.path.split("/").map(encodeURIComponent).join("/");
+            });
+        } else {
+            artFile = "";
+        }
+    }
+    property Connections helper: Connections {
+        target: Backend
+        function onReadyChanged() {
+            if (Backend.ready)
+                root.resolveArt();
+        }
+    }
+    LazyLoader {
         id: quantizer
-        source: root.artUrl
-        depth: 3
-        rescaleSize: 64
+        active: root.artFile !== ""
+        ColorQuantizer {
+            source: root.artFile
+            depth: 3
+            rescaleSize: 64
+        }
     }
     readonly property var artColors: {
-        const pair = root.artUrl !== "" ? Palette.vividPair(quantizer.colors) : null;
+        const pair = root.artUrl !== "" && quantizer.item ? Palette.vividPair(quantizer.item.colors) : null;
         if (!pair)
             return [Theme.accent, Theme.accentHover];
         if (pair.grey)

@@ -22,6 +22,7 @@ import wallpaper
 import wallhaven
 import wallpaperscom
 import activity
+import art
 from runtime import runtime_base
 import clipboard_watch
 import equalizer
@@ -104,7 +105,8 @@ def accent_luminance(value):
     linear = [channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4 for channel in channels]
     return sum(weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear))
 
-REQUEST_LIMIT = 1024 * 1024
+# Room for album art sent inline as a data: URL (media.art caps the decoded image at 5 MB).
+REQUEST_LIMIT = 8 * 1024 * 1024
 
 async def read_request(reader, limit=REQUEST_LIMIT):
     """The next request line, b"" at the end of input, or (None, id) for a line over the limit.
@@ -901,6 +903,16 @@ class Backend:
                 return {"results": await asyncio.to_thread(weather.search, p.get("query", ""))}
             except Exception as exc:
                 raise BackendError("weather", weather.message(exc)) from None
+        if method == "media.art":
+            url = p.get("url")
+            if type(url) is not str or not url:
+                raise BackendError("invalid", "url must be a non-empty string.")
+            try:
+                return {"path": await asyncio.to_thread(art.local, url, CACHE / "art")}
+            except ValueError as exc:
+                raise BackendError("unavailable", str(exc)) from None
+            except OSError:
+                raise BackendError("failed", "The cover could not be downloaded.") from None
         if method == "weather.get":
             # The caller passes its location and units: settings are saved with a short delay.
             async with self.weather_lock:

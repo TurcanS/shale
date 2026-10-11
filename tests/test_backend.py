@@ -71,6 +71,17 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         self.daemon.stop()
         self.tmp.cleanup()
 
+    async def test_media_art_returns_a_local_cover(self):
+        with patch.object(b.art, "_fetch", return_value=b"\x89PNG cover"):
+            result = await self.backend.dispatch("media.art", {"url": "https://example.com/cover"})
+        self.assertTrue(result["path"].startswith(str(self.path / "cache/art/")))
+        with self.assertRaises(b.BackendError) as caught:
+            await self.backend.dispatch("media.art", {"url": "ftp://example.com/cover"})
+        self.assertEqual(caught.exception.code, "unavailable")
+        with self.assertRaises(b.BackendError) as caught:
+            await self.backend.dispatch("media.art", {"url": 5})
+        self.assertEqual(caught.exception.code, "invalid")
+
     async def test_grayscale_lua_toggle_and_restore(self):
         shader = str(ROOT / "assets/grayscale.frag")
         previous = '/tmp/custom "shader".frag'
