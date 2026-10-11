@@ -90,6 +90,22 @@ class ArtTests(unittest.TestCase):
         bypassed = art._opener("https://i.scdn.co/a", {"https": "http://127.0.0.1:3128"}, bypass=lambda host: True)
         self.assertIn("_PublicHTTPS", handlers(bypassed))
 
+    def test_a_proxied_fetch_never_redirects_past_the_proxy(self):
+        proxies = {"https": "http://127.0.0.1:3128"}
+        opener = art._opener("https://i.scdn.co/a", proxies, bypass=lambda host: host == "localhost")
+        redirects = next(h for h in opener.handlers if isinstance(h, art._CheckedRedirects))
+        request = art.Request("https://i.scdn.co/a")
+        resolve = lambda host, port, proto=0: [(0, 0, 0, "", ("151.101.2.248", port))]
+        original = art.public
+        art.public = lambda url, resolve_=None: original(url, resolve)
+        try:
+            for target in ("http://i.scdn.co/b", "https://localhost/b"):
+                with self.subTest(target=target), self.assertRaisesRegex(ValueError, "past the proxy"):
+                    redirects.redirect_request(request, None, 302, "Found", {}, target)
+            self.assertIsNotNone(redirects.redirect_request(request, None, 302, "Found", {}, "https://other.example/b"))
+        finally:
+            art.public = original
+
     def test_a_cover_pruned_meanwhile_is_fetched_again(self):
         path = Path(art.local("https://example.com/a", self.folder, self.fetch))
         path.unlink()

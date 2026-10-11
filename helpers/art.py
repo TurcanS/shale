@@ -70,14 +70,25 @@ class _CheckedRedirects(HTTPRedirectHandler):
         return super().redirect_request(request, fp, code, message, headers, url)
 
 
+def _proxied(url, proxies, bypass):
+    parts = urlsplit(url)
+    return bool(proxies.get(parts.scheme)) and not bypass(parts.hostname or '')
+
+
 def _opener(url, proxies=None, bypass=proxy_bypass):
     """Direct connections are checked on the socket. Through a configured proxy the socket reaches the proxy (often
-    on this machine), so the name check is all there is: the proxy makes the real connection."""
+    on this machine), so the name check is all there is: the proxy makes the real connection. A redirect must then
+    stay on the proxy too, or it would connect directly with only the name check."""
     proxies = getproxies() if proxies is None else proxies
-    parts = urlsplit(url)
-    if proxies.get(parts.scheme) and not bypass(parts.hostname or ''):
-        return build_opener(ProxyHandler(proxies), _CheckedRedirects)
-    return build_opener(ProxyHandler({}), _PublicHTTP, _PublicHTTPS, _CheckedRedirects)
+    if not _proxied(url, proxies, bypass):
+        return build_opener(ProxyHandler({}), _PublicHTTP, _PublicHTTPS, _CheckedRedirects)
+
+    class StayOnProxy(_CheckedRedirects):
+        def redirect_request(self, request, fp, code, message, headers, target):
+            if not _proxied(target, proxies, bypass):
+                raise ValueError('The cover redirects past the proxy.')
+            return super().redirect_request(request, fp, code, message, headers, target)
+    return build_opener(ProxyHandler(proxies), StayOnProxy)
 
 
 def _fetch(url):
