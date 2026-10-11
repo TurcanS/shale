@@ -62,7 +62,7 @@ Rectangle {
     }
     onVisibleChanged: if (visible) now = Date.now()
     width: 380
-    implicitHeight: body.implicitHeight + 28
+    implicitHeight: Math.max(body.implicitHeight, thumbnail.visible ? thumbnail.y - body.y + thumbnail.height : 0) + 28
     color: (cardArea.containsMouse || activeFocus) && root.clickable ? (root.popup ? Theme.hover : Theme.raised) : root.popup ? Theme.raised : Theme.surface
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     radius: Theme.controlRadius
@@ -94,6 +94,21 @@ Rectangle {
     }
     HoverHandler {
         onHoveredChanged: if (root.popup) Services.pausePopup(root.notification.id, hovered)
+    }
+    // Avatars and icons sent as the image sit beside the text, at no more than their own size. Kept out of the
+    // layout: the labels only reserve its width.
+    Image {
+        id: thumbnail
+        visible: picture.small
+        source: visible ? picture.source : ""
+        sourceSize: picture.sourceSize
+        x: body.x + body.width - width
+        y: body.y + (summary.visible ? summary.y : notificationBody.y)
+        width: Math.min(56, picture.nativeSize.width)
+        height: Math.min(56, picture.nativeSize.height)
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+        mipmap: true
     }
     ColumnLayout {
         id: body
@@ -150,11 +165,13 @@ Rectangle {
             }
         }
         C.Label {
+            id: summary
             visible: !root.grouped
             text: root.notification.summary
             font.weight: Font.DemiBold
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+            Layout.rightMargin: thumbnail.visible ? thumbnail.width + 12 : 0
             maximumLineCount: root.expanded ? 1000 : 3
         }
         C.Label {
@@ -164,6 +181,7 @@ Rectangle {
             color: Theme.muted
             wrapMode: Text.Wrap
             Layout.fillWidth: true
+            Layout.rightMargin: thumbnail.visible ? thumbnail.width + 12 : 0
             maximumLineCount: root.expanded ? 1000 : root.popup ? 4 : 5
         }
         C.Button {
@@ -174,14 +192,35 @@ Rectangle {
             Layout.alignment: Qt.AlignLeft
             onClicked: root.expanded = !root.expanded
         }
+        // Shown at its own size or smaller, never stretched. Images arrive three ways:
+        // - image-data: Quickshell's provider always hands over the native image.
+        // - image-path: Quickshell's icon provider draws the file at the size asked for (100×100 when none is, the
+        //   old blur), but never larger than the file, so asking for 700×700 gives the file's own size up to that.
+        // - file: URLs: a sourceSize would scale a small image up, so these load natively first and only images
+        //   wider than 700 px load again smaller.
         Image {
-            visible: !!root.notification.image && status === Image.Ready
+            id: picture
+            property size nativeSize: Qt.size(0, 0)
+            // image://icon//abs/path.png for an image-path that is a file, image://icon/name for an icon name.
+            readonly property string kind: !source.toString().startsWith("image://icon/") ? "image"
+                : source.toString().startsWith("image://icon//") || source.toString().indexOf("?path=") >= 0 ? "path" : "icon"
+            readonly property bool ready: !!root.notification.image && status === Image.Ready && nativeSize.width > 0
+            readonly property bool small: ready && (kind === "icon" || Math.max(nativeSize.width, nativeSize.height) <= 128)
+            visible: ready && !small
             source: root.notification.image || ""
+            onSourceChanged: nativeSize = Qt.size(0, 0)
+            onStatusChanged: if (status === Image.Ready && nativeSize.width === 0) nativeSize = Qt.size(implicitWidth, implicitHeight)
+            sourceSize: kind === "path" ? Qt.size(700, 700) : kind === "icon" ? Qt.size(112, 112)
+                : nativeSize.width > 700 ? Qt.size(700, Math.round(700 * nativeSize.height / nativeSize.width)) : undefined
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? 110 : 0
+            // Wide images get no taller than they draw at a card's usual text width. Not this item's own width: that
+            // shifts with the list's scroll bar, and the height would feed back into it (a polish loop).
+            Layout.preferredHeight: visible ? Math.min(160, implicitHeight, 350 * implicitHeight / Math.max(1, implicitWidth)) : 0
             fillMode: Image.PreserveAspectFit
+            horizontalAlignment: Image.AlignLeft
             asynchronous: true
-            sourceSize.width: 700
+            smooth: true
+            mipmap: true
         }
         Flow {
             // The default action belongs to the card itself, not a button.
