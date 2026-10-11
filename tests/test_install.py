@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1074,6 +1075,26 @@ class MainTests(unittest.TestCase):
         self.assertNotIn('Checking this machine', result.stdout)
         self.assertIn('Uninstalling Shale', result.stdout)
         self.assertIn('nothing to remove', result.stdout)
+
+
+class ServiceUnitTests(unittest.TestCase):
+    def condition(self, environment):
+        """Run the unit's ExecCondition the way systemd would ($$ is a literal $)."""
+        line = next(l for l in (installer.ROOT / 'integration/shale.service').read_text().splitlines() if l.startswith('ExecCondition='))
+        script = line.split(' -c ', 1)[1][1:-1].replace('$$', '$')
+        return subprocess.run(['/bin/sh', '-c', script], env=environment).returncode
+
+    def test_start_is_skipped_once_the_compositor_is_gone(self):
+        with tempfile.TemporaryDirectory() as runtime:
+            server = socket.socket(socket.AF_UNIX)
+            server.bind(os.path.join(runtime, 'wayland-1'))
+            try:
+                self.assertEqual(self.condition({'XDG_RUNTIME_DIR': runtime, 'WAYLAND_DISPLAY': 'wayland-1'}), 0)
+                self.assertEqual(self.condition({'WAYLAND_DISPLAY': os.path.join(runtime, 'wayland-1')}), 0)
+                self.assertEqual(self.condition({'XDG_RUNTIME_DIR': runtime, 'WAYLAND_DISPLAY': 'wayland-2'}), 1)
+                self.assertEqual(self.condition({'XDG_RUNTIME_DIR': runtime}), 1)
+            finally:
+                server.close()
 
 
 if __name__ == '__main__':

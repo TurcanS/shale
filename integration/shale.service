@@ -7,6 +7,8 @@ StartLimitBurst=4
 
 [Service]
 Type=simple
+# Once Hyprland has exited (logout) there is nothing to draw on: skip the start instead of crash-looping.
+ExecCondition=/bin/sh -c 'case "$${WAYLAND_DISPLAY:-}" in "") exit 1 ;; /*) socket="$$WAYLAND_DISPLAY" ;; *) socket="$${XDG_RUNTIME_DIR:-/run/user/$$(id -u)}/$$WAYLAND_DISPLAY" ;; esac; test -S "$$socket"'
 ExecStart=quickshell --path %h/.config/quickshell/shale --no-duplicate
 Restart=on-failure
 RestartSec=3
