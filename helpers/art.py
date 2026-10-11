@@ -3,19 +3,42 @@ https:// covers (Spotify) or whole images in data: URLs (browsers)."""
 import base64
 import binascii
 import hashlib
+import ipaddress
 import os
 from pathlib import Path
+import socket
 import tempfile
 from urllib.parse import unquote, unquote_to_bytes, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_BYTES = 5 * 1024 * 1024
 KEEP = 20
 
 
+def public(url, resolve=socket.getaddrinfo):
+    """Refuse covers on this machine or the local network: any app can name a cover, and the helper should
+    not become a way to poke at local services."""
+    parts = urlsplit(url)
+    if parts.scheme not in ('http', 'https') or not parts.hostname:
+        raise ValueError('Unsupported cover address.')
+    try:
+        addresses = {info[4][0] for info in resolve(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)}
+    except (OSError, UnicodeError):
+        raise ValueError('The cover address could not be resolved.') from None
+    if not addresses or not all(ipaddress.ip_address(address.split('%')[0]).is_global for address in addresses):
+        raise ValueError('Covers are only fetched from public addresses.')
+
+
+class _CheckedRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, url):
+        public(url)
+        return super().redirect_request(request, fp, code, message, headers, url)
+
+
 def _fetch(url):
+    public(url)
     request = Request(url, headers={'User-Agent': 'ShaleShell/1.0', 'Accept': 'image/*', 'Accept-Encoding': 'identity'})
-    with urlopen(request, timeout=5) as response:
+    with build_opener(_CheckedRedirects).open(request, timeout=5) as response:
         if not response.headers.get_content_type().startswith('image/'):
             raise ValueError('The cover is not an image.')
         return response.read(MAX_BYTES + 1)

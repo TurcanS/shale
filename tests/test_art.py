@@ -55,6 +55,17 @@ class ArtTests(unittest.TestCase):
             art.local("https://example.com/huge", self.folder, lambda url: b"x" * (art.MAX_BYTES + 1))
         self.assertFalse(self.folder.exists() and any(self.folder.iterdir()))
 
+    def test_only_public_addresses_are_fetched(self):
+        resolver = lambda addresses: lambda host, port, proto=0: [(0, 0, 0, "", (address, port)) for address in addresses]
+        art.public("https://i.scdn.co/image/abc", resolver(["151.101.2.248"]))
+        for url, addresses in (("http://localhost:631/", ["127.0.0.1"]), ("http://router/", ["192.168.1.1"]),
+                               ("http://[::1]/cover", ["::1"]), ("http://metadata/", ["169.254.169.254"]),
+                               ("https://mixed.example/", ["151.101.2.248", "10.0.0.5"])):
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "public addresses"):
+                art.public(url, resolver(addresses))
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            art.public("file:///etc/passwd")
+
     def test_only_the_newest_covers_are_kept(self):
         paths = []
         for index in range(5):
