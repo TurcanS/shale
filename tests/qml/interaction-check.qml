@@ -179,6 +179,8 @@ ShellRoot {
         check(page.appDetail === "zen", "Down and Enter open the next app");
         ShellState.setSetting("activityTracking", "ask");
     }
+    property var systemKeys: null
+    property int systemSamples: 0
     function checkSystem(page) {
         check(page.resources.length >= 2 && page.resources[0].key === "cpu" && page.resources[1].key === "memory", "System lists CPU and memory first");
         check(page.sample.cpu.usage >= 0 && page.sample.cpu.usage <= 100 && page.sample.memory.used > 0, "System samples real usage");
@@ -470,6 +472,15 @@ ShellRoot {
                     return;
                 test.busy = true;
                 test.checkSystem(page);
+                test.systemKeys = page.resourceKeys;
+                test.systemSamples = page.history.cpu.length;
+                test.busy = false;
+                test.step++;
+                break;
+            case 11:
+                if (page.history.cpu.length <= test.systemSamples && page.history.cpu.length < page.capacity)
+                    return;
+                test.check(page.resourceKeys === test.systemKeys, "A new sample keeps the resource rows instead of rebuilding them");
                 console.log("INTERACTION CHECK COMPLETE", test.failures);
                 Qt.quit();
                 break;

@@ -191,7 +191,7 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_sleeping_nvidia_gpu_is_never_queried(self):
         self.gpu("card0", "0x10de", "0x25a5", "0000:01:00.0", "suspended")
         self.link("sys/class/drm/card0-eDP-1/device", "sys/devices/pci0000:00/other")
-        gpus = (await self.sampler().sample())["gpus"]
+        gpus = (await self.sampler().sample(nvidia=True))["gpus"]
         self.assertEqual(self.calls, [])
         self.assertEqual(gpus, [{"id": "card0", "vendor": "nvidia", "name": "NVIDIA GeForce RTX 3050 Mobile", "state": "asleep", "usage": None,
                                  "memoryUsed": None, "memoryTotal": None, "temperature": None, "frequency": None, "frequencyMax": None}])
@@ -199,16 +199,49 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_active_nvidia_gpu_is_queried_at_most_every_two_seconds(self):
         self.gpu("card0", "0x10de", "0x25a5", "0000:01:00.0", "active")
         sampler = self.sampler()
-        gpu = (await sampler.sample())["gpus"][0]
+        self.assertIsNone((await sampler.sample())["gpus"][0]["usage"])
+        self.assertEqual(self.calls, [], "only queried when the panel asks")
+        gpu = (await sampler.sample(nvidia=True))["gpus"][0]
         self.assertEqual((gpu["name"], gpu["usage"], gpu["memoryUsed"], gpu["memoryTotal"], gpu["temperature"]),
                          ("NVIDIA GeForce RTX 3050 Laptop GPU", 37.0, 512 * 1048576, 4096 * 1048576, 55.0))
         self.clock.now += 1
-        await sampler.sample()
+        await sampler.sample(nvidia=True)
         self.assertEqual(len(self.calls), 1)
         self.clock.now += 1.5
-        await sampler.sample()
+        await sampler.sample(nvidia=True)
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.calls[0][0], "nvidia-smi")
+
+    async def test_a_sleeping_amd_gpu_and_its_sensors_are_not_read(self):
+        amd = self.gpu("card0", "0x1002", "0x73bf", "0000:03:00.0", "suspended")
+        self.write(f"{amd.relative_to(self.root)}/gpu_busy_percent", "12")
+        self.write("sys/class/hwmon/hwmon9/name", "amdgpu")
+        self.write("sys/class/hwmon/hwmon9/temp1_input", "48000")
+        self.link("sys/class/hwmon/hwmon9/device", "sys/devices/pci0000:00/0000:03:00.0")
+        gpu = (await self.sampler().sample())["gpus"][0]
+        self.assertEqual((gpu["state"], gpu["usage"], gpu["temperature"]), ("asleep", None, None))
+
+    async def test_a_suspended_nvidia_gpu_is_not_queried_even_when_asked(self):
+        device = self.gpu("card0", "0x10de", "0x25a5", "0000:01:00.0", "active")
+        sampler = self.sampler()
+        original = sampler.collect
+        def suspend_after_collect(now):
+            result = original(now)
+            (device / "power/runtime_status").write_text("suspended\n")
+            return result
+        sampler.collect = suspend_after_collect
+        await sampler.sample(nvidia=True)
+        self.assertEqual(self.calls, [])
+
+    async def test_rates_start_over_after_a_pause(self):
+        sampler = self.sampler()
+        await sampler.sample()
+        self.stat(cpu=(1100, 0, 100, 800, 0), cores=[(50, 0, 50, 400, 0)] * 2 + [(0, 0, 0, 0, 0)] * 9)
+        self.clock.now += 600
+        self.assertEqual((await sampler.sample())["cpu"]["usage"], 0.0)
+        self.stat(cpu=(1200, 0, 100, 900, 0), cores=[(50, 0, 50, 400, 0)] * 2 + [(0, 0, 0, 0, 0)] * 9)
+        self.clock.now += 1
+        self.assertEqual((await sampler.sample())["cpu"]["usage"], 50.0)
 
     async def test_amd_and_intel_gpus_read_sysfs(self):
         amd = self.gpu("card0", "0x1002", "0x73bf", "0000:03:00.0")

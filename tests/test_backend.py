@@ -87,7 +87,7 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         second = await self.backend.dispatch("system.sample", {})
         self.assertEqual(set(first), {"time", "uptime", "cpu", "memory", "disks", "network", "gpus", "fans"})
         self.assertGreaterEqual(second["time"], first["time"])
-        self.assertTrue(all("bus" not in gpu for gpu in second["gpus"]))
+        self.assertTrue(all("bus" not in gpu and "device" not in gpu for gpu in second["gpus"]))
 
     async def test_grayscale_lua_toggle_and_restore(self):
         shader = str(ROOT / "assets/grayscale.frag")

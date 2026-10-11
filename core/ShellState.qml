@@ -221,7 +221,6 @@ QtObject {
     }
     // Every app the shell starts gets its own scope in app.slice, so restarting or crashing the shell never takes
     // it down, and its output goes to the journal under its own name instead of `shale logs`.
-    property int launches: 0
     function launch(command, workingDirectory, appId) {
         if (!command || !command.length)
             return;
@@ -229,7 +228,8 @@ QtObject {
         // systemd unit name escaping: every byte outside [A-Za-z0-9_.] becomes \xNN.
         const escaped = encodeURIComponent(id).replace(/%([0-9A-F]{2})|[^A-Za-z0-9_.]/g,
             (match, hex) => "\\x" + (hex ? hex.toLowerCase() : match.charCodeAt(0).toString(16).padStart(2, "0")));
-        const unit = "app-shale-" + escaped + "-" + (++launches).toString(16) + Math.floor(Math.random() * 0x100000).toString(16);
+        // Unique across shell restarts too: a clash would make systemd-run refuse, and the app would silently not start.
+        const unit = "app-shale-" + escaped + "-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 0x7fffffff).toString(36);
         Quickshell.execDetached({
             command: ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=app.slice", "--unit=" + unit, "--",
                       "systemd-cat", "--identifier=" + id, "--"].concat(command),

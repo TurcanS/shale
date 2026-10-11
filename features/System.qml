@@ -30,7 +30,9 @@ FocusScope {
             return;
         waiting = true;
         const request = ++generation;
-        Backend.request("system.sample", {}, (result, failure) => {
+        // nvidia-smi keeps an NVIDIA card awake, so its usage is only asked for while that card is on screen.
+        const nvidia = !!current && current.kind === "gpu" && current.item.vendor === "nvidia";
+        Backend.request("system.sample", {nvidia: nvidia}, (result, failure) => {
             if (!alive || request !== generation)
                 return;
             waiting = false;
@@ -137,11 +139,28 @@ FocusScope {
                        value: "", series: ["net-rx:" + link.name, "net-tx:" + link.name], color: Theme.activityApps[3], model: link.name, scaled: true}));
         s.gpus.forEach((gpu, index) => list.push({key: "gpu:" + gpu.id, kind: "gpu", item: gpu, title: "GPU " + index, subtitle: gpu.name,
                        value: gpu.state === "asleep" ? "Asleep" : gpu.usage !== null && gpu.usage !== undefined ? percent(gpu.usage)
-                            : gpu.frequency !== null && gpu.frequency !== undefined ? (gpu.frequency > 0 ? Math.round(gpu.frequency) + " MHz" : "Idle") : "",
+                            : gpu.frequency !== null && gpu.frequency !== undefined ? (gpu.frequency > 0 ? Math.round(gpu.frequency) + " MHz" : "Idle") : "Awake",
                        series: ["gpu:" + gpu.id], color: Theme.activityApps[1], model: gpu.name}));
         return list;
     }
     readonly property var current: resources.find(resource => resource.key === selected) || resources[0] || null
+    // Rows and stat cards are keyed by name and read their values from these, so a new sample updates them in place
+    // instead of rebuilding every delegate each second (which reset scrolling, hover and animations).
+    property var resourceKeys: []
+    property var statLabels: []
+    readonly property var resourceMap: {
+        const map = {};
+        for (const resource of resources)
+            map[resource.key] = resource;
+        return map;
+    }
+    readonly property var blank: ({key: "", title: "", subtitle: "", value: "", series: [""], color: Theme.accent, scaled: false})
+    onResourcesChanged: keep("resourceKeys", resources.map(resource => resource.key))
+    onStatsChanged: keep("statLabels", stats.map(stat => stat.label))
+    function keep(name, list) {
+        if (list.join("\n") !== root[name].join("\n"))
+            root[name] = list;
+    }
     readonly property int currentIndex: current ? resources.indexOf(current) : -1
 
     readonly property var stats: {
@@ -185,7 +204,8 @@ FocusScope {
             list.push({label: "Memory", value: bytes(gpu.memoryUsed), note: "of " + bytes(gpu.memoryTotal)});
         if (gpu.temperature !== null && gpu.temperature !== undefined)
             list.push({label: "Temperature", value: temperature(gpu.temperature)});
-        return list;
+        // An NVIDIA card's figures arrive with the next sample after it is selected.
+        return list.length ? list : [{label: "State", value: "Awake"}];
     }
     readonly property string graphCaption: !current ? "" : current.kind === "cpu" ? "Utilization" : current.kind === "memory" ? "Memory in use"
         : current.kind === "disk" ? "Active time" : current.kind === "network" ? "Throughput"
@@ -272,6 +292,14 @@ FocusScope {
             title: root.error !== "" ? "System data is unavailable" : root.sample ? "Nothing to show" : !Backend.ready ? "Waiting for the desktop helper" : "Reading the system…"
             description: root.error !== "" ? root.error : root.sample ? "This system doesn't report processor, memory, disk or network use." : ""
         }
+        C.Label {
+            visible: root.error !== "" && root.resources.length > 0
+            text: "Not updating: " + root.error
+            color: Theme.warning
+            font.pixelSize: Theme.small
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
         RowLayout {
             visible: root.resources.length > 0
             Layout.fillWidth: true
@@ -284,28 +312,29 @@ FocusScope {
                 clip: true
                 spacing: 4
                 boundsBehavior: Flickable.StopAtBounds
-                model: root.resources
+                model: root.resourceKeys
                 currentIndex: root.currentIndex
                 Accessible.role: Accessible.List
                 Accessible.name: "Resources"
                 delegate: Rectangle {
                     id: row
-                    required property var modelData
+                    required property string modelData
                     required property int index
-                    readonly property bool current: root.current && root.current.key === modelData.key
+                    readonly property var resource: root.resourceMap[modelData] || root.blank
+                    readonly property bool current: !!root.current && root.current.key === modelData
                     width: list.width
                     height: 58
                     radius: Theme.controlRadius
                     color: current ? Theme.selection : rowArea.containsMouse ? Theme.hover : "transparent"
                     Accessible.role: Accessible.ListItem
-                    Accessible.name: modelData.title + ", " + (modelData.value || modelData.subtitle)
+                    Accessible.name: resource.title + ", " + (resource.value || resource.subtitle)
                     Accessible.selected: current
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                     MouseArea {
                         id: rowArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        onClicked: root.selected = row.modelData.key
+                        onClicked: root.selected = row.modelData
                     }
                     RowLayout {
                         anchors.fill: parent
@@ -321,11 +350,11 @@ FocusScope {
                             C.Sparkline {
                                 anchors.fill: parent
                                 anchors.margins: 1
-                                values: root.history[row.modelData.series[0]] || []
-                                secondary: row.modelData.series.length > 1 ? root.history[row.modelData.series[1]] || [] : []
-                                maximum: row.modelData.scaled ? root.scaleFor(row.modelData.series) : 100
+                                values: root.history[row.resource.series[0]] || []
+                                secondary: row.resource.series.length > 1 ? root.history[row.resource.series[1]] || [] : []
+                                maximum: row.resource.scaled ? root.scaleFor(row.resource.series) : 100
                                 capacity: root.capacity
-                                color: row.modelData.color
+                                color: row.resource.color
                                 lineWidth: 1.2
                             }
                         }
@@ -334,10 +363,10 @@ FocusScope {
                             Layout.fillWidth: true
                             RowLayout {
                                 Layout.fillWidth: true
-                                C.Label { text: row.modelData.title; font.weight: Font.DemiBold; Layout.fillWidth: true }
-                                C.Label { text: row.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small; color: Theme.muted }
+                                C.Label { text: row.resource.title; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                                C.Label { text: row.resource.value; font.family: Theme.mono; font.pixelSize: Theme.small; color: Theme.muted }
                             }
-                            Caption { text: row.modelData.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Caption { text: row.resource.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                     }
                 }
@@ -427,12 +456,13 @@ FocusScope {
                     columnSpacing: 8
                     rowSpacing: 8
                     Repeater {
-                        model: root.stats
+                        model: root.statLabels
                         Stat {
-                            required property var modelData
-                            label: modelData.label
-                            value: modelData.value
-                            note: modelData.note || ""
+                            required property string modelData
+                            required property int index
+                            label: modelData
+                            value: root.stats[index] ? root.stats[index].value : ""
+                            note: root.stats[index] ? root.stats[index].note || "" : ""
                         }
                     }
                 }
@@ -448,9 +478,12 @@ FocusScope {
                         Layout.maximumHeight: 36
                         spacing: 3
                         Repeater {
-                            model: root.sample ? root.sample.cpu.cores : []
+                            // A count, so the bars stay and animate from one sample to the next.
+                            model: root.sample ? root.sample.cpu.cores.length : 0
                             Rectangle {
-                                required property real modelData
+                                id: core
+                                required property int index
+                                readonly property real load: root.sample && root.sample.cpu.cores[index] !== undefined ? root.sample.cpu.cores[index] : 0
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 radius: 3
@@ -458,7 +491,7 @@ FocusScope {
                                 Rectangle {
                                     anchors.bottom: parent.bottom
                                     width: parent.width
-                                    height: Math.max(2, parent.height * modelData / 100)
+                                    height: Math.max(2, parent.height * core.load / 100)
                                     radius: 3
                                     color: Theme.accent
                                     opacity: 0.85
@@ -499,24 +532,26 @@ FocusScope {
                     spacing: 8
                     Caption { text: "Space" }
                     Repeater {
-                        model: root.current && root.current.kind === "disk" ? root.current.item.mounts : []
+                        model: root.current && root.current.kind === "disk" ? root.current.item.mounts.length : 0
                         ColumnLayout {
-                            required property var modelData
+                            required property int index
+                            readonly property var mount: root.current && root.current.kind === "disk" && root.current.item.mounts[index]
+                                || ({path: "", used: 0, total: 1})
                             Layout.fillWidth: true
                             spacing: 4
                             RowLayout {
                                 Layout.fillWidth: true
-                                C.Label { text: modelData.path; font.family: Theme.mono; font.pixelSize: Theme.small; Layout.fillWidth: true; elide: Text.ElideMiddle }
+                                C.Label { text: mount.path; font.family: Theme.mono; font.pixelSize: Theme.small; Layout.fillWidth: true; elide: Text.ElideMiddle }
                                 C.Label {
-                                    text: root.bytes(modelData.used) + " of " + root.bytes(modelData.total)
+                                    text: root.bytes(mount.used) + " of " + root.bytes(mount.total)
                                     font.pixelSize: Theme.small
-                                    color: modelData.used / modelData.total > 0.9 ? Theme.warning : Theme.muted
+                                    color: mount.used / mount.total > 0.9 ? Theme.warning : Theme.muted
                                 }
                             }
                             Meter {
                                 Layout.fillWidth: true
-                                fraction: modelData.used / modelData.total
-                                color: modelData.used / modelData.total > 0.9 ? Theme.warning : Theme.activityApps[4]
+                                fraction: mount.used / mount.total
+                                color: mount.used / mount.total > 0.9 ? Theme.warning : Theme.activityApps[4]
                             }
                         }
                     }

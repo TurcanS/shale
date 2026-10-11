@@ -81,6 +81,21 @@ class ArtTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_a_configured_proxy_is_used_instead_of_refused(self):
+        handlers = lambda opener: {type(handler).__name__ for handler in opener.handlers}
+        proxied = art._opener("https://i.scdn.co/a", {"https": "http://127.0.0.1:3128"}, bypass=lambda host: False)
+        self.assertNotIn("_PublicHTTPS", handlers(proxied))
+        direct = art._opener("https://i.scdn.co/a", {}, bypass=lambda host: False)
+        self.assertIn("_PublicHTTPS", handlers(direct))
+        bypassed = art._opener("https://i.scdn.co/a", {"https": "http://127.0.0.1:3128"}, bypass=lambda host: True)
+        self.assertIn("_PublicHTTPS", handlers(bypassed))
+
+    def test_a_cover_pruned_meanwhile_is_fetched_again(self):
+        path = Path(art.local("https://example.com/a", self.folder, self.fetch))
+        path.unlink()
+        self.assertEqual(art.local("https://example.com/a", self.folder, self.fetch), str(path))
+        self.assertEqual(len(self.fetched), 2)
+
     def test_only_the_newest_covers_are_kept(self):
         paths = []
         for index in range(5):

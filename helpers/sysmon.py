@@ -1,6 +1,7 @@
 """System monitor samples from /proc and /sys: CPU, memory, disks, network, GPUs, temperatures and fans.
 
-The sampler keeps the previous counters, so each sample reports rates since the last one (zero the first time).
+The sampler keeps the previous counters, so each sample reports rates since the last one (zero the first time, and
+after a pause such as the panel being closed). Nothing here wakes a device that is runtime-suspended.
 Everything is read from the paths it is given, so tests run it against a fake tree."""
 import asyncio
 import os
@@ -64,30 +65,36 @@ def gpu_name(vendor_id, device_id, pci_ids):
 
 class Sampler:
     def __init__(self, proc=Path("/proc"), sys=Path("/sys"), run=None, clock=time.monotonic, statvfs=os.statvfs,
-                 pci_ids=Path("/usr/share/hwdata/pci.ids"), nvidia_interval=2.0, sensor_interval=3.0):
+                 pci_ids=Path("/usr/share/hwdata/pci.ids"), nvidia_interval=2.0, sensor_interval=3.0, max_gap=5.0):
         self.proc, self.sys, self.run, self.clock, self.statvfs = Path(proc), Path(sys), run, clock, statvfs
-        self.pci_ids, self.nvidia_interval, self.sensor_interval = pci_ids, nvidia_interval, sensor_interval
+        self.pci_ids, self.nvidia_interval, self.sensor_interval, self.max_gap = pci_ids, nvidia_interval, sensor_interval, max_gap
         self.previous = None
         self.names = {}
         self.nvidia = (None, {})
         self.cached_sensors = (None, None)
         self.lock = asyncio.Lock()
 
-    async def sample(self):
+    async def sample(self, nvidia=False):
+        """One sample. `nvidia` asks nvidia-smi for usage too: every query resets the card's idle timer, so the
+        panel only asks while that GPU is the one on screen."""
         async with self.lock:
             now = self.clock()
             # Plain file reads, but an NVMe temperature takes a drive command (~25 ms): off the event loop.
             result = await asyncio.to_thread(self.collect, now)
             for gpu in result["gpus"]:
-                if gpu["vendor"] == "nvidia" and gpu["state"] == "active":
-                    # Never wakes a sleeping GPU: nvidia-smi only runs while the card is already powered.
-                    gpu.update((await self.nvidia_values(now)).get(gpu.pop("bus"), {}))
-                gpu.pop("bus", None)
+                bus, device = gpu.pop("bus"), gpu.pop("device")
+                # Checked again right before the query: nvidia-smi would wake a card that has just gone to sleep.
+                if nvidia and gpu["vendor"] == "nvidia" and gpu["state"] == "active" \
+                        and read(Path(device) / "power/runtime_status", "active") != "suspended":
+                    gpu.update((await self.nvidia_values(now)).get(bus, {}))
             return result
 
     def collect(self, now):
         counters = {"cpu": self.cpu_times(), "disks": self.disk_counters(), "network": self.net_counters()}
         previous, elapsed = self.previous, 0.0
+        # After a pause the counters span the whole gap; start over instead of reporting its average.
+        if previous and now - previous[0] > self.max_gap:
+            previous = None
         if previous:
             elapsed = max(0.0, now - previous[0])
         self.previous = (now, counters)
@@ -259,6 +266,9 @@ class Sampler:
     def sensors(self):
         cpu, devices, fans = None, {}, {}
         for hwmon in sorted((self.sys / "class/hwmon").glob("hwmon*")):
+            # Reading a sleeping device's sensors (a laptop dGPU) would wake it.
+            if read(hwmon / "device/power/runtime_status") == "suspended":
+                continue
             name = read(hwmon / "name")
             temperatures = []
             for path in sorted(hwmon.glob("temp*_input")):
@@ -303,7 +313,11 @@ class Sampler:
             status = read(device / "power/runtime_status", "active")
             gpu = {"id": card.name, "vendor": vendor, "name": self.names[key], "state": "asleep" if status == "suspended" else "active",
                    "usage": None, "memoryUsed": None, "memoryTotal": None, "temperature": sensors["devices"].get(os.path.realpath(device)),
-                   "frequency": None, "frequencyMax": None, "bus": os.path.basename(os.path.realpath(device)).lower()}
+                   "frequency": None, "frequencyMax": None, "bus": os.path.basename(os.path.realpath(device)).lower(), "device": str(device)}
+            # A sleeping card is left alone: even reading its sysfs counters can wake it.
+            if gpu["state"] == "asleep":
+                gpus.append(gpu)
+                continue
             if vendor == "amd":
                 gpu.update(usage=number(device / "gpu_busy_percent"), memoryUsed=number(device / "mem_info_vram_used"),
                            memoryTotal=number(device / "mem_info_vram_total"))

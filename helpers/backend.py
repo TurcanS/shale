@@ -1216,7 +1216,7 @@ class Backend:
             await run("wl-copy", data=value.encode())
             return {"color": value}
         if method == "system.sample":
-            return await self.sysmon.sample()
+            return await self.sysmon.sample(nvidia=p.get("nvidia") is True)
         if method == "system.stats":
             mem = {}
             for line in Path("/proc/meminfo").read_text().splitlines():

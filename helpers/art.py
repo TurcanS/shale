@@ -10,7 +10,8 @@ from pathlib import Path
 import socket
 import tempfile
 from urllib.parse import unquote, unquote_to_bytes, urlsplit
-from urllib.request import HTTPHandler, HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.request import (HTTPHandler, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener, getproxies,
+                            proxy_bypass)
 
 MAX_BYTES = 5 * 1024 * 1024
 KEEP = 20
@@ -69,11 +70,21 @@ class _CheckedRedirects(HTTPRedirectHandler):
         return super().redirect_request(request, fp, code, message, headers, url)
 
 
+def _opener(url, proxies=None, bypass=proxy_bypass):
+    """Direct connections are checked on the socket. Through a configured proxy the socket reaches the proxy (often
+    on this machine), so the name check is all there is: the proxy makes the real connection."""
+    proxies = getproxies() if proxies is None else proxies
+    parts = urlsplit(url)
+    if proxies.get(parts.scheme) and not bypass(parts.hostname or ''):
+        return build_opener(ProxyHandler(proxies), _CheckedRedirects)
+    return build_opener(ProxyHandler({}), _PublicHTTP, _PublicHTTPS, _CheckedRedirects)
+
+
 def _fetch(url):
-    # A quick refusal by name first; the connected socket is what actually decides.
+    # A quick refusal by name first; for direct connections the connected socket is what actually decides.
     public(url)
     request = Request(url, headers={'User-Agent': 'ShaleShell/1.0', 'Accept': 'image/*', 'Accept-Encoding': 'identity'})
-    with build_opener(_PublicHTTP, _PublicHTTPS, _CheckedRedirects).open(request, timeout=5) as response:
+    with _opener(url).open(request, timeout=5) as response:
         if not response.headers.get_content_type().startswith('image/'):
             raise ValueError('The cover is not an image.')
         return response.read(MAX_BYTES + 1)
@@ -105,9 +116,12 @@ def local(url, folder, fetch=None, keep=KEEP):
         raise ValueError('Unsupported cover address.')
     folder = Path(folder)
     target = folder / hashlib.sha1(url.encode()).hexdigest()
-    if target.is_file():
+    try:
         os.utime(target)
         return str(target)
+    except FileNotFoundError:
+        # Not cached, or pruned by another request a moment ago.
+        pass
     data = _decode(url) if scheme == 'data' else (fetch or _fetch)(url)
     if not data or len(data) > MAX_BYTES:
         raise ValueError('The cover is too large.' if data else 'The cover is empty.')
@@ -120,8 +134,14 @@ def local(url, folder, fetch=None, keep=KEEP):
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
-    # Only the newest covers are kept.
-    covers = sorted((p for p in folder.iterdir() if not p.name.startswith('.')), key=lambda p: p.stat().st_mtime, reverse=True)
+    # Only the newest covers are kept. Requests run in parallel threads, so another one may prune a file first.
+    def modified(path):
+        try:
+            return path.stat().st_mtime
+        except FileNotFoundError:
+            return 0
+    covers = sorted((p for p in folder.iterdir() if not p.name.startswith('.')), key=modified, reverse=True)
     for old in covers[keep:]:
-        old.unlink(missing_ok=True)
+        if old != target:
+            old.unlink(missing_ok=True)
     return str(target)

@@ -208,8 +208,17 @@ Rectangle {
             readonly property bool small: ready && (kind === "icon" || Math.max(nativeSize.width, nativeSize.height) <= 128)
             visible: ready && !small
             source: root.notification.image || ""
-            onSourceChanged: nativeSize = Qt.size(0, 0)
-            onStatusChanged: if (status === Image.Ready && nativeSize.width === 0) nativeSize = Qt.size(implicitWidth, implicitHeight)
+            function measure() {
+                if (status === Image.Ready && nativeSize.width === 0)
+                    nativeSize = Qt.size(implicitWidth, implicitHeight);
+            }
+            // A cached image stays Ready from one source to the next without a statusChanged, so measure once the
+            // new source has settled as well.
+            onSourceChanged: {
+                nativeSize = Qt.size(0, 0);
+                Qt.callLater(measure);
+            }
+            onStatusChanged: measure()
             sourceSize: kind === "path" ? Qt.size(700, 700) : kind === "icon" ? Qt.size(112, 112)
                 : nativeSize.width > 700 ? Qt.size(700, Math.round(700 * nativeSize.height / nativeSize.width)) : undefined
             Layout.fillWidth: true

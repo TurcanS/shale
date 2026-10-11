@@ -50,6 +50,8 @@ Singleton {
         if (/^file:\/\//i.test(url)) {
             artFile = url;
         } else if (/^(https?:|data:image\/)/i.test(url) && Backend.ready) {
+            // The accent until the new cover arrives, never the previous track's colours.
+            artFile = "";
             Backend.request("media.art", {url: url}, (result, error) => {
                 if (request === root.artRequest)
                     root.artFile = error ? "" : "file://" + result.path.split("/").map(encodeURIComponent).join("/");
