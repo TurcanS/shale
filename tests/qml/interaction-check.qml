@@ -354,6 +354,16 @@ ShellRoot {
                 page.lastPointer = Qt.point(-1, -1);
                 test.check(!page.pointerMoved(Qt.point(40, 80)) && !page.pointerMoved(Qt.point(40, 80)), "Rows appearing under a resting pointer keep keyboard selection");
                 test.check(page.pointerMoved(Qt.point(40, 120)), "Moving the pointer selects the hovered row");
+                page.query = ":heart";
+                test.step = 42;
+                break;
+            case 42:
+                // The emoji list loads on first use.
+                if (!page.results.length)
+                    return;
+                test.check(page.mode === "emoji" && page.results.every(item => item.kind === "emoji"), "A colon searches emoji");
+                // Leaving emoji mode must not hand app rows to the emoji grid (any QML warning fails the check).
+                page.query = "fire";
                 page.query = "";
                 test.step = 40;
                 break;

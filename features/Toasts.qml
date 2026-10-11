@@ -24,7 +24,12 @@ Scope {
         implicitWidth: Math.min(380, screen.width - 24)
         implicitHeight: Math.max(1, Math.min(screen.height - 96, popupList.contentHeight))
         property int retiring: 0
-        visible: root.target && !ShellState.locked && (Services.popupModel.count > 0 || retiring > 0) && ShellState.panel !== "notifications"
+        readonly property bool wanted: root.target && !ShellState.locked && (Services.popupModel.count > 0 || retiring > 0) && ShellState.panel !== "notifications"
+        // Applied after the change settles: mapping the window as the session unlocks updates the focused
+        // output (and so `target`) while `visible` is still being set, which Qt reports as a binding loop.
+        visible: false
+        onWantedChanged: Qt.callLater(() => popups.visible = popups.wanted)
+        Component.onCompleted: visible = wanted
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "shale-notifications"

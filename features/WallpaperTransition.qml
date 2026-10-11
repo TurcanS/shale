@@ -38,7 +38,9 @@ PanelWindow {
         source: root.oldImage ? "file://" + encodeURIComponent(root.oldImage).replace(/%2F/g, "/") : ""
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
-        sourceSize: Qt.size(root.width * 1, root.height * 1)
+        // The output's size, not the window's: the window only gets a size once it is visible, and visibility
+        // waits for this image, so tying the two together loops.
+        sourceSize: root.screen ? Qt.size(root.screen.width * root.screen.devicePixelRatio, root.screen.height * root.screen.devicePixelRatio) : Qt.size(0, 0)
         opacity: root.reveal
         onStatusChanged: if (status === Image.Ready || status === Image.Error) ready.restart()
     }

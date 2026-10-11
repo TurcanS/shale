@@ -1,3 +1,4 @@
+from contextlib import closing
 import datetime as dt
 import os
 from pathlib import Path
@@ -340,7 +341,7 @@ class MigrationTests(unittest.TestCase):
             store.db.close()
         backup = self.path.with_name("activity.sqlite3.v1-backup")
         self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
-        with sqlite3.connect(backup) as db:
+        with closing(sqlite3.connect(backup)) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM focus").fetchone()[0], 4)
         reopened = ActivityStore(self.path, self.clock.wall, self.clock.mono)
         self.assertEqual(reopened.day("2025-06-03")["active"], 2400)
@@ -354,7 +355,7 @@ class MigrationTests(unittest.TestCase):
         self.write_v1(active_total=9999)
         with self.assertRaises(MigrationError):
             ActivityStore(self.path, self.clock.wall, self.clock.mono)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             self.assertTrue({"intervals", "focus", "days"} <= tables)
             self.assertNotIn("segments", tables)

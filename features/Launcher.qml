@@ -575,7 +575,8 @@ FocusScope {
             Layout.fillHeight: root.mode === "emoji"
             visible: root.mode === "emoji"
             clip: true
-            model: root.mode === "emoji" ? root.results : []
+            // Bound to the emoji list itself: `results` switches to app rows a moment before `mode` empties this grid.
+            model: root.emojiResults
             cellWidth: Math.floor(width / columns)
             cellHeight: Math.min(cellWidth, 60)
             boundsBehavior: Flickable.StopAtBounds
