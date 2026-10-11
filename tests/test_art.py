@@ -66,6 +66,21 @@ class ArtTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported"):
             art.public("file:///etc/passwd")
 
+    def test_the_connected_address_must_be_public(self):
+        # A name that passes the first lookup but then connects somewhere local (DNS rebinding) is refused.
+        import http.server, threading
+        server = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            original = art.public
+            art.public = lambda url, resolve=None: None
+            with self.assertRaisesRegex(ValueError, "public addresses"):
+                art._fetch(f"http://127.0.0.1:{server.server_address[1]}/cover.png")
+        finally:
+            art.public = original
+            server.shutdown()
+            server.server_close()
+
     def test_only_the_newest_covers_are_kept(self):
         paths = []
         for index in range(5):

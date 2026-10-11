@@ -3,13 +3,14 @@ https:// covers (Spotify) or whole images in data: URLs (browsers)."""
 import base64
 import binascii
 import hashlib
+import http.client
 import ipaddress
 import os
 from pathlib import Path
 import socket
 import tempfile
 from urllib.parse import unquote, unquote_to_bytes, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPHandler, HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 MAX_BYTES = 5 * 1024 * 1024
 KEEP = 20
@@ -29,6 +30,39 @@ def public(url, resolve=socket.getaddrinfo):
         raise ValueError('Covers are only fetched from public addresses.')
 
 
+def _connect_public(address, *args, **kwargs):
+    """socket.create_connection, refusing the connection unless the address it reached is public. Checked on the
+    connected socket itself, so a name that resolves differently the second time (DNS rebinding) can't slip by."""
+    sock = socket.create_connection(address, *args, **kwargs)
+    if not ipaddress.ip_address(sock.getpeername()[0].split('%')[0]).is_global:
+        sock.close()
+        raise ValueError('Covers are only fetched from public addresses.')
+    return sock
+
+
+class _PublicHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect_public
+
+
+class _PublicHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Before the TLS handshake: HTTPSConnection.connect opens the plain socket through this.
+        self._create_connection = _connect_public
+
+
+class _PublicHTTP(HTTPHandler):
+    def http_open(self, request):
+        return self.do_open(_PublicHTTPConnection, request)
+
+
+class _PublicHTTPS(HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(_PublicHTTPSConnection, request, context=self._context)
+
+
 class _CheckedRedirects(HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, url):
         public(url)
@@ -36,9 +70,10 @@ class _CheckedRedirects(HTTPRedirectHandler):
 
 
 def _fetch(url):
+    # A quick refusal by name first; the connected socket is what actually decides.
     public(url)
     request = Request(url, headers={'User-Agent': 'ShaleShell/1.0', 'Accept': 'image/*', 'Accept-Encoding': 'identity'})
-    with build_opener(_CheckedRedirects).open(request, timeout=5) as response:
+    with build_opener(_PublicHTTP, _PublicHTTPS, _CheckedRedirects).open(request, timeout=5) as response:
         if not response.headers.get_content_type().startswith('image/'):
             raise ValueError('The cover is not an image.')
         return response.read(MAX_BYTES + 1)
