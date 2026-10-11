@@ -386,7 +386,7 @@ FocusScope {
                         visible: root.sourceMode === "wallpaperscom"
                         text: "Wallpapers.com ↗"
                         flat: true
-                        onClicked: Qt.openUrlExternally(root.current && root.current.creditUrl ? root.current.creditUrl : "https://wallpapers.com/")
+                        onClicked: ShellState.openUrl(root.current && root.current.creditUrl ? root.current.creditUrl : "https://wallpapers.com/")
                     }
                     C.Button {
                         visible: root.online && root.error !== ""
@@ -409,7 +409,7 @@ FocusScope {
                         flat: true
                         onClicked: root.searchOnline(true)
                     }
-                    C.Button { visible: !root.online; text: "Open folder"; glyph: "grid"; flat: true; enabled: root.directory !== ""; onClicked: Qt.openUrlExternally("file://" + root.directory.split("/").map(encodeURIComponent).join("/")) }
+                    C.Button { visible: !root.online; text: "Open folder"; glyph: "grid"; flat: true; enabled: root.directory !== ""; onClicked: ShellState.openPath(root.directory) }
                 }
             }
         }

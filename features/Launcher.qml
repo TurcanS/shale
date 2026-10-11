@@ -201,10 +201,10 @@ FocusScope {
             else
                 ShellState.openPath(item.path);
         } else if (item.kind === "web") {
-            Qt.openUrlExternally(item.url);
+            ShellState.openUrl(item.url);
         } else {
             if (!item.entry.runInTerminal) {
-                item.entry.execute();
+                ShellState.launch(item.entry.command, item.entry.workingDirectory, item.entry.id);
             } else {
                 // The helper picks $TERMINAL, xdg-terminal-exec or an installed terminal, with its own argument style.
                 const terminal = Backend.capabilities.terminal || [];
@@ -212,7 +212,7 @@ FocusScope {
                     ShellState.message(item.name + " runs in a terminal. Install one, such as foot or kitty, or set $TERMINAL.", "error");
                     return;
                 }
-                Quickshell.execDetached(terminal.concat(item.entry.command));
+                ShellState.launch(terminal.concat(item.entry.command), item.entry.workingDirectory, item.entry.id);
             }
             const usage = Object.assign({}, ShellState.setting("appUsage", {}));
             usage[item.key] = Math.min(1000, (usage[item.key] || 0) + 1);

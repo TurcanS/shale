@@ -219,9 +219,30 @@ QtObject {
     function fileName(path) {
         return String(path || "").split("/").pop();
     }
+    // Every app the shell starts gets its own scope in app.slice, so restarting or crashing the shell never takes
+    // it down, and its output goes to the journal under its own name instead of `shale logs`.
+    property int launches: 0
+    function launch(command, workingDirectory, appId) {
+        if (!command || !command.length)
+            return;
+        const id = String(appId || command[0]).split("/").pop() || "app";
+        // systemd unit name escaping: every byte outside [A-Za-z0-9_.] becomes \xNN.
+        const escaped = encodeURIComponent(id).replace(/%([0-9A-F]{2})|[^A-Za-z0-9_.]/g,
+            (match, hex) => "\\x" + (hex ? hex.toLowerCase() : match.charCodeAt(0).toString(16).padStart(2, "0")));
+        const unit = "app-shale-" + escaped + "-" + (++launches).toString(16) + Math.floor(Math.random() * 0x100000).toString(16);
+        Quickshell.execDetached({
+            command: ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=app.slice", "--unit=" + unit, "--",
+                      "systemd-cat", "--identifier=" + id, "--"].concat(command),
+            workingDirectory: workingDirectory || ""
+        });
+    }
+    function openUrl(url) {
+        if (url)
+            launch(["xdg-open", String(url)], "", "xdg-open");
+    }
     function openPath(path) {
         if (path)
-            Qt.openUrlExternally("file://" + String(path).split("/").map(encodeURIComponent).join("/"));
+            openUrl("file://" + String(path).split("/").map(encodeURIComponent).join("/"));
     }
     // A negative value hides the level bar (used for countdowns).
     function osd(label, value, glyph, muted) {
