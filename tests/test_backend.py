@@ -371,6 +371,49 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(labels, ["Image · PNG · 1920×1080 · 1.2 MiB", "Data · PDF · 12 KiB", None])
         self.assertEqual(result["entries"][0]["text"], "[[ binary data 1.2 MiB png 1920x1080 ]]")
 
+    async def test_clipboard_entries_recognize_colors_links_and_paths(self):
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder, "a note.txt")
+            file.write_text("x")
+            lines = ["#FFAA00", "rgb(255, 136, 0)", "rgba(1,2,3,0.5)", "#ff8800cc", "#zzzzzz", "rgb(300, 0, 0)", "#123", "#bad",
+                     "https://github.com/TurcanS/shale", "https://example.com/" + "a" * 80 + "…", "javascript:alert(1)",
+                     folder, "file://" + str(file).replace(" ", "%20"), folder + "…", "/does/not/exist", "plain text"]
+            listing = "".join(f"{index}\t{line}\n" for index, line in enumerate(lines))
+            with patch.object(b, "run", AsyncMock(return_value=listing.encode())):
+                result = await self.backend.dispatch("clipboard.list", {"query": "", "limit": 50})
+        kinds = [(entry.get("kind"), entry.get("color"), entry.get("folder")) for entry in result["entries"]]
+        self.assertEqual(kinds, [("color", "#ffaa00", None), ("color", "#ff8800", None), ("color", "#010203", None), ("color", "#ff8800", None),
+                                 (None, None, None), (None, None, None), (None, None, None), (None, None, None),
+                                 ("link", None, None), ("link", None, None), (None, None, None),
+                                 ("path", None, True), ("path", None, False), (None, None, None), (None, None, None), (None, None, None)])
+
+    async def test_clipboard_list_skips_paths_when_the_disk_hangs(self):
+        async def slow(*_args, **_kwargs):
+            raise asyncio.TimeoutError
+        with patch.object(b, "run", AsyncMock(return_value=b"1\t/\n2\t#ff8800\n")), patch.object(b.asyncio, "wait_for", slow):
+            result = await self.backend.dispatch("clipboard.list", {"query": "", "limit": 10})
+        self.assertEqual([entry.get("kind") for entry in result["entries"]], [None, "color"])
+
+    async def test_clipboard_open_uses_the_full_entry(self):
+        url = "https://example.com/" + "a" * 300
+        with patch.object(b, "run", AsyncMock(return_value=(url + "\n").encode())) as run:
+            self.assertEqual(await self.backend.dispatch("clipboard.open", {"entry": "3\thttps://example.com/aaa…"}), {"url": url})
+        self.assertEqual(run.call_args.args, ("cliphist", "decode"))
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder, "run me.sh")
+            file.write_text("x")
+            with patch.object(b, "run", AsyncMock(return_value=folder.encode())):
+                self.assertEqual(await self.backend.dispatch("clipboard.open", {"entry": "4\tpath"}), {"path": folder})
+            # A file is only shown in its folder, never opened.
+            with patch.object(b, "run", AsyncMock(return_value=str(file).encode())):
+                self.assertEqual(await self.backend.dispatch("clipboard.open", {"entry": "4\tpath"}), {"path": folder})
+        for data in (b"javascript:alert(1)", b"plain text", b"https://a.com\nhttps://b.com", b"\xff\xfe", b"https://a.com/" + b"a" * 70000):
+            with self.subTest(data=data[:30]), patch.object(b, "run", AsyncMock(return_value=data)), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("clipboard.open", {"entry": "5\tx"})
+        with patch.object(b, "run", AsyncMock()) as run, self.assertRaises(b.BackendError):
+            await self.backend.dispatch("clipboard.open", {"entry": "nope"})
+        run.assert_not_called()
+
     async def test_history_is_opt_in_and_strips_live_actions(self):
         await self.backend.dispatch("notifications.set", {"entries": [{"body": "private"}]})
         self.assertFalse((b.STATE / "notifications.json").exists())

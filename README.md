@@ -17,7 +17,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Control center**: Wi-Fi, Bluetooth, per-app volume, microphone, brightness, power profiles, do not disturb, stay awake, media with an equalizer.
 - **Notifications** with grouped history, actions and optional persistence.
 - **Calendar** with weather from Open-Meteo (no API key).
-- **Clipboard history** with image previews (cliphist).
+- **Clipboard history** with image previews, color swatches and one-click opening of links and paths (cliphist).
 - **Workspace overview** with window snapshots.
 - **Wallpapers** from local folders, Wallhaven and Wallpapers.com, through hyprpaper, awww or swww. Accent color can follow the wallpaper.
 - **Lock screen** with PAM (ext-session-lock); hyprlock as an alternative.

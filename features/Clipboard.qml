@@ -15,6 +15,8 @@ FocusScope {
     property bool confirmClear: false
     property bool mutating: false
     property bool hasHistory: false
+    property bool alive: true
+    Component.onDestruction: alive = false
     property point lastPointer: Qt.point(-1, -1)
     function pointerMoved(position) {
         const moved = lastPointer.x >= 0 && (Math.abs(position.x - lastPointer.x) > 1 || Math.abs(position.y - lastPointer.y) > 1);
@@ -91,6 +93,25 @@ FocusScope {
             ShellState.message("Copied to clipboard", "success");
         });
     }
+    // Links open in the browser; paths in their app or the file manager.
+    function open(entry) {
+        if (!entry || (entry.kind !== "link" && entry.kind !== "path") || busy || mutating)
+            return;
+        mutating = true;
+        Backend.request("clipboard.open", {entry: entry.raw}, (result, failure) => {
+            // Closed while cliphist was decoding: the user moved on, so open nothing.
+            if (!root.alive)
+                return;
+            mutating = false;
+            if (failure) {
+                ShellState.message(failure.message, "error");
+                return;
+            }
+            ShellState.close();
+            if (result.url) ShellState.openUrl(result.url);
+            else ShellState.openPath(result.path);
+        });
+    }
     Component.onCompleted: refresh()
     Connections {
         target: Backend
@@ -127,6 +148,13 @@ FocusScope {
                         if (entry)
                             root.mutate("clipboard.delete", {entry: entry.raw});
                         event.accepted = true;
+                    } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ControlModifier)) {
+                        // Entries with nothing to open fall through to onAccepted and copy.
+                        const entry = root.entries[list.currentIndex];
+                        if (entry && (entry.kind === "link" || entry.kind === "path")) {
+                            root.open(entry);
+                            event.accepted = true;
+                        }
                     }
                 }
                 onAccepted: root.copy(root.entries[list.currentIndex])
@@ -206,9 +234,18 @@ FocusScope {
                     anchors.margins: 12
                     spacing: 16
                     C.Icon {
-                        visible: row.thumbnail === ""
-                        name: "clipboard"
+                        visible: row.thumbnail === "" && row.modelData.kind !== "color"
+                        name: row.modelData.kind === "link" ? "link" : row.modelData.kind === "path" ? "folder" : "clipboard"
                         opacity: 0.6
+                    }
+                    Rectangle {
+                        visible: row.modelData.kind === "color"
+                        color: row.modelData.color || "transparent"
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        radius: 8
+                        border.width: 1
+                        border.color: Theme.border
                     }
                     Image {
                         visible: row.thumbnail !== ""
@@ -226,6 +263,15 @@ FocusScope {
                         Layout.fillWidth: true
                         maximumLineCount: 2
                         wrapMode: Text.Wrap
+                    }
+                    C.Button {
+                        visible: row.modelData.kind === "link" || row.modelData.kind === "path"
+                        text: row.modelData.kind === "path" && !row.modelData.folder ? "Show in folder" : "Open"
+                        flat: true
+                        hint: text + " (Ctrl+Enter)"
+                        implicitHeight: 32
+                        enabled: !root.mutating && !root.busy
+                        onClicked: root.open(row.modelData)
                     }
                     C.Button {
                         glyph: "trash"

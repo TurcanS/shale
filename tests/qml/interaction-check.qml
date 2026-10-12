@@ -427,6 +427,13 @@ ShellRoot {
                 test.check(page.busy && page.entries.length === 0, "Stale clipboard response cannot replace results or clear loading");
                 Backend.receive(JSON.stringify({ id: newRequest, ok: true, result: { entries: [{raw: "new", text: "new"}] } }));
                 test.check(!page.busy && page.entries[0].text === "new", "Latest clipboard response becomes selectable");
+                const beforeOpen = Backend.sequence;
+                page.open({raw: "1\tplain", text: "plain"});
+                test.check(Backend.sequence === beforeOpen, "Plain clipboard text offers nothing to open");
+                page.open({raw: "2\thttps://example.com", text: "https://example.com", kind: "link"});
+                test.check(Backend.sequence === beforeOpen + 1 && page.mutating, "A clipboard link asks the backend to open it once");
+                Backend.receive(JSON.stringify({id: Backend.sequence, ok: false, error: {message: "This entry can't be opened."}}));
+                test.check(!page.mutating, "A failed open restores the clipboard controls");
                 page.query = "next";
                 const beforeCopy = Backend.sequence;
                 page.copy({raw: "new", text: "new"});

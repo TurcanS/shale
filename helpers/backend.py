@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import traceback
+from urllib.parse import unquote, urlsplit
 import wallpaper
 import wallhaven
 import wallpaperscom
@@ -355,6 +356,73 @@ def clipboard_label(text):
         parts.append(match["width"] + "×" + match["height"])
     parts.append(match["size"])
     return " · ".join(parts)
+
+
+# Six or eight digits only: "#123" and "#bad" are far more often issue numbers and hashtags.
+HEX_COLOR = re.compile(r"#([0-9a-f]{6}|[0-9a-f]{8})", re.IGNORECASE)
+RGB_COLOR = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*\d*\.?\d+%?\s*)?\)", re.IGNORECASE)
+
+
+def clipboard_color(text):
+    """"#rrggbb" for a copied hex or rgb() color, else "". Alpha is dropped: QML reads #aarrggbb."""
+    if match := HEX_COLOR.fullmatch(text):
+        return "#" + match[1][:6].lower()
+    if (match := RGB_COLOR.fullmatch(text)) and all(int(channel) <= 255 for channel in match.groups()):
+        return "#" + ''.join(f"{int(channel):02x}" for channel in match.groups())
+    return ""
+
+
+def clipboard_link(text):
+    if not re.fullmatch(r"https?://\S+", text, re.IGNORECASE):
+        return False
+    try:
+        return bool(urlsplit(text).hostname)
+    except ValueError:
+        return False
+
+
+def clipboard_path(text):
+    """The existing local file or folder a copied path or file:// URL names, else None."""
+    if "\n" in text:
+        return None
+    if text.startswith("file://"):
+        try:
+            parts = urlsplit(text)
+        except ValueError:
+            return None
+        if parts.netloc not in ("", "localhost"):
+            return None
+        text = unquote(parts.path)
+    elif not text.startswith(("/", "~/")):
+        return None
+    try:
+        path = Path(text).expanduser()
+        return path if path.is_absolute() and path.exists() else None
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def clipboard_kind(text, disk=True):
+    """What a cliphist preview line holds: a color, a link or a local path. Previews end in "…" when cut.
+    Paths touch the disk, so this runs off the event loop; disk=False skips them."""
+    text = text.strip()
+    if color := clipboard_color(text):
+        return {"kind": "color", "color": color}
+    if clipboard_link(text.removesuffix("…")):
+        return {"kind": "link"}
+    if disk and not text.endswith("…") and (path := clipboard_path(text)):
+        return {"kind": "path", "folder": path.is_dir()}
+    return {}
+
+
+def clipboard_target(text):
+    """What Open does with a full clipboard entry: a link opens; a file is only shown in its folder,
+    since anything can put a path on the clipboard and opening it could run it."""
+    if clipboard_link(text):
+        return {"url": text}
+    if path := clipboard_path(text):
+        return {"path": str(path if path.is_dir() else path.parent)}
+    return None
 
 
 PROPERTIES = "org.freedesktop.DBus.Properties"
@@ -1199,12 +1267,33 @@ class Backend:
                     entries.append(entry)
                 if len(entries) >= min(1000, max(1, int(number(p, "limit", 100)))):
                     break
+            texts = [entry for entry in entries if "label" not in entry]
+            try:
+                kinds = await asyncio.wait_for(asyncio.to_thread(lambda: [clipboard_kind(entry["text"]) for entry in texts]), 1)
+            except asyncio.TimeoutError:
+                # A hung network mount must not hold up the list; paths just go unmarked.
+                kinds = [clipboard_kind(entry["text"], disk=False) for entry in texts]
+            for entry, kind in zip(texts, kinds):
+                entry.update(kind)
             return {"entries": entries}
-        if method in ("clipboard.copy", "clipboard.delete"):
+        if method in ("clipboard.copy", "clipboard.delete", "clipboard.open"):
             entry = str(p.get("entry", ""))
             if not entry.partition("\t")[0].isdigit() or "\n" in entry:
                 raise BackendError("invalid", "Select a clipboard entry.")
-            data = await run("cliphist", "decode" if method.endswith("copy") else "delete", data=entry.encode())
+            data = await run("cliphist", "delete" if method.endswith("delete") else "decode", data=entry.encode())
+            if method.endswith("open"):
+                # Previews are cut and flattened, so the full entry decides what opens.
+                try:
+                    text = data.decode().strip() if len(data) <= 65536 else ""
+                except UnicodeDecodeError:
+                    text = ""
+                try:
+                    target = await asyncio.wait_for(asyncio.to_thread(clipboard_target, text), 3)
+                except asyncio.TimeoutError:
+                    raise BackendError("failed", "That location isn't responding.")
+                if not target:
+                    raise BackendError("invalid", "This entry can't be opened.")
+                return target
             if method.endswith("copy"):
                 await run("wl-copy", data=data)
             return {"done": True}
