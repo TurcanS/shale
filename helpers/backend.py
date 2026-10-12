@@ -346,7 +346,7 @@ BINARY_ENTRY = re.compile(r"^\[\[ binary data (?P<size>[\d.]+ \w+) (?P<kind>\w+)
 
 def clipboard_label(text):
     """Readable label for cliphist's binary summaries, e.g. "Image · PNG · 1920×1080 · 1.2 MiB"."""
-    match = BINARY_ENTRY.match(text.strip())
+    match = BINARY_ENTRY.match(text.strip()) if "[[" in text[:4] else None
     if not match:
         return ""
     kind = match["kind"].lower()
@@ -372,8 +372,11 @@ def clipboard_color(text):
     return ""
 
 
+LINK = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
 def clipboard_link(text):
-    if not re.fullmatch(r"https?://\S+", text, re.IGNORECASE):
+    if not LINK.fullmatch(text):
         return False
     try:
         return bool(urlsplit(text).hostname)
@@ -402,17 +405,21 @@ def clipboard_path(text):
         return None
 
 
-def clipboard_kind(text, disk=True):
-    """What a cliphist preview line holds: a color, a link or a local path. Previews end in "…" when cut.
-    Paths touch the disk, so this runs off the event loop; disk=False skips them."""
-    text = text.strip()
-    if color := clipboard_color(text):
+def clipboard_kind(text):
+    """A color or link in a cliphist preview line, which ends in "…" when cut. Most lines are neither,
+    so the first character settles them before any pattern runs. Paths need the disk: see path_kinds."""
+    first = text[:1]
+    if first in ("#", "r", "R") and (color := clipboard_color(text)):
         return {"kind": "color", "color": color}
-    if clipboard_link(text.removesuffix("…")):
+    if first in ("h", "H") and clipboard_link(text.removesuffix("…")):
         return {"kind": "link"}
-    if disk and not text.endswith("…") and (path := clipboard_path(text)):
-        return {"kind": "path", "folder": path.is_dir()}
     return {}
+
+
+def path_kinds(texts):
+    """{"kind": "path", "folder": bool} for each text naming an existing file or folder, else None."""
+    paths = [clipboard_path(text) for text in texts]
+    return [{"kind": "path", "folder": path.is_dir()} if path else None for path in paths]
 
 
 def clipboard_target(text):
@@ -1256,6 +1263,7 @@ class Backend:
         if method == "clipboard.list":
             data = (await run("cliphist", "list")).decode(errors="replace")
             query = str(p.get("query", "")).casefold()
+            limit = min(1000, max(1, int(number(p, "limit", 100))))
             entries = []
             for line in data.splitlines():
                 identity, _, text = line.partition("\t")
@@ -1265,16 +1273,26 @@ class Backend:
                     if label:
                         entry["label"] = label
                     entries.append(entry)
-                if len(entries) >= min(1000, max(1, int(number(p, "limit", 100)))):
+                if len(entries) >= limit:
                     break
-            texts = [entry for entry in entries if "label" not in entry]
-            try:
-                kinds = await asyncio.wait_for(asyncio.to_thread(lambda: [clipboard_kind(entry["text"]) for entry in texts]), 1)
-            except asyncio.TimeoutError:
-                # A hung network mount must not hold up the list; paths just go unmarked.
-                kinds = [clipboard_kind(entry["text"], disk=False) for entry in texts]
-            for entry, kind in zip(texts, kinds):
-                entry.update(kind)
+            paths = []
+            for entry in entries:
+                text = entry["text"].strip()
+                if "label" in entry:
+                    continue
+                if kind := clipboard_kind(text):
+                    entry.update(kind)
+                elif text.startswith(("/", "~/", "file://")) and not text.endswith("…"):
+                    paths.append((entry, text))
+            if paths:
+                try:
+                    kinds = await asyncio.wait_for(asyncio.to_thread(path_kinds, [text for _, text in paths]), 1)
+                except asyncio.TimeoutError:
+                    # A hung network mount must not hold up the list; paths just go unmarked.
+                    kinds = []
+                for (entry, _), kind in zip(paths, kinds):
+                    if kind:
+                        entry.update(kind)
             return {"entries": entries}
         if method in ("clipboard.copy", "clipboard.delete", "clipboard.open"):
             entry = str(p.get("entry", ""))
