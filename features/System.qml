@@ -26,8 +26,14 @@ FocusScope {
     Component.onCompleted: if (previewDetail !== "") loadPreview(previewDetail)
 
     function poll() {
-        if (previewDetail !== "" || waiting || !Backend.ready)
+        if (previewDetail !== "" || waiting)
             return;
+        if (!Backend.ready) {
+            // Shown over the last numbers, so they are never read as live while the helper restarts.
+            if (sample)
+                error = "The desktop helper is restarting.";
+            return;
+        }
         waiting = true;
         const request = ++generation;
         // nvidia-smi keeps an NVIDIA card awake, so its usage is only asked for while that card is on screen.

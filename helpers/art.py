@@ -95,10 +95,14 @@ def _fetch(url):
     # A quick refusal by name first; for direct connections the connected socket is what actually decides.
     public(url)
     request = Request(url, headers={'User-Agent': 'ShaleShell/1.0', 'Accept': 'image/*', 'Accept-Encoding': 'identity'})
-    with _opener(url).open(request, timeout=5) as response:
-        if not response.headers.get_content_type().startswith('image/'):
-            raise ValueError('The cover is not an image.')
-        return response.read(MAX_BYTES + 1)
+    try:
+        with _opener(url).open(request, timeout=5) as response:
+            if not response.headers.get_content_type().startswith('image/'):
+                raise ValueError('The cover is not an image.')
+            return response.read(MAX_BYTES + 1)
+    except http.client.HTTPException as error:
+        # A dropped or garbled response (IncompleteRead, BadStatusLine…) is a failed download like any other.
+        raise OSError(str(error)) from None
 
 
 def _decode(url):

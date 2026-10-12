@@ -106,6 +106,19 @@ class ArtTests(unittest.TestCase):
         finally:
             art.public = original
 
+    def test_a_broken_response_is_a_failed_download(self):
+        import http.client
+        class Broken:
+            def open(self, request, timeout):
+                raise http.client.IncompleteRead(b"partial")
+        original_opener, original_public = art._opener, art.public
+        art._opener, art.public = (lambda url: Broken()), (lambda url: None)
+        try:
+            with self.assertRaises(OSError):
+                art._fetch("https://i.scdn.co/a")
+        finally:
+            art._opener, art.public = original_opener, original_public
+
     def test_a_cover_pruned_meanwhile_is_fetched_again(self):
         path = Path(art.local("https://example.com/a", self.folder, self.fetch))
         path.unlink()

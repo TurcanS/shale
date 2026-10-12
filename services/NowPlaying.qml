@@ -44,6 +44,8 @@ Singleton {
     property string artFile: ""
     property int artRequest: 0
     onArtUrlChanged: resolveArt()
+    // A player may already be playing when this is first created.
+    Component.onCompleted: resolveArt()
     function resolveArt() {
         const url = root.artUrl;
         const request = ++artRequest;

@@ -1,6 +1,4 @@
 """The system monitor's sampler, run against a fake /proc and /sys."""
-import asyncio
-import os
 from pathlib import Path
 import sys
 import tempfile

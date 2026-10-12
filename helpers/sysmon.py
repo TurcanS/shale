@@ -231,7 +231,7 @@ class Sampler:
     def disks(self, counters, before, elapsed, sensors):
         mounts = self.mounts()
         disks = []
-        for name, (read_bytes, written, ticks) in sorted(counters.items()):
+        for name, (_, _, ticks) in sorted(counters.items()):
             rate = lambda index: round((counters[name][index] - before[name][index]) / elapsed) if before and name in before and elapsed > 0 else 0
             busy = min(100.0, round(100.0 * (ticks - before[name][2]) / (elapsed * 1000), 1)) if before and name in before and elapsed > 0 else 0.0
             if name not in self.names:
@@ -255,7 +255,7 @@ class Sampler:
 
     def network(self, counters, before, elapsed):
         links = []
-        for name, (received, sent) in sorted(counters.items()):
+        for name in sorted(counters):
             rate = lambda index: max(0, round((counters[name][index] - before[name][index]) / elapsed)) if before and name in before and elapsed > 0 else 0
             base = self.sys / "class/net" / name
             links.append({"name": name, "kind": "wifi" if (base / "wireless").exists() or (base / "phy80211").exists() else "ethernet",
