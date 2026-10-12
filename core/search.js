@@ -12,16 +12,22 @@ function words(text) {
     return text.split(/[\s\-_.,;:()\/+&'"!?]+/).filter(word => word !== "");
 }
 
+// True when a word of the field starts with the term. `split` is words(field), passed in by prepared apps
+// so typing doesn't split every field again on each keystroke.
+function wordStarts(field, term, split) {
+    return (" " + field).indexOf(" " + term) >= 0 || (split || words(field)).some(word => word.startsWith(term));
+}
+
 // How well one folded field matches a folded term; 0 for no match. Fuzzy (letters in order, tightly
 // packed: "ffx" finds Firefox) is only for names, where it helps; on long descriptions it is noise.
-function fieldScore(field, term, fuzzy, inside) {
+function fieldScore(field, term, fuzzy, inside, split) {
     if (!field || !term)
         return 0;
     if (field === term)
         return 1000;
     if (field.startsWith(term))
         return 800;
-    if ((" " + field).indexOf(" " + term) >= 0 || words(field).some(word => word.startsWith(term)))
+    if (wordStarts(field, term, split))
         return 600;
     if (inside !== false && field.indexOf(term) >= 0)
         return 450;
@@ -40,10 +46,10 @@ function fieldScore(field, term, fuzzy, inside) {
 }
 
 // Descriptions count only where a word starts with the term ("spreadsheet" for "spread").
-function descriptionScore(field, term) {
+function descriptionScore(field, term, split) {
     if (!field || !term)
         return 0;
-    return (" " + field).indexOf(" " + term) >= 0 || words(field).some(word => word.startsWith(term)) ? 500 : 0;
+    return wordStarts(field, term, split) ? 500 : 0;
 }
 
 // The program a desktop entry runs, e.g. "code-oss" for ["/usr/bin/code-oss", "%F"], or the app id
@@ -59,21 +65,28 @@ function commandName(command) {
 // The folded text of an app, computed once per desktop entry rather than on every keystroke.
 // app: {name, genericName, comment, keywords, id, startupClass, command}.
 function prepare(app) {
-    return {
+    const prepared = {
         name: fold(app.name), id: fold(app.id), startupClass: fold(app.startupClass), command: fold(commandName(app.command)),
         keywords: Array.from(app.keywords || [], fold), genericName: fold(app.genericName), comment: fold(app.comment)
     };
+    prepared.split = {};
+    for (const key of ["name", "id", "startupClass", "command", "genericName", "comment"])
+        prepared.split[key] = words(prepared[key]);
+    prepared.keywordSplit = prepared.keywords.map(words);
+    return prepared;
 }
 
 // Score of a prepared app for an already folded and trimmed term. 0 means "not a result".
 function scoreApp(app, term) {
     if (!term)
         return 1;
-    const name = fieldScore(app.name, term, true);
-    const identity = Math.max(fieldScore(app.id, term, false), fieldScore(app.startupClass, term, false), fieldScore(app.command, term, false));
+    const split = app.split || {};
+    const name = fieldScore(app.name, term, true, true, split.name);
+    const identity = Math.max(fieldScore(app.id, term, false, true, split.id), fieldScore(app.startupClass, term, false, true, split.startupClass),
+                              fieldScore(app.command, term, false, true, split.command));
     // Keywords are whole words ("xls", "qemu"); matching inside them ("readsheet") is noise.
-    const keywords = Math.max(0, ...app.keywords.map(keyword => fieldScore(keyword, term, false, false)));
-    const described = Math.max(descriptionScore(app.genericName, term), descriptionScore(app.comment, term));
+    const keywords = Math.max(0, ...app.keywords.map((keyword, i) => fieldScore(keyword, term, false, false, app.keywordSplit && app.keywordSplit[i])));
+    const described = Math.max(descriptionScore(app.genericName, term, split.genericName), descriptionScore(app.comment, term, split.comment));
     return Math.max(name * 2, identity * 1.5, keywords * 1.2, described * 0.6);
 }
 

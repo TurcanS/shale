@@ -32,6 +32,31 @@ def day_bounds(day):
     return int(start * 1000), int(end * 1000)
 
 
+def hour_totals(spans):
+    """Seconds in each local hour of the day (0-23) across [start, end) millisecond spans. The local hour
+    starts are worked out once for the whole range, so each span only looks them up."""
+    hours = [0.0] * 24
+    if not spans:
+        return hours
+    last = max(end for _, end in spans)
+    moment = dt.datetime.fromtimestamp(min(start for start, _ in spans) / 1000).replace(minute=0, second=0, microsecond=0)
+    edges, labels = [], []
+    while not edges or edges[-1] <= last:
+        # max() keeps the edges rising through a daylight-saving change.
+        edges.append(max(int(moment.timestamp() * 1000), edges[-1] + 1 if edges else 0))
+        labels.append(moment.hour)
+        moment = dt.datetime.fromtimestamp(edges[-1] / 1000 + 3600).replace(minute=0, second=0, microsecond=0)
+    for start, end in spans:
+        index = bisect.bisect_right(edges, start) - 1
+        cursor = start
+        while cursor < end:
+            stop = min(end, edges[index + 1])
+            hours[labels[index]] += (stop - cursor) / 1000
+            cursor = stop
+            index += 1
+    return hours
+
+
 def day_spans(start_ms, end_ms):
     """Split a wall-clock interval at local midnights, including DST days."""
     cursor = start_ms
@@ -152,7 +177,9 @@ class ActivityStore:
             CREATE TABLE IF NOT EXISTS windows (id INTEGER PRIMARY KEY, window_key TEXT NOT NULL, app TEXT NOT NULL,
                 start INTEGER NOT NULL, end INTEGER, last_seen INTEGER NOT NULL, start_known INTEGER NOT NULL, end_reason TEXT NOT NULL DEFAULT 'open');
             CREATE TABLE IF NOT EXISTS legacy_days (day TEXT PRIMARY KEY, active REAL NOT NULL, unlocked REAL NOT NULL);
-            CREATE INDEX IF NOT EXISTS segments_day ON segments(day);
+            -- Day first, then all the daily totals read: those come from the index alone, without the table.
+            DROP INDEX IF EXISTS segments_day;
+            CREATE INDEX IF NOT EXISTS segments_daily ON segments(day, state, start, end);
             CREATE INDEX IF NOT EXISTS segments_app ON segments(app, day);
             CREATE INDEX IF NOT EXISTS segments_start ON segments(start);
             CREATE INDEX IF NOT EXISTS windows_start ON windows(start);
@@ -562,21 +589,14 @@ class ActivityStore:
 
         month = shift_day(today, -30)
         starts, ends = [], []
-        hours = [0.0] * 24
         rows = self.db.execute("SELECT day,MIN(start),MAX(end) FROM segments WHERE state='active' AND day BETWEEN ? AND ? GROUP BY day",
                                (month, shift_day(today, -1))).fetchall()
         for day, start, end in rows:
             midnight = day_bounds(day)[0]
             starts.append((start - midnight) / 60000)
             ends.append((end - midnight) / 60000)
-        for start, end in self.db.execute("SELECT start,end FROM segments WHERE state='active' AND day BETWEEN ? AND ?", (month, today)):
-            cursor = start
-            while cursor < end:
-                moment = dt.datetime.fromtimestamp(cursor / 1000)
-                boundary = int((moment.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)).timestamp() * 1000)
-                stop = min(end, max(boundary, cursor + 1))
-                hours[moment.hour] += (stop - cursor) / 1000
-                cursor = stop
+        hours = hour_totals(self.db.execute("SELECT start,end FROM segments WHERE state='active' AND day BETWEEN ? AND ?",
+                                            (month, today)).fetchall())
         median = lambda values: sorted(values)[len(values) // 2] if values else None
         return {"today": active(today), "average7": average(7), "average30": average(30), "thisWeek": this_week,
                 "lastWeek": last_week if shift_day(today, -7) >= origin else None, "streak": current, "longestStreak": longest,

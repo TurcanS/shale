@@ -3,6 +3,7 @@ import datetime as dt
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
@@ -360,6 +361,46 @@ class MigrationTests(unittest.TestCase):
             self.assertTrue({"intervals", "focus", "days"} <= tables)
             self.assertNotIn("segments", tables)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM windows").fetchone()[0], 3)
+
+
+HOUR_CHECK = """
+import datetime as dt, random, sys
+sys.path.insert(0, sys.argv[1])
+from activity import hour_totals
+
+def reference(spans):
+    # The plain way: walk each span hour by hour.
+    hours = [0.0] * 24
+    for start, end in spans:
+        cursor = start
+        while cursor < end:
+            moment = dt.datetime.fromtimestamp(cursor / 1000)
+            boundary = int((moment.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)).timestamp() * 1000)
+            stop = min(end, max(boundary, cursor + 1))
+            hours[moment.hour] += (stop - cursor) / 1000
+            cursor = stop
+    return hours
+
+random.seed(7)
+# Around both 2026 daylight-saving changes in the US and the EU, plus spans hours long.
+spans = []
+for day in ("2026-03-08", "2026-03-29", "2026-10-25", "2026-11-01"):
+    base = int(dt.datetime.fromisoformat(day).timestamp() * 1000) - 6 * 3600000
+    for _ in range(300):
+        start = base + random.randrange(0, 12 * 3600000)
+        spans.append((start, start + random.randrange(1, 5 * 3600000)))
+got, want = hour_totals(spans), reference(spans)
+print(all(abs(a - b) < 1e-6 for a, b in zip(got, want)) and abs(sum(got) - sum(e - s for s, e in spans) / 1000) < 1e-3)
+"""
+
+
+class HourTotalsTests(unittest.TestCase):
+    def test_matches_walking_each_hour_through_daylight_saving_changes(self):
+        for zone in ("America/New_York", "Europe/Chisinau", "Australia/Lord_Howe"):
+            with self.subTest(zone=zone):
+                result = subprocess.run([sys.executable, "-c", HOUR_CHECK, str(ROOT / "helpers")], env=dict(os.environ, TZ=zone),
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.stdout.strip(), "True", result.stderr)
 
 
 if __name__ == "__main__":
