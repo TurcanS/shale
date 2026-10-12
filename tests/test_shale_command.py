@@ -112,7 +112,7 @@ class RunTests(unittest.TestCase):
             (self.sysfs / "class/drm" / card).mkdir(parents=True)
             (self.sysfs / "class/drm" / card / "device").symlink_to(pci)
             (self.dev / card).write_text("")
-        self.stub("quickshell", 'echo "EGL=${__EGL_VENDOR_LIBRARY_FILENAMES:-}" >> "%s"' % self.log)
+        self.stub("quickshell", 'echo "${__EGL_VENDOR_LIBRARY_FILENAMES:-}|${__GLX_VENDOR_LIBRARY_NAME:-}|${SHALE_CHILD_UNSET:-}" >> "%s"' % self.log)
 
     def egl(self, **env):
         result = subprocess.run(["/bin/sh", str(SHALE), "run"], capture_output=True, text=True,
@@ -122,24 +122,27 @@ class RunTests(unittest.TestCase):
         calls = self.log.read_text().splitlines()
         self.log.unlink()
         self.assertEqual(calls[0], f"quickshell --path {self.home}/.config/quickshell/shale --no-duplicate")
-        return calls[1].removeprefix("EGL=")
+        return tuple(calls[1].split("|"))
 
     def test_mesa_alone_when_hyprland_renders_on_the_integrated_gpu(self):
-        self.assertEqual(self.egl(), f"{self.vendors}/50_mesa.json")
-        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card1:{self.dev}/card0"), f"{self.vendors}/50_mesa.json")
+        mesa = (f"{self.vendors}/50_mesa.json", "mesa", "__EGL_VENDOR_LIBRARY_FILENAMES __GLX_VENDOR_LIBRARY_NAME")
+        self.assertEqual(self.egl(), mesa)
+        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card1:{self.dev}/card0"), mesa)
+        # A GLX choice of the user's own stays, and launched apps keep it.
+        self.assertEqual(self.egl(__GLX_VENDOR_LIBRARY_NAME="nvidia"), (f"{self.vendors}/50_mesa.json", "nvidia", "__EGL_VENDOR_LIBRARY_FILENAMES"))
 
     def test_left_alone_when_hyprland_renders_on_nvidia(self):
-        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card0:{self.dev}/card1"), "")
+        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card0:{self.dev}/card1"), ("", "", ""))
         (self.sysfs.parent / "devices/card0/boot_vga").write_text("1\n")
         (self.sysfs.parent / "devices/card1/boot_vga").write_text("0\n")
-        self.assertEqual(self.egl(), "")
+        self.assertEqual(self.egl(), ("", "", ""))
 
     def test_left_alone_without_nvidia_or_with_a_user_choice(self):
-        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_FILENAMES="/custom.json"), "/custom.json")
-        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_DIRS="/custom"), "")
+        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_FILENAMES="/custom.json"), ("/custom.json", "", ""))
+        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_DIRS="/custom"), ("", "", ""))
         (self.vendors / "10_nvidia.json").unlink()
-        self.assertEqual(self.egl(), "")
-        self.assertEqual(self.egl(AQ_DRM_DEVICES="/missing/card9"), "")
+        self.assertEqual(self.egl(), ("", "", ""))
+        self.assertEqual(self.egl(AQ_DRM_DEVICES="/missing/card9"), ("", "", ""))
 
 
 if __name__ == "__main__":

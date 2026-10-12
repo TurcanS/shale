@@ -6,7 +6,8 @@ import tempfile
 from harness import harness
 
 with tempfile.TemporaryDirectory(prefix="shale-interactions-") as directory:
-    env = dict(os.environ, XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, XDG_STATE_HOME=directory, XDG_CACHE_HOME=directory,
+    # As `shale run` sets it on a hybrid laptop; launched apps must not inherit the shell's driver choice.
+    env = dict(os.environ, SHALE_CHILD_UNSET="__EGL_VENDOR_LIBRARY_FILENAMES __GLX_VENDOR_LIBRARY_NAME", XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, XDG_STATE_HOME=directory, XDG_CACHE_HOME=directory,
                QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software", DBUS_SESSION_BUS_ADDRESS="unix:path=" + directory + "/no-bus")
     env.pop("WAYLAND_DISPLAY", None)
     env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)

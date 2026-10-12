@@ -330,6 +330,8 @@ ShellRoot {
                 return;
             switch (test.step) {
             case 0:
+                test.check(JSON.stringify(ShellState.childEnvironment) === JSON.stringify({SHALE_CHILD_UNSET: null, __EGL_VENDOR_LIBRARY_FILENAMES: null, __GLX_VENDOR_LIBRARY_NAME: null}),
+                           "Launched apps drop the GPU driver choice made for the shell");
                 page.query = "6 * 7";
                 test.step++;
                 break;

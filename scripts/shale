@@ -29,9 +29,11 @@ case "$1" in
     exec systemctl --user start shale.service
     ;;
   run)
-    # What shale.service runs. glvnd tries NVIDIA's EGL before Mesa's, so on a hybrid laptop the shell
-    # would load NVIDIA's driver (about 9 MB) while drawing on the integrated GPU. Use Mesa alone when the
-    # GPU Hyprland renders on is a Mesa one; never otherwise, where it would mean software rendering.
+    # What shale.service runs. glvnd loads NVIDIA's EGL and GLX drivers as well as Mesa's, so on a hybrid
+    # laptop the shell would carry about 50 MB of NVIDIA driver while drawing on the integrated GPU. Use
+    # Mesa alone when the GPU Hyprland renders on is a Mesa one; never otherwise, where it would mean
+    # software rendering. SHALE_CHILD_UNSET names what was set here, so apps the shell launches (prime-run,
+    # games) don't inherit it: ShellState.launch() removes it again.
     sysfs=${SHALE_SYSFS:-/sys} vendors=${SHALE_EGL_VENDORS:-/usr/share/glvnd/egl_vendor.d}
     if [ -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}${__EGL_VENDOR_LIBRARY_DIRS:-}" ] \
         && [ -r "$vendors/10_nvidia.json" ] && [ -r "$vendors/50_mesa.json" ]; then
@@ -48,7 +50,12 @@ case "$1" in
       fi
       driver=$(readlink -f "$card/device/driver" 2>/dev/null) || driver=
       case ${card:+${driver##*/}} in
-        i915|xe|amdgpu|radeon|nouveau) export __EGL_VENDOR_LIBRARY_FILENAMES="$vendors/50_mesa.json" ;;
+        i915|xe|amdgpu|radeon|nouveau)
+          export __EGL_VENDOR_LIBRARY_FILENAMES="$vendors/50_mesa.json" SHALE_CHILD_UNSET=__EGL_VENDOR_LIBRARY_FILENAMES
+          if [ -z "${__GLX_VENDOR_LIBRARY_NAME:-}" ]; then
+            export __GLX_VENDOR_LIBRARY_NAME=mesa SHALE_CHILD_UNSET="$SHALE_CHILD_UNSET __GLX_VENDOR_LIBRARY_NAME"
+          fi
+          ;;
       esac
     fi
     exec quickshell --path "$config" --no-duplicate

@@ -25,7 +25,8 @@ class LaunchTests(unittest.TestCase):
     def test_launch_uses_an_app_scope(self):
         source = (ROOT / "core/ShellState.qml").read_text()
         launch = source[source.index("function launch("):source.index("function openUrl(")]
-        for part in ('"--scope"', '"--slice=app.slice"', '"--unit=" + unit', '"systemd-cat"'):
+        # The scope inherits the shell's environment, so the GPU driver choice made for the shell is dropped.
+        for part in ('"--scope"', '"--slice=app.slice"', '"--unit=" + unit', '"systemd-cat"', 'environment: childEnvironment'):
             self.assertIn(part, launch)
 
 

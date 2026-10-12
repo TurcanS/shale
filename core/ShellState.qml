@@ -233,8 +233,18 @@ QtObject {
         Quickshell.execDetached({
             command: ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=app.slice", "--unit=" + unit, "--",
                       "systemd-cat", "--identifier=" + id, "--"].concat(command),
+            environment: childEnvironment,
             workingDirectory: workingDirectory || ""
         });
+    }
+    // A scope runs as this shell's child and inherits its environment, including the GPU driver choice that
+    // `shale run` made for the shell alone (SHALE_CHILD_UNSET); apps get the session's own again.
+    readonly property var childEnvironment: {
+        const drop = {SHALE_CHILD_UNSET: null};
+        for (const name of (Quickshell.env("SHALE_CHILD_UNSET") || "").split(" "))
+            if (name)
+                drop[name] = null;
+        return drop;
     }
     function openUrl(url) {
         if (url)
