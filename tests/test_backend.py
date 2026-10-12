@@ -771,6 +771,66 @@ class SystemServiceTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn(hidden, logged)
 
 
+class BrightnessWatchTests(unittest.IsolatedAsyncioTestCase):
+    """The backlight is read on the kernel's change notice, and polled only where there is none."""
+
+    def backend(self, *values):
+        levels = list(values)
+        return SimpleNamespace(BACKLIGHT=Path("/sys/class/backlight"),
+                               brightness=lambda: {"available": True, "value": levels[0], "device": "panel"}, levels=levels)
+
+    async def settle(self):
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    async def test_a_notice_reports_the_new_level_without_polling(self):
+        watches = []
+        class Watch:
+            def __init__(self, device, changed):
+                self.device, self.changed, self.closed = device, changed, False
+                watches.append(self)
+            def close(self):
+                self.closed = True
+        backend = self.backend(0.5)
+        with patch.object(b, "BacklightWatch", Watch), patch.object(b, "emit") as emit:
+            task = asyncio.create_task(b.watch_brightness(backend, recheck=60))
+            await self.settle()
+            emit.assert_called_once_with("brightness", {"available": True, "value": 0.5, "device": "panel", "initial": True})
+            backend.levels[0] = 0.75
+            watches[0].changed()
+            await self.settle()
+            emit.assert_called_with("brightness", {"available": True, "value": 0.75, "device": "panel", "initial": False})
+            self.assertEqual(len(watches), 1)
+            # A watch that lost its device closes itself and is set up again.
+            watches[0].closed = True
+            watches[0].changed()
+            await self.settle()
+            self.assertEqual(len(watches), 2)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertTrue(watches[1].closed)
+
+    async def test_without_a_notice_it_polls(self):
+        backend = self.backend(0.5)
+        with patch.object(b, "BacklightWatch", side_effect=OSError), patch.object(b, "emit") as emit:
+            task = asyncio.create_task(b.watch_brightness(backend, poll=0.01, recheck=60))
+            await self.settle()
+            backend.levels[0] = 0.25
+            await asyncio.sleep(0.05)
+            task.cancel()
+        self.assertEqual(emit.call_args.args[1]["value"], 0.25)
+
+    def test_a_regular_file_cannot_be_watched(self):
+        # epoll refuses regular files, so a stand-in sysfs tree falls back to polling instead of spinning.
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "actual_brightness").write_text("5\n")
+            async def attempt():
+                with self.assertRaises(OSError):
+                    b.BacklightWatch(Path(folder), lambda: None)
+            asyncio.run(attempt())
+
+
 class TrayQuitTests(unittest.IsolatedAsyncioTestCase):
     def bus(self, items):
         """A session bus with tray items {"service/path": (id, title)}; services map to pids 100, 101..."""

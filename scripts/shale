@@ -28,6 +28,31 @@ case "$1" in
     systemctl --user reset-failed shale.service 2>/dev/null || true
     exec systemctl --user start shale.service
     ;;
+  run)
+    # What shale.service runs. glvnd tries NVIDIA's EGL before Mesa's, so on a hybrid laptop the shell
+    # would load NVIDIA's driver (about 9 MB) while drawing on the integrated GPU. Use Mesa alone when the
+    # GPU Hyprland renders on is a Mesa one; never otherwise, where it would mean software rendering.
+    sysfs=${SHALE_SYSFS:-/sys} vendors=${SHALE_EGL_VENDORS:-/usr/share/glvnd/egl_vendor.d}
+    if [ -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}${__EGL_VENDOR_LIBRARY_DIRS:-}" ] \
+        && [ -r "$vendors/10_nvidia.json" ] && [ -r "$vendors/50_mesa.json" ]; then
+      # Hyprland renders on the first of AQ_DRM_DEVICES when it is set, otherwise on the boot GPU.
+      card=
+      if [ -n "${AQ_DRM_DEVICES:-}" ]; then
+        node=$(readlink -f "${AQ_DRM_DEVICES%%:*}") || node=
+        [ -n "$node" ] && card=$sysfs/class/drm/${node##*/}
+      else
+        for vga in "$sysfs"/class/drm/card*/device/boot_vga; do
+          read -r boot < "$vga" 2>/dev/null || continue
+          if [ "$boot" = 1 ]; then card=${vga%/device/boot_vga}; break; fi
+        done
+      fi
+      driver=$(readlink -f "$card/device/driver" 2>/dev/null) || driver=
+      case ${card:+${driver##*/}} in
+        i915|xe|amdgpu|radeon|nouveau) export __EGL_VENDOR_LIBRARY_FILENAMES="$vendors/50_mesa.json" ;;
+      esac
+    fi
+    exec quickshell --path "$config" --no-duplicate
+    ;;
   stop) exec systemctl --user stop shale.service ;;
   restart)
     # An update may have changed the unit.

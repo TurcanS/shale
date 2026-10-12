@@ -8,7 +8,6 @@ PanelWindow {
     required property string outputName
     property real reveal: 0
     property string oldImage: ""
-    property string nextImage: ""
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
@@ -26,10 +25,8 @@ PanelWindow {
             ready.restart();
         }
         function onWallpaperFinished(success) {
-            if (ShellState.wallpaperChange.monitor === root.outputName) {
-                root.nextImage = success ? ShellState.wallpaperChange.path : root.oldImage;
+            if (ShellState.wallpaperChange.monitor === root.outputName)
                 fade.restart();
-            }
         }
     }
     Image {
@@ -38,6 +35,8 @@ PanelWindow {
         source: root.oldImage ? "file://" + encodeURIComponent(root.oldImage).replace(/%2F/g, "/") : ""
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
+        // A full-screen image is used once per change; keeping it cached would hold several MB per output.
+        cache: false
         // The output's size, not the window's: the window only gets a size once it is visible, and visibility
         // waits for this image, so tying the two together loops.
         sourceSize: root.screen ? Qt.size(root.screen.width * root.screen.devicePixelRatio, root.screen.height * root.screen.devicePixelRatio) : Qt.size(0, 0)
@@ -56,6 +55,7 @@ PanelWindow {
         to: 0
         duration: Theme.reduced ? 0 : Theme.lowPower ? 140 : 260
         easing.type: Easing.OutCubic
-        onFinished: root.oldImage = root.nextImage
+        // Release the image between changes; the next change loads its own before it starts.
+        onFinished: root.oldImage = ""
     }
 }

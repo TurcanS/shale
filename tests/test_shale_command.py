@@ -87,5 +87,60 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
 
+class RunTests(unittest.TestCase):
+    """`shale run` starts the shell with Mesa's EGL alone only when Hyprland's GPU is a Mesa one."""
+    stub = SessionTests.stub
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        self.home, self.bin, self.log = root / "home", root / "bin", root / "log"
+        self.bin.mkdir()
+        self.sysfs, self.vendors, self.dev = root / "sys", root / "egl", root / "dev/dri"
+        self.vendors.mkdir()
+        for name in ("10_nvidia.json", "50_mesa.json"):
+            (self.vendors / name).write_text("{}")
+        self.dev.mkdir(parents=True)
+        # card0 is the NVIDIA GPU, card1 the integrated Intel one that the firmware booted on.
+        for card, driver, boot in (("card0", "nvidia", "0"), ("card1", "i915", "1")):
+            pci = root / "devices" / card
+            (pci / "drivers").mkdir(parents=True)
+            (pci / "drivers" / driver).mkdir()
+            (pci / "boot_vga").write_text(boot + "\n")
+            (pci / "driver").symlink_to(pci / "drivers" / driver)
+            (self.sysfs / "class/drm" / card).mkdir(parents=True)
+            (self.sysfs / "class/drm" / card / "device").symlink_to(pci)
+            (self.dev / card).write_text("")
+        self.stub("quickshell", 'echo "EGL=${__EGL_VENDOR_LIBRARY_FILENAMES:-}" >> "%s"' % self.log)
+
+    def egl(self, **env):
+        result = subprocess.run(["/bin/sh", str(SHALE), "run"], capture_output=True, text=True,
+                                env={"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "SHALE_SYSFS": str(self.sysfs),
+                                     "SHALE_EGL_VENDORS": str(self.vendors), **env})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.log.read_text().splitlines()
+        self.log.unlink()
+        self.assertEqual(calls[0], f"quickshell --path {self.home}/.config/quickshell/shale --no-duplicate")
+        return calls[1].removeprefix("EGL=")
+
+    def test_mesa_alone_when_hyprland_renders_on_the_integrated_gpu(self):
+        self.assertEqual(self.egl(), f"{self.vendors}/50_mesa.json")
+        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card1:{self.dev}/card0"), f"{self.vendors}/50_mesa.json")
+
+    def test_left_alone_when_hyprland_renders_on_nvidia(self):
+        self.assertEqual(self.egl(AQ_DRM_DEVICES=f"{self.dev}/card0:{self.dev}/card1"), "")
+        (self.sysfs.parent / "devices/card0/boot_vga").write_text("1\n")
+        (self.sysfs.parent / "devices/card1/boot_vga").write_text("0\n")
+        self.assertEqual(self.egl(), "")
+
+    def test_left_alone_without_nvidia_or_with_a_user_choice(self):
+        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_FILENAMES="/custom.json"), "/custom.json")
+        self.assertEqual(self.egl(__EGL_VENDOR_LIBRARY_DIRS="/custom"), "")
+        (self.vendors / "10_nvidia.json").unlink()
+        self.assertEqual(self.egl(), "")
+        self.assertEqual(self.egl(AQ_DRM_DEVICES="/missing/card9"), "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ import operator
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import signal
 import sqlite3
@@ -1465,6 +1466,73 @@ async def keep_clipboard_history(clipboard, interval=30):
             print("Clipboard history: could not start a watcher:", error.strerror or error, file=sys.stderr, flush=True)
         await asyncio.sleep(interval)
 
+class BacklightWatch:
+    """Calls `changed` when the kernel announces a new brightness for a backlight. Every change made through
+    sysfs (brightnessctl, logind) or by brightness hotkeys is announced on actual_brightness."""
+    def __init__(self, device, changed):
+        self.device, self.changed, self.closed, self.poll = device, changed, False, None
+        self.file = open(device / "actual_brightness", "rb", buffering=0)
+        try:
+            self.file.read()  # a sysfs file's notice is armed by reading it
+            self.poll = select.epoll()
+            self.poll.register(self.file.fileno(), select.EPOLLPRI | select.EPOLLERR)
+            asyncio.get_running_loop().add_reader(self.poll.fileno(), self.ready)
+        except BaseException:
+            if self.poll:
+                self.poll.close()
+            self.file.close()
+            raise
+
+    def ready(self):
+        try:
+            self.poll.poll(0)
+            # Reading again re-arms the notice; without it the file stays ready and this would spin.
+            self.file.seek(0)
+            self.file.read()
+        except OSError:
+            self.close()  # the device went away; the watcher looks for it again
+        self.changed()
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        asyncio.get_running_loop().remove_reader(self.poll.fileno())
+        self.poll.close()
+        self.file.close()
+
+
+async def watch_brightness(backend, recheck=10, poll=1, unavailable=30):
+    """Reports the backlight level as it changes: on the kernel's notice where it gives one, otherwise by
+    polling every `poll` seconds. The slow `recheck` covers drivers that change it without a notice."""
+    previous, watch, changed = None, None, asyncio.Event()
+    try:
+        while True:
+            value = backend.brightness()
+            if value != previous:
+                emit("brightness", {**value, "initial": previous is None})
+                previous = value
+            device = backend.BACKLIGHT / value["device"] if value["available"] else None
+            if watch and (watch.closed or watch.device != device):
+                watch.close()
+                watch = None
+            if device and not watch:
+                try:
+                    watch = BacklightWatch(device, changed.set)
+                except OSError:
+                    pass
+            changed.clear()
+            # Machines without a backlight rarely gain one; check far less often.
+            delay = recheck if watch else poll if device else unavailable
+            try:
+                await asyncio.wait_for(changed.wait(), delay)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        if watch:
+            watch.close()
+
+
 async def watch_with_retries(name, setup, delays=(5, 10, 30, 60, 120, 300)):
     """Sets up a D-Bus watch, again after each delay while it fails: the service may start after the shell."""
     for delay in (0, *delays):
@@ -1540,16 +1608,6 @@ async def main():
             response = {"id": identity, "ok": False, "error": {"code": code, "message": message}}
         print(json.dumps(response, ensure_ascii=False), flush=True)
 
-    async def brightness_watch():
-        previous = None
-        while True:
-            value = backend.brightness()
-            if value != previous:
-                emit("brightness", {**value, "initial": previous is None})
-                previous = value
-            # Machines without a backlight rarely gain one; check far less often.
-            await asyncio.sleep(1 if value["available"] else 30)
-
     async def keep_equalizer():
         backend.equalizer.reap_stale()
         # PipeWire may still be starting with the session: a few attempts over about 30 seconds.
@@ -1569,7 +1627,7 @@ async def main():
         os.kill(os.getpid(), signal.SIGTERM)
 
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, terminate)
-    watcher = asyncio.create_task(brightness_watch())
+    watcher = asyncio.create_task(watch_brightness(backend))
     equalizer_keeper = asyncio.create_task(keep_equalizer())
     session_watcher = asyncio.create_task(watch_with_retries("Session watch", watch_session))
     power_watcher = asyncio.create_task(watch_with_retries("Power profile watch", watch_power))
