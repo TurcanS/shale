@@ -1,9 +1,11 @@
 """System monitor samples from /proc and /sys: CPU, memory, disks, network, GPUs, temperatures and fans.
 
 The sampler keeps the previous counters, so each sample reports rates since the last one (zero the first time, and
-after a pause such as the panel being closed). Nothing here wakes a device that is runtime-suspended.
+after a pause). It also keeps the last few minutes of what the graphs show, filled by a cheap background tick while
+the panel is closed, so the panel opens on recent history. Nothing here wakes a device that is runtime-suspended.
 Everything is read from the paths it is given, so tests run it against a fake tree."""
 import asyncio
+import collections
 import os
 from pathlib import Path
 import time
@@ -40,6 +42,18 @@ def label(text):
     return " ".join(words)
 
 
+def gpu_level(gpu):
+    """What a GPU's graph shows: its usage, else Intel's clock as a share of its maximum. 0 asleep, None when unknown
+    (an NVIDIA card that isn't being queried)."""
+    if gpu["state"] == "asleep":
+        return 0
+    if gpu["usage"] is not None:
+        return gpu["usage"]
+    if gpu["frequency"] is not None and gpu["frequencyMax"]:
+        return round(100 * gpu["frequency"] / gpu["frequencyMax"], 1)
+    return None
+
+
 def gpu_name(vendor_id, device_id, pci_ids):
     """'GeForce RTX 3050 Mobile' for 10de:25a5, from hwdata's pci.ids; a plain vendor name otherwise."""
     vendor = {"nvidia": "NVIDIA", "amd": "AMD", "intel": "Intel"}.get(VENDORS.get(vendor_id, ""), "")
@@ -65,20 +79,25 @@ def gpu_name(vendor_id, device_id, pci_ids):
 
 class Sampler:
     def __init__(self, proc=Path("/proc"), sys=Path("/sys"), run=None, clock=time.monotonic, statvfs=os.statvfs,
-                 pci_ids=Path("/usr/share/hwdata/pci.ids"), nvidia_interval=2.0, sensor_interval=3.0, max_gap=5.0):
+                 pci_ids=Path("/usr/share/hwdata/pci.ids"), nvidia_interval=2.0, sensor_interval=3.0, max_gap=10.0, window=300.0):
         self.proc, self.sys, self.run, self.clock, self.statvfs = Path(proc), Path(sys), run, clock, statvfs
         self.pci_ids, self.nvidia_interval, self.sensor_interval, self.max_gap = pci_ids, nvidia_interval, sensor_interval, max_gap
+        self.window = window
+        # Graph series ("cpu", "disk:nvme0n1", "net-rx:wlan0"…) → (time, value), oldest first. None breaks the line.
+        self.history = {}
+        self.sampled = None
         self.previous = None
         self.names = {}
         self.nvidia = (None, {})
         self.cached_sensors = (None, None)
         self.lock = asyncio.Lock()
 
-    async def sample(self, nvidia=False):
-        """One sample. `nvidia` asks nvidia-smi for usage too: every query resets the card's idle timer, so the
-        panel only asks while that GPU is the one on screen."""
+    async def sample(self, nvidia=False, history=False):
+        """One sample, with the graph values it added as `recorded`, and every kept graph point as `history` when
+        asked. `nvidia` asks nvidia-smi for usage too: every query resets the card's idle timer, so the panel only
+        asks while that GPU is the one on screen."""
         async with self.lock:
-            now = self.clock()
+            now = self.sampled = self.clock()
             # Plain file reads, but an NVMe temperature takes a drive command (~25 ms): off the event loop.
             result = await asyncio.to_thread(self.collect, now)
             for gpu in result["gpus"]:
@@ -87,24 +106,71 @@ class Sampler:
                 if nvidia and gpu["vendor"] == "nvidia" and gpu["state"] == "active" \
                         and read(Path(device) / "power/runtime_status", "active") != "suspended":
                     gpu.update((await self.nvidia_values(now)).get(bus, {}))
+            result["time"], result["recorded"] = self.record(now, result)
+            if history:
+                result["history"] = {key: list(points) for key, points in self.history.items()}
             return result
 
-    def collect(self, now):
+    async def tick(self, interval):
+        """Background sampling while the panel is closed: only the cheap counters the graphs need, never sensors,
+        mounts or nvidia-smi. Skipped while the panel is sampling on its own (every second or two)."""
+        async with self.lock:
+            now = self.clock()
+            if self.sampled is not None and 0 <= now - self.sampled < 3:
+                return False
+            self.record(now, self.collect(now, full=False))
+            return True
+
+    def record(self, now, result):
+        """Adds this sample's graph values to the history and drops what has scrolled out of the window."""
+        values = {"cpu": result["cpu"]["usage"],
+                  "memory": round(100 * result["memory"]["used"] / result["memory"]["total"], 1) if result["memory"]["total"] else None}
+        for disk in result["disks"]:
+            values["disk:" + disk["name"]] = disk["busy"]
+        for link in result["network"]:
+            values["net-rx:" + link["name"]], values["net-tx:" + link["name"]] = link["rx"], link["tx"]
+        for gpu in result["gpus"]:
+            values["gpu:" + gpu["id"]] = gpu_level(gpu)
+        # Rates restarted (first sample, or after the lock screen or suspend): break every line instead of drawing
+        # a dip to zero or a straight line across the gap.
+        if not result.pop("fresh"):
+            values = dict.fromkeys(values)
+        time, cutoff = round(now, 2), now - self.window
+        for key, value in values.items():
+            self.history.setdefault(key, collections.deque(maxlen=512)).append((time, value))
+        for key in list(self.history):
+            points = self.history[key]
+            while points and points[0][0] < cutoff:
+                points.popleft()
+            if not points:
+                del self.history[key]
+        return time, values
+
+    def collect(self, now, full=True):
         counters = {"cpu": self.cpu_times(), "disks": self.disk_counters(), "network": self.net_counters()}
         previous, elapsed = self.previous, 0.0
         # After a pause the counters span the whole gap; start over instead of reporting its average.
-        if previous and now - previous[0] > self.max_gap:
+        if previous and (now - previous[0] > self.max_gap or now < previous[0]):
             previous = None
         if previous:
             elapsed = max(0.0, now - previous[0])
-        self.previous = (now, counters)
+        # Rates over a fraction of a second are mostly noise (a tick just before the panel's sample): measure
+        # those against the older counters, and keep them for the next sample too.
+        if not previous or elapsed >= 0.5:
+            self.previous = (now, counters)
         before = previous[1] if previous else None
+        if not full:
+            nothing = {"cpu": None, "devices": {}, "fans": {}}
+            return {"fresh": before is not None, "cpu": {"usage": self.usage(counters["cpu"], before and before["cpu"], "cpu")},
+                    "memory": self.memory(), "disks": self.disks(counters["disks"], before and before["disks"], elapsed, nothing, full=False),
+                    "network": self.network(counters["network"], before and before["network"], elapsed), "gpus": self.gpus(nothing)}
         checked, sensors = self.cached_sensors
         if checked is None or now - checked >= self.sensor_interval:
             sensors = self.sensors()
             self.cached_sensors = (now, sensors)
         return {
             "time": now,
+            "fresh": before is not None,
             "uptime": self.uptime(),
             "cpu": self.cpu(counters["cpu"], before and before["cpu"], sensors),
             "memory": self.memory(),
@@ -131,12 +197,14 @@ class Sampler:
                 times[name] = (sum(values), values[3] + values[4])
         return times
 
+    def usage(self, times, before, name):
+        if not before or name not in before or name not in times:
+            return 0.0
+        total, idle = times[name][0] - before[name][0], times[name][1] - before[name][1]
+        return round(max(0.0, min(100.0, 100.0 * (total - idle) / total)), 1) if total > 0 else 0.0
+
     def cpu(self, times, before, sensors):
-        def usage(name):
-            if not before or name not in before or name not in times:
-                return 0.0
-            total, idle = times[name][0] - before[name][0], times[name][1] - before[name][1]
-            return round(max(0.0, min(100.0, 100.0 * (total - idle) / total)), 1) if total > 0 else 0.0
+        usage = lambda name: self.usage(times, before, name)
         cores = sorted((name for name in times if name != "cpu"), key=lambda name: int(name[3:]) if name[3:].isdigit() else 0)
         if "model" not in self.names:
             model = ""
@@ -228,8 +296,8 @@ class Sampler:
                 result.setdefault(disk, []).append({"path": path, "total": total, "used": (stat.f_blocks - stat.f_bfree) * stat.f_frsize})
         return result
 
-    def disks(self, counters, before, elapsed, sensors):
-        mounts = self.mounts()
+    def disks(self, counters, before, elapsed, sensors, full=True):
+        mounts = self.mounts() if full else {}
         disks = []
         for name, (_, _, ticks) in sorted(counters.items()):
             rate = lambda index: round((counters[name][index] - before[name][index]) / elapsed) if before and name in before and elapsed > 0 else 0

@@ -5,15 +5,22 @@ import "../core"
 import "../components" as C
 
 // Live system usage: CPU, memory, disks, network and GPUs. The helper is sampled once a second (every two in
-// power saver) only while this panel is open; the graphs keep the last minute.
+// power saver) while this panel is open. The helper also keeps the graphs' last five minutes, sampled every two
+// seconds (four in power saver) while the panel is closed and not at all while locked, so the panel opens on them.
 // `mode` leaves room for more views, such as processes; the tab row appears once there is more than one.
 FocusScope {
     id: root
     property string mode: "performance"
     readonly property var modes: [{key: "performance", title: "Performance"}]
     property var sample: null
+    // Graph series → [time, value] pairs, oldest first; appended to in place, with `revision` bumped for redraws.
     property var history: ({})
-    readonly property int capacity: 60
+    property int revision: 0
+    property real now: 0
+    readonly property int window: 300
+    readonly property int span: ShellState.setting("systemWindow", 60) === 300 ? 300 : 60
+    // The first sample brings the helper's history; later ones add a point each.
+    property bool needsHistory: true
     property string selected: "cpu"
     property bool alive: true
     property bool waiting: false
@@ -38,7 +45,7 @@ FocusScope {
         const request = ++generation;
         // nvidia-smi keeps an NVIDIA card awake, so its usage is only asked for while that card is on screen.
         const nvidia = !!current && current.kind === "gpu" && current.item.vendor === "nvidia";
-        Backend.request("system.sample", {nvidia: nvidia}, (result, failure) => {
+        Backend.request("system.sample", {nvidia: nvidia, history: needsHistory}, (result, failure) => {
             if (!alive || request !== generation)
                 return;
             waiting = false;
@@ -60,37 +67,44 @@ FocusScope {
     Connections {
         target: Backend
         function onReadyChanged() {
-            if (Backend.ready)
+            if (Backend.ready) {
+                // A restarted helper has its own history.
+                root.needsHistory = true;
                 root.poll();
+            }
         }
     }
 
-    // One history list per series, newest last.
+    // Arrays are extended in place rather than copied each second; a new or vanished series replaces the map.
     function absorb(next) {
-        const kept = {};
-        const add = (key, value) => kept[key] = (history[key] || []).concat([Math.max(0, value || 0)]).slice(-capacity);
-        add("cpu", next.cpu.usage);
-        add("memory", next.memory.total > 0 ? 100 * next.memory.used / next.memory.total : 0);
-        for (const disk of next.disks) {
-            add("disk:" + disk.name, disk.busy);
-            add("disk-read:" + disk.name, disk.read);
-            add("disk-write:" + disk.name, disk.write);
+        if (next.history) {
+            history = next.history;
+            needsHistory = false;
+        } else {
+            const cutoff = next.time - window;
+            let changed = false;
+            for (const key in next.recorded) {
+                if (!history[key]) {
+                    history[key] = [];
+                    changed = true;
+                }
+                history[key].push([next.time, next.recorded[key]]);
+            }
+            for (const key in history) {
+                const points = history[key];
+                while (points.length && points[0][0] < cutoff)
+                    points.shift();
+                if (!points.length) {
+                    delete history[key];
+                    changed = true;
+                }
+            }
+            if (changed)
+                history = Object.assign({}, history);
         }
-        for (const link of next.network) {
-            add("net-rx:" + link.name, link.rx);
-            add("net-tx:" + link.name, link.tx);
-        }
-        for (const gpu of next.gpus)
-            add("gpu:" + gpu.id, gpuLevel(gpu));
-        history = kept;
+        now = next.time;
+        revision++;
         sample = next;
-    }
-    function gpuLevel(gpu) {
-        if (gpu.state === "asleep")
-            return 0;
-        if (gpu.usage !== null && gpu.usage !== undefined)
-            return gpu.usage;
-        return gpu.frequency !== null && gpu.frequencyMax ? 100 * gpu.frequency / gpu.frequencyMax : 0;
     }
 
     function bytes(value) {
@@ -115,12 +129,16 @@ FocusScope {
         const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600), minutes = Math.floor(seconds % 3600 / 60);
         return days > 0 ? days + " d " + hours + " h" : hours > 0 ? hours + " h " + minutes + " min" : minutes + " min";
     }
-    // Throughput graphs scale to the busiest moment of the last minute, never below 64 KB/s.
-    function scaleFor(series) {
+    // Throughput graphs scale to the busiest moment on screen, never below 64 KB/s.
+    function scaleFor(series, seconds, revision) {
         let top = 65536;
-        for (const key of series)
-            for (const value of history[key] || [])
-                top = Math.max(top, value * 1.15);
+        const start = now - seconds;
+        for (const key of series) {
+            const points = history[key] || [];
+            for (let i = points.length - 1; i >= 0 && points[i][0] >= start; i--)
+                if (points[i][1] !== null)
+                    top = Math.max(top, points[i][1] * 1.15);
+        }
         return top;
     }
 
@@ -130,7 +148,8 @@ FocusScope {
             return [];
         const list = [];
         if (s.cpu.available)
-            list.push({key: "cpu", kind: "cpu", title: "CPU", subtitle: s.cpu.frequency ? (s.cpu.frequency / 1000).toFixed(2) + " GHz" : s.cpu.cores.length + " threads",
+            list.push({key: "cpu", kind: "cpu", title: "CPU", subtitle: (s.cpu.frequency ? (s.cpu.frequency / 1000).toFixed(2) + " GHz" : s.cpu.cores.length + " threads")
+                           + (s.cpu.temperature !== null && s.cpu.temperature !== undefined ? " · " + temperature(s.cpu.temperature) : ""),
                        value: percent(s.cpu.usage), series: ["cpu"], color: Theme.accent, model: s.cpu.model});
         if (s.memory.available)
             list.push({key: "memory", kind: "memory", title: "Memory", subtitle: bytes(s.memory.used) + " / " + bytes(s.memory.total),
@@ -358,8 +377,10 @@ FocusScope {
                                 anchors.margins: 1
                                 values: root.history[row.resource.series[0]] || []
                                 secondary: row.resource.series.length > 1 ? root.history[row.resource.series[1]] || [] : []
-                                maximum: row.resource.scaled ? root.scaleFor(row.resource.series) : 100
-                                capacity: root.capacity
+                                maximum: row.resource.scaled ? root.scaleFor(row.resource.series, 60, root.revision) : 100
+                                span: 60
+                                end: root.now
+                                revision: root.revision
                                 color: row.resource.color
                                 lineWidth: 1.2
                             }
@@ -416,7 +437,20 @@ FocusScope {
                             Caption {
                                 Layout.leftMargin: 8
                                 font.family: Theme.mono
-                                text: !root.current ? "" : root.current.scaled ? root.rate(root.scaleFor(root.current.series)) : "100 %"
+                                text: !root.current ? "" : root.current.scaled ? root.rate(root.scaleFor(root.current.series, root.span, root.revision)) : "100 %"
+                            }
+                            Repeater {
+                                model: [{seconds: 60, text: "1 min"}, {seconds: 300, text: "5 min"}]
+                                C.Button {
+                                    required property var modelData
+                                    text: modelData.text
+                                    flat: true
+                                    selected: root.span === modelData.seconds
+                                    implicitHeight: 22
+                                    Layout.leftMargin: modelData.seconds === 60 ? 8 : 0
+                                    Accessible.name: "Show the last " + (modelData.seconds === 60 ? "minute" : "5 minutes")
+                                    onClicked: ShellState.setSetting("systemWindow", modelData.seconds)
+                                }
                             }
                         }
                         Item {
@@ -443,15 +477,17 @@ FocusScope {
                                 anchors.fill: parent
                                 values: root.current ? root.history[root.current.series[0]] || [] : []
                                 secondary: root.current && root.current.series.length > 1 ? root.history[root.current.series[1]] || [] : []
-                                maximum: root.current && root.current.scaled ? root.scaleFor(root.current.series) : 100
-                                capacity: root.capacity
+                                maximum: root.current && root.current.scaled ? root.scaleFor(root.current.series, root.span, root.revision) : 100
+                                span: root.span
+                                end: root.now
+                                revision: root.revision
                                 color: root.current ? root.current.color : Theme.accent
                                 lineWidth: 2
                             }
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Caption { text: "60 seconds"; color: Theme.disabled; Layout.fillWidth: true }
+                            Caption { text: root.span === 300 ? "5 minutes ago" : "1 minute ago"; color: Theme.disabled; Layout.fillWidth: true }
                             Caption { text: "Now"; color: Theme.disabled }
                         }
                     }
@@ -576,7 +612,7 @@ FocusScope {
     // Fixed data for check-ui screenshots.
     function loadPreview(detail) {
         const bare = detail === "bare", asleep = detail === "gpu-asleep";
-        const make = (base, swing, phase) => Array.from({length: capacity}, (_, i) => Math.max(0, base + swing * Math.sin(i / 5 + phase) + swing / 2 * Math.sin(i / 2.3 + phase * 2)));
+        const make = (base, swing, phase) => Array.from({length: window + 1}, (_, i) => [i, Math.max(0, base + swing * Math.sin(i / 5 + phase) + swing / 2 * Math.sin(i / 2.3 + phase * 2))]);
         const next = {
             time: 0, uptime: 93784,
             cpu: {available: !bare, model: "11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz", usage: 23, cores: [31, 12, 45, 8, 22, 17, 60, 5, 14, 28, 9, 33],
@@ -596,6 +632,7 @@ FocusScope {
         history = {"cpu": make(24, 10, 0), "memory": make(37, 1.5, 1), "disk:nvme0n1": make(4, 4, 2), "disk:nvme1n1": make(1, 1, 3),
                    "net-rx:wlan0": make(1600000, 1200000, 4), "net-tx:wlan0": make(160000, 120000, 5),
                    "gpu:card0": asleep ? make(0, 0, 0) : make(40, 15, 6), "gpu:card1": make(40, 20, 7)};
+        now = window;
         sample = next;
         selected = ({memory: "memory", disk: "disk:nvme0n1", network: "net:wlan0", gpu: "gpu:card0", "gpu-asleep": "gpu:card0"})[detail] || "cpu";
     }

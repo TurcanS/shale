@@ -23,7 +23,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Lock screen** with PAM (ext-session-lock); hyprlock as an alternative.
 - **Capture**: screenshots, screen recording with system audio or microphone, color picker.
 - **Activity**: opt-in, local-only app usage history with a yearly heatmap.
-- **System monitor**: live CPU, memory, disks, network, GPUs, temperatures and fans (Ctrl+Shift+Esc). A sleeping laptop GPU is left asleep.
+- **System monitor**: live CPU, memory, disks, network, GPUs, temperatures and fans (Ctrl+Shift+Esc), with the last five minutes already graphed when it opens. A sleeping laptop GPU is left asleep.
 
 ## Requirements
 

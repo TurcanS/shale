@@ -84,9 +84,10 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_system_sample_reports_every_section(self):
         first = await self.backend.dispatch("system.sample", {})
-        second = await self.backend.dispatch("system.sample", {})
-        self.assertEqual(set(first), {"time", "uptime", "cpu", "memory", "disks", "network", "gpus", "fans"})
+        second = await self.backend.dispatch("system.sample", {"history": True})
+        self.assertEqual(set(first), {"time", "uptime", "cpu", "memory", "disks", "network", "gpus", "fans", "recorded"})
         self.assertGreaterEqual(second["time"], first["time"])
+        self.assertEqual(len(second["history"]["cpu"]), 2)
         self.assertTrue(all("bus" not in gpu and "device" not in gpu for gpu in second["gpus"]))
 
     async def test_grayscale_lua_toggle_and_restore(self):

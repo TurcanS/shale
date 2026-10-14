@@ -193,6 +193,15 @@ ShellRoot {
         input.keyClick(Qt.Key_Home);
         input.keyClick(Qt.Key_Up);
         check(page.selected === "cpu", "Selection stops at the first resource");
+        check(page.history.cpu.every(point => point.length === 2 && point[0] <= page.now), "System history is timed points up to the latest sample");
+        const longer = findButton(page, "5 min"), shorter = findButton(page, "1 min");
+        check(!!longer && !!shorter && shorter.selected && page.span === 60, "System graphs start on the last minute");
+        if (!longer || !shorter)
+            return;
+        input.mouseClick(longer);
+        check(page.span === 300 && ShellState.setting("systemWindow", 0) === 300 && longer.selected, "The graph can show the last five minutes");
+        input.mouseClick(shorter);
+        check(page.span === 60, "And back to the last minute");
     }
     function checkTrayMenu() {
         const kinds = () => trayList.rows.map(row => row.kind).join(",");
@@ -482,14 +491,15 @@ ShellRoot {
                 test.busy = true;
                 test.checkSystem(page);
                 test.systemKeys = page.resourceKeys;
-                test.systemSamples = page.history.cpu.length;
+                test.systemSamples = page.revision;
                 test.busy = false;
                 test.step++;
                 break;
             case 11:
-                if (page.history.cpu.length <= test.systemSamples && page.history.cpu.length < page.capacity)
+                if (page.revision <= test.systemSamples)
                     return;
                 test.check(page.resourceKeys === test.systemKeys, "A new sample keeps the resource rows instead of rebuilding them");
+                test.check(page.history.cpu[page.history.cpu.length - 1][0] === page.now, "A new sample extends the kept history in place");
                 console.log("INTERACTION CHECK COMPLETE", test.failures);
                 Qt.quit();
                 break;

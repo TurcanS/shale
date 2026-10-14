@@ -57,7 +57,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "accentColor": "#9ad6c6", "surfaceTone": "charcoal", "accentFromWallpaper": False, "accentManual": "#9ad6c6",
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
             "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin",
-            "recordAudio": "none", "activityTracking": "ask",
+            "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -512,6 +512,8 @@ class Backend:
         self.activity_snapshot = None
         # Keeps the previous counters for the system monitor's rates.
         self.sysmon = sysmon.Sampler(run=run)
+        # Followed by watch_power; slows the system monitor's background sampling.
+        self.power_saver = False
         self.activity_locked = False
         self.activity_sleeping = False
         self.lid_fd = None
@@ -1324,7 +1326,7 @@ class Backend:
             await run("wl-copy", data=value.encode())
             return {"color": value}
         if method == "system.sample":
-            return await self.sysmon.sample(nvidia=p.get("nvidia") is True)
+            return await self.sysmon.sample(nvidia=p.get("nvidia") is True, history=p.get("history") is True)
         if method == "system.stats":
             mem = {}
             for line in Path("/proc/meminfo").read_text().splitlines():
@@ -1466,6 +1468,22 @@ async def keep_clipboard_history(clipboard, interval=30):
             print("Clipboard history: could not start a watcher:", error.strerror or error, file=sys.stderr, flush=True)
         await asyncio.sleep(interval)
 
+async def keep_system_history(backend):
+    """Keeps the system monitor's graphs going while its panel is closed, so it opens on the last few minutes.
+    A few /proc reads every 2 s (4 s in power saver); nothing while the session is locked or suspending."""
+    reported = False
+    while True:
+        interval = 4 if backend.power_saver else 2
+        await asyncio.sleep(interval)
+        if backend.activity_locked or backend.activity_sleeping:
+            continue
+        try:
+            await backend.sysmon.tick(interval)
+        except Exception as error:
+            if not reported:
+                log_unexpected(error, "System history")
+                reported = True
+
 class BacklightWatch:
     """Calls `changed` when the kernel announces a new brightness for a backlight. Every change made through
     sysfs (brightnessctl, logind) or by brightness hotkeys is announced on actual_brightness."""
@@ -1576,8 +1594,10 @@ async def main():
         props = await backend.interface("net.hadess.PowerProfiles", "/net/hadess/PowerProfiles", "org.freedesktop.DBus.Properties")
         def on_properties(interface, changed, _invalidated):
             if "ActiveProfile" in changed:
+                backend.power_saver = changed["ActiveProfile"].value == "power-saver"
                 emit("power.profile", {"active": changed["ActiveProfile"].value})
         props.on_properties_changed(on_properties)
+        backend.power_saver = (await props.call_get("net.hadess.PowerProfiles", "ActiveProfile")).value == "power-saver"
     async def handle(line):
         identity = method = None
         try:
@@ -1632,6 +1652,7 @@ async def main():
     session_watcher = asyncio.create_task(watch_with_retries("Session watch", watch_session))
     power_watcher = asyncio.create_task(watch_with_retries("Power profile watch", watch_power))
     clipboard_keeper = asyncio.create_task(keep_clipboard_history(clipboard))
+    system_keeper = asyncio.create_task(keep_system_history(backend))
     reader = asyncio.StreamReader(limit=1024 * 1024 + 1)
     transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
     try:
@@ -1654,6 +1675,7 @@ async def main():
         session_watcher.cancel()
         power_watcher.cancel()
         clipboard_keeper.cancel()
+        system_keeper.cancel()
         equalizer_keeper.cancel()
         backend.equalizer.stop()
         clipboard.stop()
