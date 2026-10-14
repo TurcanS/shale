@@ -135,6 +135,8 @@ python3 scripts/check-live.py --installed  # against the running shell
 
 To preview one panel in a window: `python3 scripts/check-ui.py --open control` (any panel name).
 
+Spacing, sizes and colors come from `core/Theme.qml`, and shared controls (lists, segmented choices, groups) from `components/`. Icons are outline SVGs in `assets/icons`; after adding or editing one, run `python3 scripts/build-icons.py` to regenerate `core/icons.js`, which lets an icon take any color.
+
 ## Feedback
 
 Bugs and feature requests go in [issues](https://github.com/TurcanS/shale/issues); questions, ideas and screenshots of your setup in [discussions](https://github.com/TurcanS/shale/discussions). Pull requests are welcome; run the checks above first.

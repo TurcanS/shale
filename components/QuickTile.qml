@@ -12,37 +12,27 @@ Button {
     signal detailRequested()
     // Hovering the chevron segment must not also light up the body it doesn't act on.
     readonly property bool bodyActive: root.down || root.visualFocus || (root.hovered && !(split && detailButton.hovered))
-    implicitHeight: Math.max(78, contentItem.implicitHeight + topPadding + bottomPadding)
-    padding: 12
-    rightPadding: split ? detailWidth + 8 : 12
+    implicitHeight: Math.max(78, tileContent.implicitHeight + topPadding + bottomPadding)
+    padding: Theme.gapM
+    rightPadding: split ? detailWidth + Theme.gapS : Theme.gapM
     background: Rectangle {
         radius: Theme.controlRadius
         color: root.selected ? (root.bodyActive ? Theme.selectionHover : Theme.selection) : root.bodyActive ? Theme.hover : Theme.surface
         Behavior on color { ColorAnimation { duration: Theme.fast } }
     }
     contentItem: RowLayout {
-        opacity: root.enabled ? 1 : 0.45
-        spacing: 8
-        Rectangle {
-            Layout.preferredWidth: 32
-            Layout.preferredHeight: 32
-            radius: 12
-            color: root.selected ? Theme.selectionHover : Theme.raised
-            Icon {
-                anchors.centerIn: parent
-                name: root.glyph
-                size: 17
-                invert: false
-            }
-            Behavior on color {
-                ColorAnimation {
-                    duration: Theme.fast
-                }
-            }
+        // Named: contentItem is created late, and a binding through it doesn't see later size changes.
+        id: tileContent
+        opacity: root.enabled ? 1 : Theme.disabledOpacity
+        spacing: Theme.gapS + 2
+        GlyphTile {
+            glyph: root.glyph
+            selected: root.selected
+            glyphColor: root.selected ? Theme.accentText : Theme.text
         }
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 3
+            spacing: 2
             Label {
                 text: root.text
                 color: root.selected ? Theme.accentText : Theme.text

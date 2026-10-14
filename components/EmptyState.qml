@@ -7,23 +7,18 @@ ColumnLayout {
     property string title: "Nothing here yet"
     property string description: ""
     property string glyph: "grid"
-    spacing: 8
-    Rectangle {
-        Layout.preferredWidth: 48
-        Layout.preferredHeight: 48
-        Layout.alignment: Qt.AlignHCenter
-        radius: Theme.controlRadius
+    spacing: Theme.gapS
+    GlyphTile {
+        size: 48
+        glyph: root.glyph
+        glyphColor: Theme.muted
         color: Theme.surface
-        Icon {
-            anchors.centerIn: parent
-            name: root.glyph
-            size: 20
-            opacity: 0.65
-        }
+        radius: Theme.controlRadius
+        Layout.alignment: Qt.AlignHCenter
     }
     Label {
         text: title
-        font.pixelSize: Math.max(16, Theme.body + 2)
+        font.pixelSize: Theme.body + 2
         font.weight: Font.DemiBold
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter

@@ -88,10 +88,10 @@ PopupWindow {
             id: content
             anchors.fill: parent
             anchors.margins: 14
-            spacing: 10
+            spacing: Theme.gapM
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 12
+                spacing: Theme.gapM
                 C.CoverArt {
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 56
@@ -118,7 +118,7 @@ PopupWindow {
             ColumnLayout {
                 visible: !!root.player && root.player.lengthSupported && root.player.positionSupported && root.player.length > 0
                 Layout.fillWidth: true
-                spacing: 3
+                spacing: Theme.gapXs
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 4
@@ -152,7 +152,7 @@ PopupWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 10
+                spacing: Theme.gapM
                 C.Button {
                     glyph: "previous"
                     flat: true
@@ -167,7 +167,7 @@ PopupWindow {
                     glyph: NowPlaying.playing ? "pause" : "play"
                     accent: true
                     implicitWidth: 44
-                    implicitHeight: 44
+                    implicitHeight: Theme.controlLarge
                     cornerRadius: 22
                     hint: NowPlaying.playing ? "Pause" : "Play"
                     enabled: !!root.player && root.player.canTogglePlaying

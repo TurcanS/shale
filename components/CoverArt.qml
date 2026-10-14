@@ -15,7 +15,7 @@ ClippingRectangle {
         visible: !root.ready
         name: "music"
         size: root.glyphSize
-        opacity: 0.7
+        color: Theme.muted
     }
     Image {
         id: cover

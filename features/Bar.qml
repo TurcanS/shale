@@ -10,6 +10,7 @@ import "../components" as C
 PanelWindow {
     id: bar
     component BarButton: C.Button {
+        labelSize: Theme.barText
         implicitHeight: 30
         Layout.maximumHeight: 30
         Layout.alignment: Qt.AlignVCenter
@@ -57,7 +58,7 @@ PanelWindow {
     // One quiet rail gives the independent controls a shared visual baseline.
     Rectangle {
         anchors.fill: parent
-        radius: 10
+        radius: Theme.radiusSmall + 2
         color: Theme.panel
     }
     RowLayout {
@@ -68,7 +69,7 @@ PanelWindow {
             leftMargin: 5
         }
         width: implicitWidth
-        spacing: 8
+        spacing: Theme.gapS
         BarButton {
             glyph: "grid"
             selected: ShellState.panel === "launcher" && ShellState.screenName === bar.outputName
@@ -83,7 +84,7 @@ PanelWindow {
             Layout.fillHeight: true
             clip: true
             orientation: ListView.Horizontal
-            spacing: 4
+            spacing: Theme.gapXs
             boundsBehavior: Flickable.StopAtBounds
             interactive: contentWidth > width
             readonly property int activeId: bar.monitor ? bar.monitor.id : (Services.focusedWorkspace ? Services.focusedWorkspace.id : 1)
@@ -136,7 +137,7 @@ PanelWindow {
                     text: workspaceButton.workspaceName
                     horizontalAlignment: Text.AlignHCenter
                     color: workspaceStrip.activeId === workspaceButton.workspaceId ? Theme.accentText : workspaceButton.urgent ? Theme.warning : Theme.muted
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.barText - 1
                     font.family: Theme.mono
                 }
                 background: Rectangle {
@@ -182,7 +183,7 @@ PanelWindow {
             contentItem: C.Label {
                 text: Services.activeWindow ? Services.activeWindow.title : "Shale"
                 color: Theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Theme.barText
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignLeft
             }
@@ -201,14 +202,14 @@ PanelWindow {
             id: clockMetrics
             text: clockButton.text
             font.family: Theme.mono
-            font.pixelSize: 12
+            font.pixelSize: Theme.barText
         }
         flat: true
         text: Qt.formatDateTime(clock.date, "ddd   " + ShellState.timeFormat)
         contentItem: C.Label {
             text: clockButton.text
             font.family: Theme.mono
-            font.pixelSize: 12
+            font.pixelSize: Theme.barText
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideNone
@@ -224,7 +225,7 @@ PanelWindow {
             bottom: parent.bottom
             rightMargin: 5
         }
-        spacing: 3
+        spacing: Theme.gapXs
         BarButton {
             id: mediaButton
             // Narrow bars keep the cover and visualizer but drop the title.
@@ -243,7 +244,7 @@ PanelWindow {
                 id: mediaHover
             }
             contentItem: RowLayout {
-                spacing: 8
+                spacing: Theme.gapS
                 C.CoverArt {
                     Layout.preferredWidth: 18
                     Layout.preferredHeight: 18
@@ -255,7 +256,7 @@ PanelWindow {
                     visible: mediaButton.wide
                     text: mediaButton.player ? mediaButton.player.trackTitle || mediaButton.player.identity : ""
                     color: NowPlaying.playing || mediaButton.selected ? Theme.text : Theme.muted
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.barText
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                     Layout.maximumWidth: 140
@@ -343,13 +344,13 @@ PanelWindow {
                 RowLayout {
                     id: recordingRow
                     anchors.centerIn: parent
-                    spacing: 6
-                    C.Icon { name: "record"; size: 16; invert: true }
+                    spacing: Theme.gapS
+                    C.Icon { name: "record"; size: 16; color: Theme.background }
                     C.Label {
                         text: "REC " + Math.floor(ShellState.recordingSeconds / 60) + ":" + String(ShellState.recordingSeconds % 60).padStart(2, "0")
                         color: Theme.background
                         font.family: Theme.mono
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.barText
                     }
                 }
             }
@@ -365,9 +366,9 @@ PanelWindow {
                    sharing ? "Sharing your screen with " + Services.screenSharers.join(", ") : ""].filter(line => line).join("\n")
             tooltip: barTooltip
             contentItem: Row {
-                spacing: 4
-                C.Icon { visible: privacyButton.mic; name: "mic"; size: 16; invert: true; anchors.verticalCenter: parent.verticalCenter }
-                C.Icon { visible: privacyButton.sharing; name: "cast"; size: 16; invert: true; anchors.verticalCenter: parent.verticalCenter }
+                spacing: Theme.gapXs
+                C.Icon { visible: privacyButton.mic; name: "mic"; size: 16; color: Theme.background; anchors.verticalCenter: parent.verticalCenter }
+                C.Icon { visible: privacyButton.sharing; name: "cast"; size: 16; color: Theme.background; anchors.verticalCenter: parent.verticalCenter }
             }
             onClicked: bar.toggleControl("audio")
         }

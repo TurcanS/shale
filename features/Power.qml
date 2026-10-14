@@ -6,6 +6,9 @@ import QtQuick.Layouts
 
 FocusScope {
     id: root
+    readonly property string title: "Session"
+    readonly property int panelWidth: 440
+    readonly property int panelHeight: Theme.body >= 18 ? 470 : 440
 
     property bool leaving: false
 
@@ -32,20 +35,18 @@ FocusScope {
 
         ColumnLayout {
             width: scroll.availableWidth
-            spacing: 8
+            spacing: Theme.gapS
 
-            Rectangle {
+            C.Card {
                 visible: ShellState.recording.active
                 Layout.fillWidth: true
-                implicitHeight: recordingWarning.implicitHeight + 24
-                radius: Theme.controlRadius
-                color: Theme.surface
+                implicitHeight: recordingWarning.implicitHeight + 2 * Theme.gapM
                 RowLayout {
                     id: recordingWarning
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 8
-                    C.Icon { name: "record"; size: 18 }
+                    anchors.margins: Theme.gapM
+                    spacing: Theme.gapS
+                    C.Icon { name: "record"; color: Theme.warning }
                     C.Label {
                         text: "Recording in progress · save it before ending your session"
                         color: Theme.warning
@@ -57,12 +58,12 @@ FocusScope {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.gapS
 
                 C.Button {
                     text: "Lock"
                     glyph: "lock"
-                    implicitHeight: 46
+                    implicitHeight: Theme.controlLarge
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     enabled: !root.leaving
@@ -72,7 +73,7 @@ FocusScope {
                 C.Button {
                     text: "Suspend"
                     glyph: "moon"
-                    implicitHeight: 46
+                    implicitHeight: Theme.controlLarge
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     enabled: !root.leaving
@@ -81,14 +82,9 @@ FocusScope {
 
             }
 
-            C.Label {
+            C.SectionHeader {
                 text: "Hold to end session"
-                color: Theme.muted
-                Layout.topMargin: 16
-                Layout.bottomMargin: 4
-                font.pixelSize: Theme.small
-                font.weight: Font.Medium
-                Layout.fillWidth: true
+                Layout.topMargin: Theme.gapS
             }
 
             Repeater {

@@ -7,6 +7,9 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Activity"
+    readonly property int panelWidth: 720
+    readonly property int panelHeight: 620
     readonly property int graphWeeks: width < 520 ? 26 : 53
     property string mode: "overview"
     property string selectedDate: today()
@@ -339,35 +342,10 @@ FocusScope {
         }
         C.Icon { anchors.fill: parent; visible: appImage.status !== Image.Ready; name: "window"; size: glyph.size }
     }
-    component Card: Rectangle {
-        color: Theme.surface
-        radius: Theme.controlRadius
-    }
-    component Caption: C.Label {
-        font.pixelSize: Theme.caption
-        color: Theme.muted
-    }
     component Swatch: Rectangle {
         Layout.preferredWidth: 9
         Layout.preferredHeight: 9
         radius: 2
-    }
-    component Stat: Card {
-        id: stat
-        property string label: ""
-        property string value: ""
-        property string note: ""
-        Layout.fillWidth: true
-        Layout.preferredWidth: 1
-        Layout.preferredHeight: 64
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 10
-            spacing: 1
-            C.Label { text: stat.label; font.pixelSize: Theme.small; color: Theme.muted; Layout.fillWidth: true; elide: Text.ElideRight }
-            C.Label { text: stat.value; font.family: Theme.mono; font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-            Caption { text: stat.note; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
-        }
     }
     component ColumnChart: Item {
         id: chart
@@ -439,7 +417,7 @@ FocusScope {
         spacing: 0
         Repeater {
             model: ["00", "06", "12", "18", "24"]
-            Caption {
+            C.Caption {
                 required property string modelData
                 required property int index
                 text: modelData
@@ -454,20 +432,17 @@ FocusScope {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.gapM
         RowLayout {
             visible: root.tracking === "on"
             Layout.fillWidth: true
-            spacing: 5
-            Repeater {
-                model: [{id: "overview", text: "Overview"}, {id: "day", text: "Day"}, {id: "apps", text: "Apps"}]
-                C.Button {
-                    required property var modelData
-                    text: modelData.text
-                    selected: root.mode === modelData.id
-                    implicitWidth: 92
-                    onClicked: { root.mode = modelData.id; if (modelData.id !== "apps") root.appDetail = ""; }
-                }
+            spacing: Theme.gapS
+            C.Segmented {
+                fill: false
+                Layout.preferredWidth: 300
+                model: [{key: "overview", text: "Overview"}, {key: "day", text: "Day"}, {key: "apps", text: "Apps"}]
+                current: root.mode
+                onActivated: key => { root.mode = key; if (key !== "apps") root.appDetail = ""; }
             }
             Item { Layout.fillWidth: true }
             C.Label {
@@ -490,7 +465,7 @@ FocusScope {
             ColumnLayout {
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 440)
-                spacing: 16
+                spacing: Theme.gapL
                 C.EmptyState {
                     Layout.fillWidth: true
                     glyph: "activity"
@@ -498,7 +473,7 @@ FocusScope {
                     description: root.tracking === "off" ? "Nothing is being recorded. Turn it on to see your active time, your daily rhythm and the apps you use."
                         : "Shale can keep a private record of your time at this computer, so you can look back on your days and the apps you spend them in."
                 }
-                Card {
+                C.Card {
                     visible: root.tracking !== "off"
                     Layout.fillWidth: true
                     implicitHeight: facts.implicitHeight + 28
@@ -508,7 +483,7 @@ FocusScope {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 14
-                        spacing: 10
+                        spacing: Theme.gapM
                         Repeater {
                             model: [
                                 {glyph: "activity", text: "Records how long you use each app, and when you're active, watching or idle"},
@@ -519,8 +494,8 @@ FocusScope {
                             RowLayout {
                                 required property var modelData
                                 Layout.fillWidth: true
-                                spacing: 10
-                                C.Icon { name: parent.modelData.glyph; size: 16; opacity: 0.7; Layout.alignment: Qt.AlignTop }
+                                spacing: Theme.gapM
+                                C.Icon { name: parent.modelData.glyph; size: 16; color: Theme.muted; Layout.alignment: Qt.AlignTop }
                                 C.Label { text: parent.modelData.text; font.pixelSize: Theme.small; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                             }
                         }
@@ -528,7 +503,7 @@ FocusScope {
                 }
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.Button {
                         visible: root.tracking !== "off"
                         text: "Not now"
@@ -558,26 +533,26 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent
                 visible: root.mode === "overview"
-                spacing: 8
+                spacing: Theme.gapS
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 9
-                    Stat {
+                    spacing: Theme.gapS
+                    C.Stat {
                         label: "Today"
                         value: root.formatTime(root.insights.today)
                         note: root.insights.average7 ? root.delta(root.insights.today, root.insights.average7) + " vs 7-day average" : "Active time so far"
                     }
-                    Stat {
+                    C.Stat {
                         label: "This week"
                         value: root.formatTime(root.insights.thisWeek)
                         note: root.insights.lastWeek ? root.delta(root.insights.thisWeek, root.insights.lastWeek) + " vs last week" : "Since " + Qt.locale().dayName(root.weekStart || 7, Locale.LongFormat)
                     }
-                    Stat {
+                    C.Stat {
                         label: "Daily average"
                         value: root.insights.average30 === null || root.insights.average30 === undefined ? "–" : root.formatTime(root.insights.average30)
                         note: "Last 30 days"
                     }
-                    Stat {
+                    C.Stat {
                         label: "Streak"
                         value: (root.insights.streak || 0) + ((root.insights.streak || 0) === 1 ? " day" : " days")
                         note: "Best " + (root.insights.longestStreak || 0) + " · 15m+ a day"
@@ -585,13 +560,13 @@ FocusScope {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: Theme.gapXs
                     C.Label { text: "Your year, in moments"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
-                    Caption { text: root.heatRange; color: Theme.disabled; Layout.rightMargin: 4 }
+                    C.Caption { text: root.heatRange; color: Theme.disabled; Layout.rightMargin: 4 }
                     C.Button { glyph: "back"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatHasEarlier; hint: "Earlier"; onClicked: root.heatPage++ }
                     C.Button { glyph: "chevron"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatPage > 0; hint: "Later"; onClicked: root.heatPage-- }
                 }
-                Card {
+                C.Card {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 106
                     border.width: heatmap.activeFocus ? 1.5 : 0
@@ -599,13 +574,13 @@ FocusScope {
                     RowLayout {
                         anchors.fill: parent
                         anchors.margins: 10
-                        spacing: 8
+                        spacing: Theme.gapS
                         ColumnLayout {
                             Layout.preferredWidth: 14
-                            spacing: 3
+                            spacing: Theme.gapXs
                             Repeater {
                                 model: [0, 1, 2, 3, 4, 5, 6].map(row => row % 2 === 0 && row < 6 ? Qt.locale().dayName(((root.weekStart + row) % 7) || 7, Locale.NarrowFormat) : "")
-                                Caption { required property string modelData; text: modelData; font.family: Theme.mono; color: Theme.disabled; Layout.preferredHeight: 10; verticalAlignment: Text.AlignVCenter }
+                                C.Caption { required property string modelData; text: modelData; font.family: Theme.mono; color: Theme.disabled; Layout.preferredHeight: 10; verticalAlignment: Text.AlignVCenter }
                             }
                         }
                         GridLayout {
@@ -615,8 +590,8 @@ FocusScope {
                             columns: root.graphWeeks
                             rows: 7
                             flow: GridLayout.TopToBottom
-                            columnSpacing: 3
-                            rowSpacing: 3
+                            columnSpacing: Theme.gapXs
+                            rowSpacing: Theme.gapXs
                             // One tab stop: columns are weeks, so Left and Right move a week, Up and Down a day.
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Table
@@ -663,14 +638,14 @@ FocusScope {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
-                    Caption { text: "Less"; color: Theme.disabled }
+                    spacing: Theme.gapXs
+                    C.Caption { text: "Less"; color: Theme.disabled }
                     Repeater {
                         model: [Theme.raised, Theme.activityLevel1, Theme.activityLevel2, Theme.activityLevel3, Theme.accent]
                         Rectangle { required property color modelData; width: 10; height: 10; radius: 2; color: modelData }
                     }
-                    Caption { text: "More"; color: Theme.disabled; Layout.fillWidth: true }
-                    Caption {
+                    C.Caption { text: "More"; color: Theme.disabled; Layout.fillWidth: true }
+                    C.Caption {
                         readonly property var entry: root.dayMap[root.selectedDate] || ({})
                         text: Qt.formatDate(root.selected, "ddd d MMM") + "  ·  " + root.formatTime(entry.active) + " active" + (entry.watching >= 60 ? "  ·  " + root.formatTime(entry.watching) + " watching" : "")
                     }
@@ -679,15 +654,15 @@ FocusScope {
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    spacing: 9
-                    Card {
+                    spacing: Theme.gapS
+                    C.Card {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.preferredWidth: 3
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 11
-                            spacing: 5
+                            spacing: Theme.gapXs
                             RowLayout {
                                 Layout.fillWidth: true
                                 C.Label { text: "Top apps this week"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
@@ -699,7 +674,7 @@ FocusScope {
                                     id: topApp
                                     required property var modelData
                                     Layout.fillWidth: true
-                                    spacing: 8
+                                    spacing: Theme.gapS
                                     AppGlyph { source: root.appIcon(topApp.modelData.app) }
                                     C.Label { text: root.appLabel(topApp.modelData.app); Layout.preferredWidth: 120; elide: Text.ElideRight; font.pixelSize: Theme.small }
                                     AppBar {
@@ -708,21 +683,21 @@ FocusScope {
                                         watching: topApp.modelData.watching
                                         maximum: (root.overview.topApps[0] || {}).total || 1
                                     }
-                                    Caption { text: root.formatTime(topApp.modelData.total); font.family: Theme.mono; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignRight }
+                                    C.Caption { text: root.formatTime(topApp.modelData.total); font.family: Theme.mono; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignRight }
                                 }
                             }
-                            Caption { visible: (root.overview.topApps || []).length === 0; text: "Apps appear here once you use them this week."; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                            C.Caption { visible: (root.overview.topApps || []).length === 0; text: "Apps appear here once you use them this week."; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                             Item { Layout.fillHeight: true }
                         }
                     }
-                    Card {
+                    C.Card {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.preferredWidth: 2
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 11
-                            spacing: 5
+                            spacing: Theme.gapXs
                             C.Label { text: "Your rhythm"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
                             Repeater {
                                 model: [
@@ -734,12 +709,12 @@ FocusScope {
                                 RowLayout {
                                     required property var modelData
                                     Layout.fillWidth: true
-                                    Caption { text: parent.modelData.label; Layout.fillWidth: true }
+                                    C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
                                     C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
                                 }
                             }
                             Item { Layout.fillHeight: true }
-                            Caption { text: "From the last 30 days"; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
+                            C.Caption { text: "From the last 30 days"; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                     }
                 }
@@ -749,19 +724,19 @@ FocusScope {
             RowLayout {
                 anchors.fill: parent
                 visible: root.mode === "day"
-                spacing: 12
+                spacing: Theme.gapM
                 ColumnLayout {
                     Layout.preferredWidth: 236
                     Layout.maximumWidth: 236
                     Layout.fillHeight: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     RowLayout {
                         Layout.fillWidth: true
                         C.Button { glyph: "back"; implicitWidth: 30; flat: true; hint: "Previous month"; onClicked: root.shiftMonth(-1) }
                         C.Label { text: Qt.formatDate(root.selected, "MMMM yyyy"); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                         C.Button { glyph: "chevron"; implicitWidth: 30; flat: true; hint: "Next month"; onClicked: root.shiftMonth(1) }
                     }
-                    Card {
+                    C.Card {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 232
                         border.width: monthGrid.activeFocus ? 1.5 : 0
@@ -771,8 +746,8 @@ FocusScope {
                             anchors.fill: parent
                             anchors.margins: 8
                             columns: 7
-                            rowSpacing: 3
-                            columnSpacing: 3
+                            rowSpacing: Theme.gapXs
+                            columnSpacing: Theme.gapXs
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Table
                             Accessible.name: "Calendar, " + Qt.formatDate(root.selected, "d MMMM yyyy") + " selected"
@@ -788,7 +763,7 @@ FocusScope {
                             }
                             Repeater {
                                 model: [0, 1, 2, 3, 4, 5, 6].map(index => Qt.locale().dayName(((root.weekStart + index) % 7) || 7, Locale.NarrowFormat))
-                                Caption { required property string modelData; text: modelData; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true; Layout.preferredWidth: 1; font.family: Theme.mono }
+                                C.Caption { required property string modelData; text: modelData; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true; Layout.preferredWidth: 1; font.family: Theme.mono }
                             }
                             Repeater {
                                 model: root.monthCells
@@ -820,13 +795,13 @@ FocusScope {
                             }
                         }
                     }
-                    Card {
+                    C.Card {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 12
-                            spacing: 6
+                            spacing: Theme.gapS
                             C.Label { text: root.weekly ? "Week total" : Qt.formatDate(root.selected, "dddd"); font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
                             Repeater {
                                 model: {
@@ -842,9 +817,9 @@ FocusScope {
                                 RowLayout {
                                     required property var modelData
                                     Layout.fillWidth: true
-                                    spacing: 7
+                                    spacing: Theme.gapS
                                     Swatch { color: parent.modelData.color }
-                                    Caption { text: parent.modelData.label; Layout.fillWidth: true }
+                                    C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
                                     C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
                                 }
                             }
@@ -855,7 +830,7 @@ FocusScope {
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     RowLayout {
                         Layout.fillWidth: true
                         C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: root.weekly ? "Previous week" : "Previous day"; onClicked: root.shiftDate(root.weekly ? -7 : -1) }
@@ -866,11 +841,17 @@ FocusScope {
                             font.weight: Font.DemiBold
                         }
                         C.Button { glyph: "chevron"; flat: true; implicitWidth: 30; enabled: root.selectedDate < root.today(); hint: root.weekly ? "Next week" : "Next day"; onClicked: root.shiftDate(root.weekly ? 7 : 1) }
-                        C.Button { text: "Day"; selected: !root.weekly; implicitWidth: 52; onClicked: root.weekly = false }
-                        C.Button { text: "Week"; selected: root.weekly; implicitWidth: 58; onClicked: root.weekly = true }
+                        C.Segmented {
+                            fill: false
+                            Layout.preferredWidth: 130
+                            segmentHeight: 32
+                            model: [{key: false, text: "Day"}, {key: true, text: "Week"}]
+                            current: root.weekly
+                            onActivated: key => root.weekly = key
+                        }
                     }
                     // Day timeline
-                    Card {
+                    C.Card {
                         visible: !root.weekly
                         Layout.fillWidth: true
                         Layout.preferredHeight: timelineColumn.implicitHeight + 22
@@ -878,7 +859,7 @@ FocusScope {
                             id: timelineColumn
                             anchors.fill: parent
                             anchors.margins: 11
-                            spacing: 5
+                            spacing: Theme.gapXs
                             Item {
                                 id: presence
                                 Layout.fillWidth: true
@@ -919,7 +900,7 @@ FocusScope {
                                         }
                                     }
                                 }
-                                Caption {
+                                C.Caption {
                                     anchors.centerIn: parent
                                     visible: (root.day.segments || []).length === 0
                                     text: root.day.legacy ? "Only the daily total was kept for this day" : "Nothing recorded"
@@ -929,26 +910,26 @@ FocusScope {
                             HourAxis { Layout.fillWidth: true }
                             Flow {
                                 Layout.fillWidth: true
-                                spacing: 10
+                                spacing: Theme.gapM
                                 Repeater {
                                     model: root.dayRanking.concat((root.day.apps || []).length > 6 ? ["other"] : [])
                                     RowLayout {
                                         required property string modelData
-                                        spacing: 5
+                                        spacing: Theme.gapXs
                                         Swatch { color: root.appColor(parent.modelData === "other" ? "" : parent.modelData) }
-                                        Caption { text: parent.modelData === "other" ? "Other" : root.appLabel(parent.modelData) }
+                                        C.Caption { text: parent.modelData === "other" ? "Other" : root.appLabel(parent.modelData) }
                                     }
                                 }
                                 RowLayout {
-                                    spacing: 5
+                                    spacing: Theme.gapXs
                                     visible: root.day.watching >= 60
                                     Swatch { color: Theme.activityWatching }
-                                    Caption { text: "Watching" }
+                                    C.Caption { text: "Watching" }
                                 }
                             }
                         }
                     }
-                    Caption {
+                    C.Caption {
                         visible: !root.weekly
                         text: root.caption !== "" ? root.caption : "Select a block on the timeline for exact times."
                         color: root.caption !== "" ? Theme.muted : Theme.disabled
@@ -956,14 +937,14 @@ FocusScope {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
-                    Card {
+                    C.Card {
                         visible: !root.weekly
                         Layout.fillWidth: true
                         Layout.preferredHeight: 74
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 10
-                            spacing: 3
+                            spacing: Theme.gapXs
                             ColumnChart {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
@@ -977,7 +958,7 @@ FocusScope {
                             HourAxis { Layout.fillWidth: true }
                         }
                     }
-                    Card {
+                    C.Card {
                         visible: !root.weekly
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -988,20 +969,20 @@ FocusScope {
                             contentWidth: availableWidth
                             ColumnLayout {
                                 width: parent.width
-                                spacing: 8
+                                spacing: Theme.gapS
                                 Repeater {
                                     model: root.dayAppRows
                                     ColumnLayout {
                                         id: appLine
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        spacing: 3
+                                        spacing: Theme.gapXs
                                         RowLayout {
                                             Layout.fillWidth: true
-                                            spacing: 7
+                                            spacing: Theme.gapS
                                             AppGlyph { source: root.appIcon(appLine.modelData.app); size: 14 }
                                             C.Label { text: root.appLabel(appLine.modelData.app); font.pixelSize: Theme.small; font.weight: Font.Medium; Layout.fillWidth: true; elide: Text.ElideRight }
-                                            Caption {
+                                            C.Caption {
                                                 text: (appLine.modelData.windows.some(window => !window.startKnown || window.endReason === "gap") ? "partial  ·  " : "") + root.formatTime(appLine.modelData.total)
                                                 font.family: Theme.mono
                                             }
@@ -1046,7 +1027,7 @@ FocusScope {
                                         }
                                     }
                                 }
-                                Caption {
+                                C.Caption {
                                     visible: root.dayAppRows.length === 0
                                     text: root.day.detailAvailable ? "No app windows recorded on this day." : "This day was recorded before app detail was kept; only its total remains."
                                     Layout.fillWidth: true
@@ -1056,7 +1037,7 @@ FocusScope {
                         }
                     }
                     // Week view
-                    Card {
+                    C.Card {
                         visible: root.weekly
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -1067,14 +1048,14 @@ FocusScope {
                             contentWidth: availableWidth
                             ColumnLayout {
                                 width: parent.width
-                                spacing: 4
+                                spacing: Theme.gapXs
                                 Repeater {
                                     model: root.week.days || []
                                     RowLayout {
                                         id: weekDay
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        spacing: 6
+                                        spacing: Theme.gapS
                                         C.Label {
                                             text: Qt.formatDate(new Date(weekDay.modelData.date + "T12:00:00"), "ddd")
                                             font.family: Theme.mono
@@ -1090,18 +1071,18 @@ FocusScope {
                                             watching: weekDay.modelData.watching || 0
                                             maximum: Math.max(14400, ...(root.week.days || []).map(entry => entry.active + (entry.watching || 0)))
                                         }
-                                        Caption { text: root.formatTime(weekDay.modelData.active); font.family: Theme.mono; Layout.preferredWidth: Math.ceil(Theme.caption * 4.4); horizontalAlignment: Text.AlignRight }
+                                        C.Caption { text: root.formatTime(weekDay.modelData.active); font.family: Theme.mono; Layout.preferredWidth: Math.ceil(Theme.caption * 4.4); horizontalAlignment: Text.AlignRight }
                                     }
                                 }
                                 Item { Layout.preferredHeight: 8 }
                                 RowLayout {
                                     visible: root.weekHasHours
                                     Layout.fillWidth: true
-                                    spacing: 3
+                                    spacing: Theme.gapXs
                                     Item { Layout.preferredWidth: Math.ceil(Theme.caption * 2.4); Layout.preferredHeight: 14 }
                                     Repeater {
                                         model: root.week.days || []
-                                        Caption {
+                                        C.Caption {
                                             required property var modelData
                                             text: Qt.formatDate(new Date(modelData.date + "T12:00:00"), "ddd").slice(0, 2)
                                             font.family: Theme.mono
@@ -1117,8 +1098,8 @@ FocusScope {
                                         id: hourLine
                                         required property string modelData
                                         Layout.fillWidth: true
-                                        spacing: 3
-                                        Caption { text: hourLine.modelData.slice(0, 2); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: Math.ceil(Theme.caption * 2.4) }
+                                        spacing: Theme.gapXs
+                                        C.Caption { text: hourLine.modelData.slice(0, 2); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: Math.ceil(Theme.caption * 2.4) }
                                         Repeater {
                                             model: root.week.days || []
                                             Rectangle {
@@ -1148,19 +1129,16 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent
                 visible: root.mode === "apps" && root.appDetail === ""
-                spacing: 10
+                spacing: Theme.gapM
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 5
-                    Repeater {
-                        model: [{id: "day", text: "Day"}, {id: "week", text: "Week"}, {id: "month", text: "Month"}]
-                        C.Button {
-                            required property var modelData
-                            text: modelData.text
-                            selected: root.appsRange === modelData.id
-                            implicitWidth: 66
-                            onClicked: root.appsRange = modelData.id
-                        }
+                    spacing: Theme.gapXs
+                    C.Segmented {
+                        fill: false
+                        Layout.preferredWidth: 220
+                        model: [{key: "day", text: "Day"}, {key: "week", text: "Week"}, {key: "month", text: "Month"}]
+                        current: root.appsRange
+                        onActivated: key => root.appsRange = key
                     }
                     C.Button { glyph: "back"; flat: true; implicitWidth: 30; Layout.leftMargin: 8; hint: "Earlier"; onClicked: root.shiftPeriod(-1) }
                     C.Label { text: root.periodLabel(); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
@@ -1168,15 +1146,15 @@ FocusScope {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 6
-                    C.Label { text: root.formatTime(root.appsData.total); font.family: Theme.mono; font.pixelSize: 19; font.weight: Font.DemiBold }
-                    Caption { text: "in apps" + (root.delta(root.appsData.total, root.appsData.previousTotal) ? "  ·  " + root.delta(root.appsData.total, root.appsData.previousTotal) + " vs previous " + root.appsRange : ""); Layout.fillWidth: true }
+                    spacing: Theme.gapS
+                    C.Label { text: root.formatTime(root.appsData.total); font.family: Theme.mono; font.pixelSize: Theme.body + 4; font.weight: Font.DemiBold }
+                    C.Caption { text: "in apps" + (root.delta(root.appsData.total, root.appsData.previousTotal) ? "  ·  " + root.delta(root.appsData.total, root.appsData.previousTotal) + " vs previous " + root.appsRange : ""); Layout.fillWidth: true }
                     Swatch { color: Theme.accent }
-                    Caption { text: "Active" }
+                    C.Caption { text: "Active" }
                     Swatch { color: Theme.activityWatching; Layout.leftMargin: 6 }
-                    Caption { text: "Watching" }
+                    C.Caption { text: "Watching" }
                 }
-                Card {
+                C.Card {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     ScrollView {
@@ -1197,7 +1175,7 @@ FocusScope {
                                     required property int index
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 40
-                                    radius: 8
+                                    radius: Theme.radiusSmall
                                     color: rowArea.containsMouse || activeFocus ? Theme.hover : "transparent"
                                     border.width: activeFocus ? 1.5 : 0
                                     border.color: Theme.accent
@@ -1224,8 +1202,8 @@ FocusScope {
                                         anchors.fill: parent
                                         anchors.leftMargin: 8
                                         anchors.rightMargin: 10
-                                        spacing: 9
-                                        Caption { text: String(appRow.index + 1); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 16; horizontalAlignment: Text.AlignRight }
+                                        spacing: Theme.gapS
+                                        C.Caption { text: String(appRow.index + 1); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 16; horizontalAlignment: Text.AlignRight }
                                         AppGlyph { source: root.appIcon(appRow.modelData.app); size: 18 }
                                         C.Label { text: root.appLabel(appRow.modelData.app); Layout.preferredWidth: 150; elide: Text.ElideRight }
                                         AppBar {
@@ -1235,14 +1213,14 @@ FocusScope {
                                             maximum: ((root.appsData.apps || [])[0] || {}).total || 1
                                         }
                                         C.Label { text: root.formatTime(appRow.modelData.total); font.family: Theme.mono; font.pixelSize: Theme.small; Layout.preferredWidth: 62; horizontalAlignment: Text.AlignRight }
-                                        Caption { text: Math.round(appRow.modelData.share * 100) + "%"; font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight }
-                                        Caption {
+                                        C.Caption { text: Math.round(appRow.modelData.share * 100) + "%"; font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight }
+                                        C.Caption {
                                             text: appRow.modelData.previous >= 60 ? root.delta(appRow.modelData.total, appRow.modelData.previous) : "new"
                                             font.family: Theme.mono
                                             Layout.preferredWidth: 58
                                             horizontalAlignment: Text.AlignRight
                                         }
-                                        C.Icon { name: "chevron"; size: 12; opacity: 0.5 }
+                                        C.Icon { name: "chevron"; size: 12; color: Theme.disabled }
                                     }
                                     MouseArea { id: rowArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openApp(appRow.modelData.app) }
                                     Accessible.role: Accessible.Button
@@ -1266,32 +1244,32 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent
                 visible: root.mode === "apps" && root.appDetail !== ""
-                spacing: 10
+                spacing: Theme.gapM
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 9
+                    spacing: Theme.gapS
                     C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: "All apps"; onClicked: root.appDetail = "" }
                     AppGlyph { source: root.appIcon(root.appDetail); size: 22 }
                     C.Label { text: root.appLabel(root.appDetail); font.pixelSize: Theme.body + 2; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                    Caption { text: root.appDetail; font.family: Theme.mono; color: Theme.disabled; elide: Text.ElideMiddle; Layout.maximumWidth: 220 }
+                    C.Caption { text: root.appDetail; font.family: Theme.mono; color: Theme.disabled; elide: Text.ElideMiddle; Layout.maximumWidth: 220 }
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 9
-                    Stat { label: "All time"; value: root.formatTime(root.appData.total); note: root.formatTime(root.appData.watching) + " watching" }
-                    Stat { label: "Last 30 days"; value: root.formatTime((root.appData.days || []).reduce((sum, entry) => sum + entry.total, 0)); note: (root.appData.days || []).filter(entry => entry.total >= 60).length + " days used" }
-                    Stat { label: "Per day used"; value: root.formatTime(root.appData.averagePerDay); note: root.appData.daysUsed + " days in total" }
-                    Stat { label: "First seen"; value: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "d MMM") : "–"; note: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "yyyy") : "" }
+                    spacing: Theme.gapS
+                    C.Stat { label: "All time"; value: root.formatTime(root.appData.total); note: root.formatTime(root.appData.watching) + " watching" }
+                    C.Stat { label: "Last 30 days"; value: root.formatTime((root.appData.days || []).reduce((sum, entry) => sum + entry.total, 0)); note: (root.appData.days || []).filter(entry => entry.total >= 60).length + " days used" }
+                    C.Stat { label: "Per day used"; value: root.formatTime(root.appData.averagePerDay); note: root.appData.daysUsed + " days in total" }
+                    C.Stat { label: "First seen"; value: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "d MMM") : "–"; note: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "yyyy") : "" }
                 }
                 C.Label { text: "Last 30 days"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
-                Card {
+                C.Card {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredHeight: 3
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 11
-                        spacing: 4
+                        spacing: Theme.gapXs
                         ColumnChart {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -1305,21 +1283,21 @@ FocusScope {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Caption { text: (root.appData.days || []).length ? Qt.formatDate(new Date(root.appData.days[0].date + "T12:00:00"), "d MMM") : ""; font.family: Theme.mono; color: Theme.disabled }
-                            Caption { id: monthCaption; text: "Select a day"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
-                            Caption { text: "Today"; font.family: Theme.mono; color: Theme.disabled }
+                            C.Caption { text: (root.appData.days || []).length ? Qt.formatDate(new Date(root.appData.days[0].date + "T12:00:00"), "d MMM") : ""; font.family: Theme.mono; color: Theme.disabled }
+                            C.Caption { id: monthCaption; text: "Select a day"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
+                            C.Caption { text: "Today"; font.family: Theme.mono; color: Theme.disabled }
                         }
                     }
                 }
                 C.Label { text: "When you use it"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
-                Card {
+                C.Card {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredHeight: 2
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 11
-                        spacing: 4
+                        spacing: Theme.gapXs
                         ColumnChart {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -1334,7 +1312,7 @@ FocusScope {
                             Layout.fillWidth: true
                             HourAxis { Layout.fillWidth: true }
                         }
-                        Caption { id: hourCaption; text: "Hour of day, last 30 days"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
+                        C.Caption { id: hourCaption; text: "Hour of day, last 30 days"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
                     }
                 }
             }
@@ -1342,8 +1320,8 @@ FocusScope {
         RowLayout {
             visible: root.tracking !== "ask"
             Layout.fillWidth: true
-            spacing: 12
-            Caption { text: root.width < 520 ? "Private · local only" : "Private · local only · kept until you clear it"; color: Theme.disabled; Layout.fillWidth: true }
+            spacing: Theme.gapM
+            C.Caption { text: root.width < 520 ? "Private · local only" : "Private · local only · kept until you clear it"; color: Theme.disabled; Layout.fillWidth: true }
             C.HoldButton {
                 id: clearHistoryButton
                 text: "Clear history"

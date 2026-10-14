@@ -9,7 +9,7 @@ Rectangle {
     property string glyph: "info"
     property real level: -1
     property bool positive: false
-    implicitHeight: content.implicitHeight + 32
+    implicitHeight: content.implicitHeight + 2 * Theme.gapL
     radius: Theme.controlRadius
     color: Theme.surface
     ColumnLayout {
@@ -17,30 +17,21 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 16
-        spacing: 14
+        anchors.margins: Theme.gapL
+        spacing: Theme.gapM
         RowLayout {
-            spacing: 14
-            Rectangle {
-                Layout.preferredWidth: 44
-                Layout.preferredHeight: 44
-                radius: 12
-                color: Theme.raised
-                Icon { anchors.centerIn: parent; name: root.glyph; size: 22 }
-                Rectangle {
-                    visible: root.positive
-                    width: 7; height: 7; radius: 3.5
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    color: Theme.success
-                }
+            spacing: Theme.gapM
+            GlyphTile {
+                size: 44
+                glyph: root.glyph
+                positive: root.positive
             }
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 4
+                spacing: Theme.gapXs
                 Label {
                     text: root.title
-                    font.pixelSize: root.level >= 0 ? 32 : 22
+                    font.pixelSize: root.level >= 0 ? Theme.heading + 8 : Theme.heading
                     font.weight: Font.DemiBold
                     Layout.fillWidth: true
                 }
@@ -64,7 +55,7 @@ Rectangle {
                 width: parent.width * Math.max(0, Math.min(1, root.level))
                 height: parent.height
                 radius: 4
-                color: root.level < 0.15 ? Theme.warning : Theme.activityLevel3
+                color: root.level < 0.15 ? Theme.warning : Theme.fill
                 Behavior on width { NumberAnimation { duration: Theme.enter; easing.type: Easing.OutCubic } }
                 Behavior on color { ColorAnimation { duration: Theme.fast } }
             }

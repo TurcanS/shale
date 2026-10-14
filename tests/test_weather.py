@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -37,7 +38,7 @@ class ParseTests(unittest.TestCase):
             for icon in (day, night):
                 with self.subTest(icon=icon):
                     self.assertTrue((ROOT / "assets/icons" / (icon + ".svg")).is_file())
-                    self.assertTrue((ROOT / "assets/icons" / (icon + "-dark.svg")).is_file())
+                    self.assertIn(json.dumps(icon) + ":", (ROOT / "core/icons.js").read_text())
 
 
 class RequestTests(unittest.TestCase):

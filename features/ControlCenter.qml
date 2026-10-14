@@ -11,9 +11,32 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray"})[ShellState.detail] || "Control center"
+    readonly property bool canGoBack: ShellState.detail !== ""
+    function back() {
+        ShellState.detail = "";
+    }
+    readonly property int panelWidth: 420
+    // Fits the page, header and padding included, within a 620 px ceiling.
+    readonly property int panelHeight: preferredContentHeight > 0 ? Math.max(200, Math.min(620, preferredContentHeight + 88)) : 620
+    readonly property Component headerTools: ["wifi", "power"].indexOf(ShellState.detail) >= 0 ? refreshTool : null
+    Component {
+        id: refreshTool
+        C.Button {
+            glyph: "refresh"
+            flat: true
+            hint: "Refresh"
+            implicitWidth: 32
+            implicitHeight: 32
+            enabled: !root.busy
+            onClicked: root.refresh()
+        }
+    }
     readonly property int preferredContentHeight: Math.ceil(controlContent.implicitHeight + (errorLabel.visible ? errorLabel.implicitHeight + 12 : 0) + (actionFooter.visible ? actionFooter.implicitHeight + 12 : 0))
     property string error: ""
     property bool busy: false
+    // Busy with something the user asked for; background list refreshes don't dim the page.
+    readonly property bool acting: busy && ["wifi.list", "power.profiles"].indexOf(pendingMethod) < 0
     property string pendingMethod: ""
     property int requestGeneration: 0
     property bool alive: true
@@ -158,7 +181,7 @@ FocusScope {
     }
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.gapM
         C.Label {
             id: errorLabel
             visible: root.error !== ""
@@ -189,21 +212,24 @@ FocusScope {
             ColumnLayout {
                 id: controlContent
                 width: controlScroll.availableWidth
-                spacing: 12
+                spacing: Theme.gapM
                 ColumnLayout {
                     visible: ShellState.detail === ""
                     Layout.fillWidth: true
-                    spacing: 4
-                    RowLayout {
+                    spacing: Theme.gapS
+                    // Every tile here is an on/off switch; pages open from chevrons and the power row below.
+                    GridLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        columns: 2
+                        rowSpacing: Theme.gapS
+                        columnSpacing: Theme.gapS
                         C.QuickTile {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             Layout.preferredHeight: Math.max(66, Theme.body * 4.6)
                             visible: ShellState.wifiAvailable
                             text: "Wi-Fi"
-                            glyph: "wifi"
+                            glyph: ShellState.wifi.powered ? "wifi" : "wifi-off"
                             selected: ShellState.wifi.state === "connected"
                             subtitle: {
                                 const current = (ShellState.wifi.networks || []).find(n => n.connected);
@@ -211,7 +237,7 @@ FocusScope {
                             }
                             hint: ShellState.wifi.powered ? "Turn Wi-Fi off" : "Turn Wi-Fi on"
                             detailHint: "Wi-Fi networks"
-                            enabled: !root.busy
+                            enabled: !root.acting
                             onClicked: root.perform("wifi.power", {
                                 powered: !ShellState.wifi.powered
                             }, () => ShellState.refreshWifi())
@@ -234,17 +260,47 @@ FocusScope {
                             onClicked: Services.bluetoothPower(!Services.bluetoothEnabled)
                             onDetailRequested: ShellState.detail = "bluetooth"
                         }
+                        Repeater {
+                            model: [
+                                {key: "dnd", text: "Do not disturb", glyph: "bell-off", on: ShellState.setting("dnd", false), subtitle: "Popups hidden", busy: false},
+                                {key: "awake", text: "Stay awake", glyph: "moon", on: ShellState.presentation, subtitle: "Screen stays on", busy: false},
+                                {key: "grayscale", text: "Grayscale", glyph: "palette", on: ShellState.grayscale, subtitle: "Colors off", busy: ShellState.grayscaleBusy},
+                                {key: "lid", text: "Lid closed", glyph: "laptop", on: ShellState.lidAwake, subtitle: "Stays awake", busy: ShellState.lidBusy}
+                            ].filter(tile => tile.key !== "lid" || Backend.capabilities.lid !== false)
+                            C.QuickTile {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                Layout.preferredHeight: Math.max(58, Theme.body * 4)
+                                text: modelData.text
+                                glyph: modelData.glyph
+                                selected: modelData.on
+                                subtitle: modelData.on ? modelData.subtitle : "Off"
+                                enabled: !modelData.busy
+                                Accessible.role: Accessible.CheckBox
+                                Accessible.checkable: true
+                                Accessible.checked: selected
+                                onClicked: {
+                                    if (modelData.key === "dnd")
+                                        ShellState.setSetting("dnd", !ShellState.setting("dnd", false));
+                                    else if (modelData.key === "awake")
+                                        ShellState.presentation = !ShellState.presentation;
+                                    else if (modelData.key === "grayscale")
+                                        ShellState.toggleGrayscale();
+                                    else
+                                        ShellState.toggleLidAwake();
+                                }
+                            }
+                        }
                     }
-                    Rectangle {
+                    C.Card {
                         Layout.fillWidth: true
-                        implicitHeight: levels.implicitHeight + 22
-                        radius: Theme.controlRadius
-                        color: Theme.surface
+                        implicitHeight: levels.implicitHeight + 2 * Theme.gapM
                         ColumnLayout {
                             id: levels
                             anchors.fill: parent
-                            anchors.margins: 11
-                            spacing: 5
+                            anchors.margins: Theme.gapM
+                            spacing: Theme.gapS
                             C.SliderRow {
                                 Layout.fillWidth: true
                                 title: "Volume"
@@ -254,6 +310,8 @@ FocusScope {
                                 value: Services.volume
                                 maximum: ShellState.setting("amplification", false) ? 1.5 : 1
                                 enabled: Services.audioAvailable
+                                detailHint: "Sound settings"
+                                onDetailRequested: ShellState.detail = "audio"
                                 onMoved: value => Services.setVolume(value)
                             }
                             C.SliderRow {
@@ -270,125 +328,38 @@ FocusScope {
                             }
                         }
                     }
-                    RowLayout {
+                    C.ListRow {
                         Layout.fillWidth: true
-                        spacing: 8
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            glyph: Services.muted ? "mute" : "volume"
-                            text: "Sound"
-                            onClicked: ShellState.detail = "audio"
-                        }
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            glyph: "battery"
-                            text: Services.batteryAvailable ? Math.round(Services.batteryPercent) + "% · " + (Services.batteryCharging ? "Charging" : "Battery") : "Power"
-                            onClicked: ShellState.detail = "power"
+                        text: Services.player ? (Services.player.trackTitle || "Now playing") : "Nothing playing"
+                        subtitle: Services.player ? (Services.player.trackArtist || Services.player.identity) : "Media"
+                        glyph: "music"
+                        hint: "Media"
+                        onClicked: ShellState.detail = "media"
+                        trailing: C.Button {
+                            implicitWidth: 36
+                            implicitHeight: Theme.controlHeight
+                            glyph: Services.player && Services.player.isPlaying ? "pause" : "play"
+                            hint: Services.player && Services.player.isPlaying ? "Pause" : "Play"
+                            accent: true
+                            enabled: !!Services.player && Services.player.canTogglePlaying
+                            onClicked: Services.player.togglePlaying()
                         }
                     }
-                    Rectangle {
+                    C.ListRow {
+                        readonly property string mode: ({"power-saver": "Power saver", "balanced": "Balanced", "performance": "Performance"})[ShellState.profiles.active] || ""
                         Layout.fillWidth: true
-                        implicitHeight: 56
-                        radius: Theme.controlRadius
-                        color: Theme.surface
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 8
-                            C.Button {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                flat: true
-                                hint: "Media"
-                                contentItem: RowLayout {
-                                    spacing: 8
-                                    C.Icon { name: "music"; size: 20 }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 3
-                                        C.Label {
-                                            Layout.fillWidth: true
-                                            text: Services.player ? (Services.player.trackTitle || "Now playing") : "Nothing playing"
-                                            font.pixelSize: Theme.label
-                                            font.weight: Font.DemiBold
-                                        }
-                                        C.Label {
-                                            Layout.fillWidth: true
-                                            text: Services.player ? (Services.player.trackArtist || Services.player.identity) : "Media"
-                                            color: Theme.muted
-                                            font.pixelSize: Theme.caption
-                                        }
-                                    }
-                                }
-                                onClicked: ShellState.detail = "media"
-                            }
-                            C.Button {
-                                implicitWidth: 38
-                                implicitHeight: 38
-                                glyph: Services.player && Services.player.isPlaying ? "pause" : "play"
-                                hint: Services.player && Services.player.isPlaying ? "Pause" : "Play"
-                                accent: true
-                                enabled: !!Services.player && Services.player.canTogglePlaying
-                                onClicked: Services.player.togglePlaying()
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            text: "Do not disturb"
-                            glyph: ShellState.setting("dnd", false) ? "bell-off" : "bell"
-                            selected: ShellState.setting("dnd", false)
-                            onClicked: ShellState.setSetting("dnd", !ShellState.setting("dnd", false))
-                        }
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            text: "Stay awake"
-                            glyph: "moon"
-                            selected: ShellState.presentation
-                            onClicked: ShellState.presentation = !ShellState.presentation
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            text: "Grayscale"
-                            glyph: "palette"
-                            selected: ShellState.grayscale
-                            enabled: !ShellState.grayscaleBusy
-                            onClicked: ShellState.toggleGrayscale()
-                        }
-                        C.Button {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: 36
-                            visible: Backend.capabilities.lid !== false
-                            text: "Awake with lid closed"
-                            glyph: "sun"
-                            selected: ShellState.lidAwake
-                            enabled: !ShellState.lidBusy
-                            onClicked: ShellState.toggleLidAwake()
-                        }
+                        text: Services.batteryAvailable ? "Battery & power" : "Power"
+                        subtitle: [Services.batteryAvailable ? Math.round(Services.batteryPercent) + "%" + (Services.batteryCharging ? " · Charging" : "") : "", mode].filter(part => part).join(" · ") || "Power modes"
+                        glyph: Services.batteryCharging ? "bolt" : Services.batteryAvailable ? "battery" : "gauge"
+                        hint: "Battery and power modes"
+                        onClicked: ShellState.detail = "power"
+                        trailing: C.Icon { name: "chevron"; color: Theme.muted; Layout.rightMargin: 4 }
                     }
                 }
                 ColumnLayout {
                     visible: ShellState.detail === "audio"
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: Theme.gapS
                     C.StatusCard {
                         visible: !Services.audioAvailable
                         Layout.fillWidth: true
@@ -396,74 +367,60 @@ FocusScope {
                         title: "Audio unavailable"
                         subtitle: "No output device or audio service"
                     }
-                    C.SliderRow {
+                    C.Card {
                         visible: Services.audioAvailable
                         Layout.fillWidth: true
-                        title: "Output volume"
-                        muteable: true
-                        muted: Services.muted
-                        onIconClicked: Services.toggleMute()
-                        enabled: Services.audioAvailable
-                        value: Services.volume
-                        maximum: ShellState.setting("amplification", false) ? 1.5 : 1
-                        onMoved: value => Services.setVolume(value)
+                        implicitHeight: audioLevels.implicitHeight + 2 * Theme.gapM
+                        ColumnLayout {
+                            id: audioLevels
+                            anchors.fill: parent
+                            anchors.margins: Theme.gapM
+                            spacing: Theme.gapS
+                            C.SliderRow {
+                                Layout.fillWidth: true
+                                title: "Output"
+                                muteable: true
+                                muted: Services.muted
+                                onIconClicked: Services.toggleMute()
+                                value: Services.volume
+                                maximum: ShellState.setting("amplification", false) ? 1.5 : 1
+                                onMoved: value => Services.setVolume(value)
+                            }
+                            C.SliderRow {
+                                Layout.fillWidth: true
+                                title: "Microphone"
+                                enabled: !!Services.input
+                                glyph: "mic"
+                                mutedGlyph: "mic"
+                                muteable: true
+                                muted: Services.micMuted
+                                onIconClicked: Services.toggleMicMute()
+                                value: Services.micVolume
+                                onMoved: value => Services.setMicVolume(value)
+                            }
+                        }
                     }
-                    C.Toggle {
-                        visible: Services.audioAvailable
-                        Layout.fillWidth: true
-                        text: "Mute output"
-                        selected: Services.muted
-                        enabled: Services.audioAvailable
-                        onClicked: Services.toggleMute()
-                    }
-                    C.Label {
+                    C.SectionHeader {
                         visible: Services.audioAvailable
                         text: "Output device"
-                        Layout.topMargin: 8
-                        color: Theme.muted
-                        font.pixelSize: Theme.caption
+                        Layout.topMargin: Theme.gapXs
                     }
                     Repeater {
                         model: Services.audioAvailable ? Services.audioOutputs : []
-                        C.QuickTile {
+                        C.ListRow {
                             required property var modelData
+                            readonly property string name: modelData.description || modelData.name
                             Layout.fillWidth: true
-                            implicitHeight: 66
-                            text: modelData.description || modelData.name
-                            subtitle: modelData === Services.output ? "Current output" : "Available"
-                            glyph: "volume"
+                            text: name
+                            glyph: /head(phone|set)|earbud|earphone|airpods|buds/i.test(name) ? "headphones" : "speaker"
                             selected: modelData === Services.output
                             onClicked: Services.setOutput(modelData)
                         }
                     }
-                    C.SliderRow {
-                        visible: Services.audioAvailable
-                        Layout.fillWidth: true
-                        title: "Microphone"
-                        Layout.topMargin: 8
-                        enabled: !!Services.input
-                        glyph: "mic"
-                        mutedGlyph: "mic"
-                        muteable: true
-                        muted: Services.micMuted
-                        onIconClicked: Services.toggleMicMute()
-                        value: Services.micVolume
-                        onMoved: value => Services.setMicVolume(value)
-                    }
-                    C.Toggle {
-                        visible: Services.audioAvailable
-                        Layout.fillWidth: true
-                        text: "Mute microphone"
-                        selected: Services.micMuted
-                        enabled: !!Services.input
-                        onClicked: Services.toggleMicMute()
-                    }
-                    C.Label {
+                    C.SectionHeader {
                         visible: Services.audioAvailable
                         text: "Input device"
-                        Layout.topMargin: 8
-                        color: Theme.muted
-                        font.pixelSize: Theme.caption
+                        Layout.topMargin: Theme.gapXs
                     }
                     C.Label {
                         visible: Services.audioAvailable && Services.audioInputs.length === 0
@@ -473,23 +430,19 @@ FocusScope {
                     }
                     Repeater {
                         model: Services.audioAvailable ? Services.audioInputs : []
-                        C.QuickTile {
+                        C.ListRow {
                             required property var modelData
                             Layout.fillWidth: true
-                            implicitHeight: 66
                             text: modelData.description || modelData.name
-                            subtitle: modelData === Services.input ? "Current microphone" : "Available"
                             glyph: "mic"
                             selected: modelData === Services.input
                             onClicked: Services.setInput(modelData)
                         }
                     }
-                    C.Label {
+                    C.SectionHeader {
                         visible: Services.audioAvailable
-                        text: "Application volume"
-                        Layout.topMargin: 8
-                        color: Theme.muted
-                        font.pixelSize: Theme.caption
+                        text: "Applications"
+                        Layout.topMargin: Theme.gapXs
                     }
                     C.Label {
                         visible: Services.audioAvailable && Services.audioStreams.length === 0
@@ -497,132 +450,142 @@ FocusScope {
                         color: Theme.muted
                         Layout.fillWidth: true
                     }
-                    Repeater {
-                        model: Services.audioAvailable ? Services.audioStreams : []
-                        C.SliderRow {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            title: modelData.properties && modelData.properties["application.name"] || modelData.description || modelData.name
-                            muteable: !!modelData.audio
-                            muted: !!modelData.audio && modelData.audio.muted
-                            onIconClicked: if (modelData.audio) modelData.audio.muted = !modelData.audio.muted
-                            value: modelData.audio ? modelData.audio.volume : 0
-                            onMoved: value => Services.setStreamVolume(modelData, value)
+                    C.Card {
+                        visible: Services.audioAvailable && Services.audioStreams.length > 0
+                        Layout.fillWidth: true
+                        implicitHeight: streamLevels.implicitHeight + 2 * Theme.gapM
+                        ColumnLayout {
+                            id: streamLevels
+                            anchors.fill: parent
+                            anchors.margins: Theme.gapM
+                            spacing: Theme.gapS
+                            Repeater {
+                                model: Services.audioAvailable ? Services.audioStreams : []
+                                C.SliderRow {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    title: modelData.properties && modelData.properties["application.name"] || modelData.description || modelData.name
+                                    muteable: !!modelData.audio
+                                    muted: !!modelData.audio && modelData.audio.muted
+                                    onIconClicked: if (modelData.audio) modelData.audio.muted = !modelData.audio.muted
+                                    value: modelData.audio ? modelData.audio.volume : 0
+                                    onMoved: value => Services.setStreamVolume(modelData, value)
+                                }
+                            }
                         }
                     }
                 }
                 ColumnLayout {
                     visible: ShellState.detail === "wifi"
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.EmptyState {
                         visible: !ShellState.wifiAvailable
                         Layout.fillWidth: true
-                        Layout.topMargin: 16
-                        glyph: "wifi"
+                        Layout.topMargin: Theme.gapL
+                        glyph: "wifi-off"
                         title: "Wi-Fi isn't managed here"
                         description: (ShellState.wifi.reason || "") + " Shale controls Wi-Fi through NetworkManager."
                     }
-                    RowLayout {
+                    C.Toggle {
                         visible: ShellState.wifiAvailable
                         Layout.fillWidth: true
-                        // One header row: switch, icon, and current status together.
-                        C.Toggle {
-                            Layout.fillWidth: true
-                            text: "Wi-Fi"
-                            description: {
-                                const network = (ShellState.wifi.networks || []).find(n => n.connected);
-                                return network ? "Connected to " + network.name : ShellState.wifi.powered ? "Not connected" : "Off";
-                            }
-                            glyph: "wifi"
-                            positive: ShellState.wifi.state === "connected"
-                            selected: ShellState.wifi.powered
-                            enabled: !root.busy
-                            onClicked: root.perform("wifi.power", {
-                                powered: !ShellState.wifi.powered
-                            }, () => root.refresh())
+                        text: "Wi-Fi"
+                        description: {
+                            const network = (ShellState.wifi.networks || []).find(n => n.connected);
+                            return network ? "Connected to " + network.name : ShellState.wifi.powered ? "Not connected" : "Off";
                         }
+                        glyph: ShellState.wifi.powered ? "wifi" : "wifi-off"
+                        positive: ShellState.wifi.state === "connected"
+                        selected: ShellState.wifi.powered
+                        enabled: !root.acting
+                        onClicked: root.perform("wifi.power", {
+                            powered: !ShellState.wifi.powered
+                        }, () => root.refresh())
+                    }
+                    C.SectionHeader {
+                        visible: ShellState.wifi.powered
+                        text: "Nearby networks"
+                        Layout.topMargin: Theme.gapXs
                         C.Button {
                             text: root.pendingMethod === "wifi.scan" || scanWait.running ? "Scanning…" : "Scan"
-                            glyph: "refresh"
-                            enabled: !root.busy && !scanWait.running && !!ShellState.wifi.powered
+                            flat: true
+                            implicitHeight: Theme.controlSmall
+                            enabled: !root.acting && !scanWait.running
                             onClicked: root.perform("wifi.scan", {}, () => scanWait.restart())
                         }
-                    }
-                    C.Label {
-                        text: "Nearby networks"
-                        visible: ShellState.wifi.powered
-                        font.weight: Font.DemiBold
-                        Layout.topMargin: 4
                     }
                     C.EmptyState {
                         visible: ShellState.wifi.powered && !(ShellState.wifi.networks || []).length
                         Layout.fillWidth: true
-                        Layout.topMargin: 16
-                        Layout.bottomMargin: 16
+                        Layout.topMargin: Theme.gapL
+                        Layout.bottomMargin: Theme.gapL
                         glyph: "wifi"
                         title: root.busy ? "Looking for networks…" : "No networks found"
                         description: root.busy ? "This may take a moment" : "No nearby networks"
                     }
                     Repeater {
-                        model: ShellState.wifi.networks || []
-                        ColumnLayout {
+                        model: ShellState.wifi.powered ? ShellState.wifi.networks || [] : []
+                        C.ListRow {
+                            id: networkRow
                             required property var modelData
+                            readonly property bool secured: modelData.type !== "open"
                             Layout.fillWidth: true
-                            spacing: 4
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-                                C.QuickTile {
-                                    Layout.fillWidth: true
-                                    implicitHeight: 70
-                                    text: modelData.name
-                                    subtitle: (modelData.connected ? "Connected · " : modelData.type === "open" ? "Open network · " : "Secured · ") + Math.round(modelData.signal) + "% signal"
-                                    glyph: "wifi"
-                                    selected: modelData.connected
-                                    enabled: !root.busy
-                                    onClicked: {
-                                        if (modelData.connected)
-                                            return;
-                                        else if (modelData.type === "open" || modelData.saved)
-                                            root.perform("wifi.connect", {
-                                                path: modelData.path
-                                            }, () => root.refresh());
-                                        else {
-                                            root.passwordDraft = "";
-                                            root.passwordVisible = false;
-                                            root.selectedNetwork = modelData;
-                                        }
-                                    }
+                            text: modelData.name
+                            glyph: modelData.signal >= 67 ? "wifi" : modelData.signal >= 34 ? "wifi-2" : "wifi-1"
+                            subtitle: (modelData.connected ? "Connected" : modelData.saved ? "Saved" : secured ? "Secured" : "Open network") + " · " + Math.round(modelData.signal) + "% signal"
+                            selected: modelData.connected
+                            checkmark: false
+                            enabled: !root.acting
+                            onClicked: {
+                                if (modelData.connected)
+                                    return;
+                                else if (!secured || modelData.saved)
+                                    root.perform("wifi.connect", {
+                                        path: modelData.path
+                                    }, () => root.refresh());
+                                else {
+                                    root.passwordDraft = "";
+                                    root.passwordVisible = false;
+                                    root.selectedNetwork = modelData;
                                 }
+                            }
+                            trailing: [
+                                C.Icon {
+                                    visible: networkRow.secured && !networkRow.modelData.connected && !networkRow.modelData.saved
+                                    name: "lock"
+                                    size: Theme.iconSmall
+                                    color: Theme.muted
+                                    Layout.rightMargin: 6
+                                },
+                                C.Button {
+                                    visible: networkRow.modelData.connected
+                                    text: "Disconnect"
+                                    flat: true
+                                    implicitHeight: 32
+                                    onClicked: root.perform("wifi.disconnect", {}, () => root.refresh())
+                                },
                                 C.Button {
                                     glyph: "trash"
                                     flat: true
                                     hint: "Forget network"
-                                    visible: !!modelData.saved || modelData.connected
-                                    enabled: !root.busy
-                                    onClicked: root.forgetPath = modelData.path
+                                    implicitWidth: 32
+                                    implicitHeight: 32
+                                    visible: !!networkRow.modelData.saved || networkRow.modelData.connected
+                                    onClicked: root.forgetPath = networkRow.modelData.path
                                 }
-                            }
+                            ]
                             Loader {
                                 Layout.fillWidth: true
-                                active: !!root.selectedNetwork && root.selectedNetwork.path === modelData.path
+                                active: !!root.selectedNetwork && root.selectedNetwork.path === networkRow.modelData.path
                                 visible: active
                                 sourceComponent: passwordForm
                                 onLoaded: item.focusField()
                             }
-                            C.Button {
-                                visible: modelData.connected
-                                text: "Disconnect"
-                                flat: true
-                                Layout.alignment: Qt.AlignRight
-                                enabled: !root.busy
-                                onClicked: root.perform("wifi.disconnect", {}, () => root.refresh())
-                            }
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 8
-                                visible: root.forgetPath === modelData.path
+                                spacing: Theme.gapS
+                                visible: root.forgetPath === networkRow.modelData.path
                                 C.Label {
                                     text: "Forget saved credentials?"
                                     Layout.fillWidth: true
@@ -635,9 +598,8 @@ FocusScope {
                                 C.Button {
                                     text: "Forget"
                                     danger: true
-                                    enabled: !root.busy
                                     onClicked: root.perform("wifi.forget", {
-                                        path: modelData.path
+                                        path: networkRow.modelData.path
                                     }, () => {
                                         root.forgetPath = "";
                                         root.refresh();
@@ -658,186 +620,154 @@ FocusScope {
                 ColumnLayout {
                     visible: ShellState.detail === "bluetooth"
                     Layout.fillWidth: true
-                    spacing: 8
-                    RowLayout {
+                    spacing: Theme.gapS
+                    C.Toggle {
                         Layout.fillWidth: true
-                        C.Toggle {
-                            Layout.fillWidth: true
-                            text: "Bluetooth"
-                            description: {
-                                const count = Services.bluetoothDevices.filter(d => d.connected).length;
-                                return !Services.bluetoothAvailable ? "No adapter detected" : count ? count + (count === 1 ? " device connected" : " devices connected") : Services.bluetoothScanning ? "Searching nearby" : Services.bluetoothEnabled ? "On" : "Off";
-                            }
-                            positive: Services.bluetoothDevices.some(d => d.connected)
-                            selected: Services.bluetoothEnabled
-                            glyph: "bluetooth"
-                            enabled: Services.bluetoothAvailable
-                            onClicked: Services.bluetoothPower(!Services.bluetoothEnabled)
+                        text: "Bluetooth"
+                        description: {
+                            const count = Services.bluetoothDevices.filter(d => d.connected).length;
+                            return !Services.bluetoothAvailable ? "No adapter detected" : count ? count + (count === 1 ? " device connected" : " devices connected") : Services.bluetoothScanning ? "Searching nearby" : Services.bluetoothEnabled ? "On" : "Off";
                         }
-                        C.Button {
-                            glyph: "refresh"
-                            text: Services.bluetoothScanning ? "Stop scan" : "Scan"
-                            enabled: Services.bluetoothEnabled
-                            onClicked: Services.bluetoothScan(!Services.bluetoothScanning)
-                        }
+                        positive: Services.bluetoothDevices.some(d => d.connected)
+                        selected: Services.bluetoothEnabled
+                        glyph: "bluetooth"
+                        enabled: Services.bluetoothAvailable
+                        onClicked: Services.bluetoothPower(!Services.bluetoothEnabled)
                     }
-                    ColumnLayout {
+                    C.Card {
                         visible: !!root.pairing
                         Layout.fillWidth: true
-                        C.Label {
-                            text: root.pairing ? root.pairing.message : ""
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                        C.Field {
-                            id: pin
-                            Layout.fillWidth: true
-                            placeholderText: "PIN or passkey"
-                            visible: root.pairing && root.pairing.input
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            C.Button {
-                                text: "Reject"
-                                onClicked: {
-                                    ShellState.run("bluetooth.reply", {
-                                        accept: false
-                                    });
-                                    root.pairing = null;
-                                }
-                            }
-                            C.Button {
-                                text: "Accept"
-                                accent: true
+                        implicitHeight: pairingContent.implicitHeight + 2 * Theme.gapM
+                        ColumnLayout {
+                            id: pairingContent
+                            anchors.fill: parent
+                            anchors.margins: Theme.gapM
+                            spacing: Theme.gapS
+                            C.Label {
+                                text: root.pairing ? root.pairing.message : ""
                                 Layout.fillWidth: true
-                                enabled: !!root.pairing && (!root.pairing.input || pin.text.trim().length > 0)
-                                onClicked: {
-                                    ShellState.run("bluetooth.reply", {
-                                        accept: true,
-                                        value: pin.text
-                                    });
-                                    pin.clear();
-                                    root.pairing = null;
+                                wrapMode: Text.WordWrap
+                            }
+                            C.Field {
+                                id: pin
+                                Layout.fillWidth: true
+                                placeholderText: "PIN or passkey"
+                                visible: root.pairing && root.pairing.input
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.gapS
+                                C.Button {
+                                    text: "Reject"
+                                    onClicked: {
+                                        ShellState.run("bluetooth.reply", {
+                                            accept: false
+                                        });
+                                        root.pairing = null;
+                                    }
+                                }
+                                C.Button {
+                                    text: "Accept"
+                                    accent: true
+                                    Layout.fillWidth: true
+                                    enabled: !!root.pairing && (!root.pairing.input || pin.text.trim().length > 0)
+                                    onClicked: {
+                                        ShellState.run("bluetooth.reply", {
+                                            accept: true,
+                                            value: pin.text
+                                        });
+                                        pin.clear();
+                                        root.pairing = null;
+                                    }
                                 }
                             }
                         }
                     }
-                    C.Label {
-                        text: Services.bluetoothScanning ? "Searching for devices…" : "Your devices"
-                        font.weight: Font.DemiBold
-                        Layout.topMargin: 4
+                    C.SectionHeader {
                         visible: Services.bluetoothEnabled
+                        text: Services.bluetoothScanning ? "Searching for devices…" : "Devices"
+                        Layout.topMargin: Theme.gapXs
+                        C.Button {
+                            text: Services.bluetoothScanning ? "Stop" : "Scan"
+                            flat: true
+                            implicitHeight: Theme.controlSmall
+                            onClicked: Services.bluetoothScan(!Services.bluetoothScanning)
+                        }
                     }
                     C.EmptyState {
                         visible: Services.bluetoothEnabled && Services.bluetoothDevices.length === 0
                         Layout.fillWidth: true
-                        Layout.topMargin: 16
-                        Layout.bottomMargin: 16
+                        Layout.topMargin: Theme.gapL
+                        Layout.bottomMargin: Theme.gapL
                         glyph: "bluetooth"
                         title: Services.bluetoothScanning ? "Looking for devices…" : "No devices yet"
-                        description: Services.bluetoothScanning ? "Discovering nearby accessories" : "No nearby devices"
+                        description: Services.bluetoothScanning ? "Discovering nearby accessories" : "Scan to find nearby devices"
                     }
                     Repeater {
-                        model: root.shownDevices
-                        Rectangle {
+                        model: Services.bluetoothEnabled ? root.shownDevices : []
+                        C.ListRow {
                             id: bluetoothDeviceRow
                             required property var modelData
                             readonly property bool pending: modelData.pairing || modelData.state === BluetoothDeviceState.Connecting || modelData.state === BluetoothDeviceState.Disconnecting
                             Layout.fillWidth: true
-                            implicitHeight: deviceContent.implicitHeight + 20
-                            radius: Theme.controlRadius
-                            color: Theme.surface
-                            ColumnLayout {
-                                id: deviceContent
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                anchors.margins: 10
-                                spacing: 8
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 10
-                                Rectangle {
-                                    Layout.preferredWidth: 32
-                                    Layout.preferredHeight: 32
-                                    radius: 10
-                                    color: modelData.connected ? Theme.selection : Theme.raised
-                                    C.Icon { anchors.centerIn: parent; name: "bluetooth"; size: 16 }
-                                    Rectangle {
-                                        visible: modelData.connected
-                                        width: 7; height: 7; radius: 3.5
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        color: Theme.success
-                                    }
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-                                    C.Label {
-                                        text: root.unnamed(modelData) ? "Unnamed device" : modelData.name
-                                        font.weight: Font.DemiBold
-                                        Layout.fillWidth: true
-                                    }
-                                    C.Label {
-                                        text: (bluetoothDeviceRow.pending ? "Updating…" : modelData.connected ? "Connected" : modelData.paired ? "Paired" : root.unnamed(modelData) ? modelData.address : "Available")
-                                            + (modelData.batteryAvailable ? " · " + Math.round(modelData.battery * 100) + "% battery" : "")
-                                        color: Theme.muted
-                                        font.pixelSize: Theme.small
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                                C.Button {
-                                    text: modelData.state === BluetoothDeviceState.Connecting ? "Connecting…" : modelData.state === BluetoothDeviceState.Disconnecting ? "Disconnecting…" : modelData.pairing ? "Pairing…" : modelData.connected ? "Disconnect" : modelData.paired ? "Connect" : "Pair"
-                                    implicitHeight: 32
-                                    accent: !modelData.connected && !bluetoothDeviceRow.pending && modelData.paired
-                                    enabled: !root.busy && !bluetoothDeviceRow.pending && Services.bluetoothEnabled
-                                    onClicked: {
-                                        if (root.busy || bluetoothDeviceRow.pending || !Services.bluetoothEnabled)
-                                            return;
-                                        if (modelData.connected)
-                                            modelData.disconnect();
-                                        else if (modelData.paired)
-                                            modelData.connect();
-                                        else
-                                            root.perform("bluetooth.pair", {
-                                                path: modelData.dbusPath
-                                            }, () => {});
-                                    }
+                            interactive: false
+                            checkmark: false
+                            selected: modelData.connected
+                            positive: modelData.connected
+                            glyph: /head(phone|set)|earbud|airpods|buds/i.test(modelData.name || "") ? "headphones" : "bluetooth"
+                            text: root.unnamed(modelData) ? "Unnamed device" : modelData.name
+                            subtitle: (pending ? "Updating…" : modelData.connected ? "Connected" : modelData.paired ? "Paired" : root.unnamed(modelData) ? modelData.address : "Available")
+                                + (modelData.batteryAvailable ? " · " + Math.round(modelData.battery * 100) + "% battery" : "")
+                            trailing: C.Button {
+                                text: bluetoothDeviceRow.modelData.state === BluetoothDeviceState.Connecting ? "Connecting…" : bluetoothDeviceRow.modelData.state === BluetoothDeviceState.Disconnecting ? "Disconnecting…" : bluetoothDeviceRow.modelData.pairing ? "Pairing…" : bluetoothDeviceRow.modelData.connected ? "Disconnect" : bluetoothDeviceRow.modelData.paired ? "Connect" : "Pair"
+                                implicitHeight: 32
+                                accent: !bluetoothDeviceRow.modelData.connected && !bluetoothDeviceRow.pending && bluetoothDeviceRow.modelData.paired
+                                enabled: !root.acting && !bluetoothDeviceRow.pending && Services.bluetoothEnabled
+                                onClicked: {
+                                    const device = bluetoothDeviceRow.modelData;
+                                    if (root.acting || bluetoothDeviceRow.pending || !Services.bluetoothEnabled)
+                                        return;
+                                    if (device.connected)
+                                        device.disconnect();
+                                    else if (device.paired)
+                                        device.connect();
+                                    else
+                                        root.perform("bluetooth.pair", {
+                                            path: device.dbusPath
+                                        }, () => {});
                                 }
                             }
                             RowLayout {
-                                visible: modelData.paired && root.forgetPath !== modelData.dbusPath
+                                visible: bluetoothDeviceRow.modelData.paired && root.forgetPath !== bluetoothDeviceRow.modelData.dbusPath
                                 Layout.fillWidth: true
-                                Layout.leftMargin: 42
-                                spacing: 6
+                                Layout.leftMargin: 44
+                                spacing: Theme.gapXs
                                 C.Button {
-                                    text: modelData.trusted ? "Trusted" : "Trust"
-                                    glyph: modelData.trusted ? "check" : ""
+                                    text: bluetoothDeviceRow.modelData.trusted ? "Trusted" : "Trust"
+                                    glyph: bluetoothDeviceRow.modelData.trusted ? "check" : ""
                                     flat: true
-                                    implicitHeight: 30
+                                    implicitHeight: Theme.controlSmall + 2
                                     enabled: !bluetoothDeviceRow.pending
-                                    selected: modelData.trusted
+                                    selected: bluetoothDeviceRow.modelData.trusted
                                     Accessible.role: Accessible.CheckBox
                                     Accessible.checkable: true
-                                    Accessible.checked: modelData.trusted
-                                    onClicked: modelData.trusted = !modelData.trusted
+                                    Accessible.checked: bluetoothDeviceRow.modelData.trusted
+                                    onClicked: bluetoothDeviceRow.modelData.trusted = !bluetoothDeviceRow.modelData.trusted
                                 }
                                 Item { Layout.fillWidth: true }
                                 C.Button {
                                     text: "Forget"
                                     glyph: "trash"
                                     flat: true
-                                    implicitHeight: 30
-                                    enabled: !root.busy && !bluetoothDeviceRow.pending
-                                    onClicked: root.forgetPath = modelData.dbusPath
+                                    implicitHeight: Theme.controlSmall + 2
+                                    enabled: !root.acting && !bluetoothDeviceRow.pending
+                                    onClicked: root.forgetPath = bluetoothDeviceRow.modelData.dbusPath
                                 }
                             }
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 8
-                                visible: root.forgetPath === modelData.dbusPath
+                                spacing: Theme.gapS
+                                visible: root.forgetPath === bluetoothDeviceRow.modelData.dbusPath
                                 C.Label {
                                     text: "Forget this device?"
                                     wrapMode: Text.WordWrap
@@ -849,19 +779,18 @@ FocusScope {
                                 }
                                 C.Button {
                                     text: "Forget"
-                                    enabled: !root.busy && !bluetoothDeviceRow.pending
+                                    enabled: !root.acting && !bluetoothDeviceRow.pending
                                     danger: true
                                     onClicked: {
-                                        modelData.forget();
+                                        bluetoothDeviceRow.modelData.forget();
                                         root.forgetPath = "";
                                     }
                                 }
                             }
-                            }
                         }
                     }
                     C.Button {
-                        visible: root.hiddenDevices > 0 && !root.showAllDevices
+                        visible: Services.bluetoothEnabled && root.hiddenDevices > 0 && !root.showAllDevices
                         text: "Show " + root.hiddenDevices + (root.hiddenDevices === 1 ? " unnamed device" : " unnamed devices")
                         flat: true
                         Layout.fillWidth: true
@@ -871,10 +800,10 @@ FocusScope {
                 ColumnLayout {
                     visible: ShellState.detail === "power"
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: Theme.gapS
                     C.StatusCard {
                         Layout.fillWidth: true
-                        glyph: Services.batteryCharging ? "bolt" : "battery"
+                        glyph: Services.batteryCharging ? "bolt" : Services.batteryAvailable ? "battery" : "gauge"
                         title: Services.batteryAvailable ? Math.round(Services.batteryPercent) + "%" : "AC power"
                         subtitle: {
                             const state = Services.batteryCharging ? "Charging" : Services.onBattery ? "On battery" : "Plugged in";
@@ -884,10 +813,9 @@ FocusScope {
                         level: Services.batteryAvailable ? Services.batteryPercent / 100 : -1
                         positive: Services.batteryCharging
                     }
-                    C.Label {
+                    C.SectionHeader {
                         text: "Power mode"
-                        font.weight: Font.DemiBold
-                        Layout.topMargin: 6
+                        Layout.topMargin: Theme.gapXs
                     }
                     C.Label {
                         visible: !(ShellState.profiles.profiles || []).length
@@ -898,15 +826,17 @@ FocusScope {
                     }
                     Repeater {
                         model: ShellState.profiles.profiles || []
-                        C.QuickTile {
+                        C.ListRow {
                             required property string modelData
                             Layout.fillWidth: true
-                            implicitHeight: 76
                             text: ({"power-saver": "Power saver", "balanced": "Balanced", "performance": "Performance"})[modelData] || modelData
                             subtitle: ({"power-saver": "Longest battery life, quiet fans", "balanced": "Fast when needed, efficient at idle", "performance": "Full CPU and GPU power"})[modelData] || "System power profile"
-                            glyph: modelData === "power-saver" ? "battery" : modelData === "performance" ? "bolt" : "sun"
+                            glyph: modelData === "power-saver" ? "leaf" : modelData === "performance" ? "bolt" : "gauge"
                             selected: ShellState.profiles.active === modelData
-                            enabled: !root.busy
+                            enabled: !root.acting
+                            Accessible.role: Accessible.RadioButton
+                            Accessible.checkable: true
+                            Accessible.checked: selected
                             onClicked: root.perform("power.set", {
                                 profile: modelData
                             }, r => ShellState.profiles = r)
@@ -940,15 +870,10 @@ FocusScope {
                     C.Toggle {
                         visible: Backend.capabilities.builtinPanel !== false
                         Layout.fillWidth: true
+                        Layout.topMargin: Theme.gapXs
                         text: "Lower refresh rate in power saver"
                         selected: ShellState.setting("saverRefresh", true)
                         onClicked: ShellState.setSetting("saverRefresh", !ShellState.setting("saverRefresh", true))
-                    }
-                    C.Toggle {
-                        Layout.fillWidth: true
-                        text: "Reduce visual effects in every mode"
-                        selected: ShellState.setting("batterySaving", false)
-                        onClicked: ShellState.setSetting("batterySaving", !ShellState.setting("batterySaving", false))
                     }
                 }
                 Media {
@@ -959,49 +884,32 @@ FocusScope {
                 ColumnLayout {
                     visible: ShellState.detail === "tray"
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.EmptyState {
                         visible: Services.trayItems.length === 0
                         Layout.fillWidth: true
-                        Layout.topMargin: 24
+                        Layout.topMargin: Theme.gapXl
                         glyph: "grid"
                         title: "No background apps"
                         description: "App indicators appear here"
                     }
                     Repeater {
                         model: Services.trayItems
-                        RowLayout {
+                        C.ListRow {
                             id: trayRow
                             required property var modelData
                             Layout.fillWidth: true
-                            spacing: 8
-                            C.Button {
-                                Layout.fillWidth: true
-                                implicitHeight: Math.max(44, Theme.body + 28)
-                                hint: "Open " + (trayRow.modelData.tooltipTitle || trayRow.modelData.title || trayRow.modelData.id)
-                                onClicked: trayRow.modelData.onlyMenu ? trayMenuButton.openMenu() : trayRow.modelData.activate()
-                                contentItem: RowLayout {
-                                    spacing: 12
-                                    Image {
-                                        source: trayRow.modelData.icon
-                                        sourceSize.width: 20
-                                        sourceSize.height: 20
-                                        Layout.preferredWidth: 20
-                                        Layout.preferredHeight: 20
-                                        fillMode: Image.PreserveAspectFit
-                                    }
-                                    C.Label {
-                                        text: trayRow.modelData.tooltipTitle || trayRow.modelData.title || trayRow.modelData.id
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
-                            C.Button {
+                            image: modelData.icon
+                            text: modelData.tooltipTitle || modelData.title || modelData.id
+                            hint: "Open " + text
+                            onClicked: modelData.onlyMenu ? trayMenuButton.openMenu() : modelData.activate()
+                            trailing: C.Button {
                                 id: trayMenuButton
                                 glyph: "more"
+                                flat: true
                                 hint: "Menu for " + (trayRow.modelData.title || trayRow.modelData.id)
-                                implicitWidth: Math.max(44, Theme.body + 28)
-                                implicitHeight: implicitWidth
+                                implicitWidth: 32
+                                implicitHeight: 32
                                 selected: trayMenu.shown && trayMenu.item === trayRow.modelData
                                 function openMenu() {
                                     trayMenu.toggle(trayRow.modelData, trayMenuButton.QsWindow.window, trayMenuButton);
@@ -1020,7 +928,7 @@ FocusScope {
             id: actionFooter
             visible: ShellState.detail === ""
             Layout.fillWidth: true
-            spacing: 4
+            spacing: Theme.gapXs
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 1
@@ -1028,7 +936,7 @@ FocusScope {
             }
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 6
+                spacing: Theme.gapS
                 Repeater {
                     model: [
                         { title: "Capture", glyph: "camera", action: "capture" },
@@ -1073,13 +981,13 @@ FocusScope {
     Component {
         id: passwordForm
         ColumnLayout {
-            spacing: 8
+            spacing: Theme.gapS
             function focusField() {
                 passwordField.forceActiveFocus();
             }
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.gapS
                 C.Field {
                     id: passwordField
                     Layout.fillWidth: true
@@ -1103,13 +1011,13 @@ FocusScope {
                     flat: true
                     hint: root.passwordVisible ? "Hide password" : "Show password"
                     implicitWidth: 44
-                    implicitHeight: 44
+                    implicitHeight: Theme.controlLarge
                     onClicked: root.passwordVisible = !root.passwordVisible
                 }
             }
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.gapS
                 C.Button {
                     text: "Cancel"
                     onClicked: root.cancelPassword()

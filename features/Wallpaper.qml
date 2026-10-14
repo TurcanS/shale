@@ -6,6 +6,11 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Wallpapers"
+    // Draws its own surface edge to edge.
+    readonly property bool chromeless: true
+    readonly property int panelWidth: 1180
+    readonly property int panelHeight: 570
     property var entries: []
     readonly property var activeWallpapers: ShellState.activeWallpapers
     property bool localLoading: false
@@ -177,15 +182,16 @@ FocusScope {
             Layout.preferredHeight: 142
             color: Theme.panel
             radius: Theme.panelRadius
+            border.width: 1
+            border.color: Theme.border
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 12
-                spacing: 8
+                anchors.margins: Theme.gapM
+                spacing: Theme.gapS
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
-                    C.Icon { name: "palette"; size: 18 }
-                    C.Label { text: "Wallpapers"; font.weight: Font.DemiBold; font.pixelSize: 15; Layout.fillWidth: true }
+                    spacing: Theme.gapS
+                    C.Label { text: "Wallpapers"; font.weight: Font.DemiBold; font.pixelSize: Theme.titleSize; Layout.fillWidth: true; Layout.leftMargin: Theme.gapXs }
                     C.Label {
                         visible: root.loading && root.filtered.length > 0
                         text: "Updating…"
@@ -194,16 +200,17 @@ FocusScope {
                     }
                     C.Button { glyph: "close"; flat: true; hint: "Close"; implicitHeight: 30; onClicked: ShellState.close() }
                 }
-                RowLayout {
+                C.Segmented {
                     Layout.fillWidth: true
-                    spacing: 6
-                    C.Button { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "My wallpapers"; selected: !root.online; enabled: !root.applying; implicitHeight: 30; onClicked: root.chooseSource("local") }
-                    C.Button { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "Wallhaven"; selected: root.sourceMode === "wallhaven"; enabled: !root.applying; implicitHeight: 30; onClicked: root.chooseSource("wallhaven") }
-                    C.Button { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "Wallpapers.com"; selected: root.sourceMode === "wallpaperscom"; enabled: !root.applying; implicitHeight: 30; onClicked: root.chooseSource("wallpaperscom") }
+                    segmentHeight: 34
+                    enabled: !root.applying
+                    model: [{key: "local", text: "My wallpapers"}, {key: "wallhaven", text: "Wallhaven"}, {key: "wallpaperscom", text: "Wallpapers.com"}]
+                    current: root.sourceMode
+                    onActivated: key => root.chooseSource(key)
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.Field {
                         id: search
                         Layout.fillWidth: true
@@ -347,13 +354,13 @@ FocusScope {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: 14
-                spacing: 10
+                spacing: Theme.gapM
                 RowLayout {
                     Layout.fillWidth: true
                     C.Button { glyph: "back"; hint: "Previous wallpaper"; enabled: root.selected > 0 && !root.applying; onClicked: root.move(-1) }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 4
+                        spacing: Theme.gapXs
                         C.Label { text: root.current ? root.current.name : "No wallpaper selected"; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                         C.Label {
                             text: root.current ? (root.selected + 1) + " / " + root.filtered.length + (root.current.resolution ? " · " + root.current.resolution : "") + (root.online ? (root.current.path ? " · Saved locally" : " · Online") : "") : root.online ? root.sourceName : "Local collection"

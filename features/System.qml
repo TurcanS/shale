@@ -10,6 +10,9 @@ import "../components" as C
 // `mode` leaves room for more views, such as processes; the tab row appears once there is more than one.
 FocusScope {
     id: root
+    readonly property string title: "System"
+    readonly property int panelWidth: 900
+    readonly property int panelHeight: 620
     property string mode: "performance"
     readonly property var modes: [{key: "performance", title: "Performance"}]
     property var sample: null
@@ -252,35 +255,10 @@ FocusScope {
         }
     }
 
-    component Card: Rectangle {
-        color: Theme.surface
-        radius: Theme.controlRadius
-    }
-    component Caption: C.Label {
-        font.pixelSize: Theme.caption
-        color: Theme.muted
-    }
-    component Stat: Card {
-        id: stat
-        property string label: ""
-        property string value: ""
-        property string note: ""
-        Layout.fillWidth: true
-        Layout.preferredWidth: 1
-        Layout.preferredHeight: 64
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 10
-            spacing: 1
-            C.Label { text: stat.label; font.pixelSize: Theme.small; color: Theme.muted; Layout.fillWidth: true; elide: Text.ElideRight }
-            C.Label { text: stat.value; font.family: Theme.mono; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-            Caption { visible: stat.note !== ""; text: stat.note; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
-        }
-    }
     component Meter: Item {
         id: meter
         property real fraction: 0
-        property color color: Theme.activityLevel3
+        property color color: Theme.fill
         implicitHeight: 6
         Rectangle { anchors.fill: parent; radius: height / 2; color: Theme.raised }
         Rectangle {
@@ -294,10 +272,10 @@ FocusScope {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.gapM
         RowLayout {
             visible: root.modes.length > 1
-            spacing: 6
+            spacing: Theme.gapS
             Repeater {
                 model: root.modes
                 C.Button {
@@ -329,13 +307,13 @@ FocusScope {
             visible: root.resources.length > 0
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 16
+            spacing: Theme.gapL
             ListView {
                 id: list
                 Layout.preferredWidth: 236
                 Layout.fillHeight: true
                 clip: true
-                spacing: 4
+                spacing: Theme.gapXs
                 boundsBehavior: Flickable.StopAtBounds
                 model: root.resourceKeys
                 currentIndex: root.currentIndex
@@ -365,7 +343,7 @@ FocusScope {
                         anchors.fill: parent
                         anchors.leftMargin: 10
                         anchors.rightMargin: 10
-                        spacing: 10
+                        spacing: Theme.gapM
                         Rectangle {
                             Layout.preferredWidth: 64
                             Layout.preferredHeight: 34
@@ -393,7 +371,7 @@ FocusScope {
                                 C.Label { text: row.resource.title; font.weight: Font.DemiBold; Layout.fillWidth: true }
                                 C.Label { text: row.resource.value; font.family: Theme.mono; font.pixelSize: Theme.small; color: Theme.muted }
                             }
-                            Caption { text: row.resource.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
+                            C.Caption { text: row.resource.subtitle; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                     }
                 }
@@ -401,10 +379,10 @@ FocusScope {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                spacing: 12
+                spacing: Theme.gapM
                 RowLayout {
                     Layout.fillWidth: true
-                    C.Label { text: root.current ? root.current.title : ""; font.pixelSize: 22; font.weight: Font.DemiBold }
+                    C.Label { text: root.current ? root.current.title : ""; font.pixelSize: Theme.heading; font.weight: Font.DemiBold }
                     C.Label {
                         text: root.current ? root.current.model : ""
                         color: Theme.muted
@@ -413,44 +391,39 @@ FocusScope {
                         Layout.leftMargin: 16
                     }
                 }
-                Card {
+                C.Card {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 190
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 12
-                        spacing: 6
+                        spacing: Theme.gapS
                         RowLayout {
                             Layout.fillWidth: true
-                            Caption { text: root.graphCaption; Layout.fillWidth: true }
-                            Caption {
+                            C.Caption { text: root.graphCaption; Layout.fillWidth: true }
+                            C.Caption {
                                 visible: !!root.current && root.current.kind === "network"
                                 text: "↓ Receive"
                                 color: root.current ? root.current.color : Theme.muted
                             }
-                            Caption {
+                            C.Caption {
                                 visible: !!root.current && root.current.kind === "network"
                                 text: "↑ Send"
                                 color: Theme.activityWatching
                                 Layout.leftMargin: 8
                             }
-                            Caption {
+                            C.Caption {
                                 Layout.leftMargin: 8
                                 font.family: Theme.mono
                                 text: !root.current ? "" : root.current.scaled ? root.rate(root.scaleFor(root.current.series, root.span, root.revision)) : "100 %"
                             }
-                            Repeater {
-                                model: [{seconds: 60, text: "1 min"}, {seconds: 300, text: "5 min"}]
-                                C.Button {
-                                    required property var modelData
-                                    text: modelData.text
-                                    flat: true
-                                    selected: root.span === modelData.seconds
-                                    implicitHeight: 22
-                                    Layout.leftMargin: modelData.seconds === 60 ? 8 : 0
-                                    Accessible.name: "Show the last " + (modelData.seconds === 60 ? "minute" : "5 minutes")
-                                    onClicked: ShellState.setSetting("systemWindow", modelData.seconds)
-                                }
+                            C.Segmented {
+                                fill: false
+                                Layout.leftMargin: Theme.gapS
+                                segmentHeight: 26
+                                model: [{key: 60, text: "1 min", accessibleName: "Show the last minute"}, {key: 300, text: "5 min", accessibleName: "Show the last 5 minutes"}]
+                                current: root.span
+                                onActivated: key => ShellState.setSetting("systemWindow", key)
                             }
                         }
                         Item {
@@ -487,19 +460,19 @@ FocusScope {
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            Caption { text: root.span === 300 ? "5 minutes ago" : "1 minute ago"; color: Theme.disabled; Layout.fillWidth: true }
-                            Caption { text: "Now"; color: Theme.disabled }
+                            C.Caption { text: root.span === 300 ? "5 minutes ago" : "1 minute ago"; color: Theme.disabled; Layout.fillWidth: true }
+                            C.Caption { text: "Now"; color: Theme.disabled }
                         }
                     }
                 }
                 GridLayout {
                     Layout.fillWidth: true
                     columns: 4
-                    columnSpacing: 8
-                    rowSpacing: 8
+                    columnSpacing: Theme.gapS
+                    rowSpacing: Theme.gapS
                     Repeater {
                         model: root.statLabels
-                        Stat {
+                        C.Stat {
                             required property string modelData
                             required property int index
                             label: modelData
@@ -512,13 +485,13 @@ FocusScope {
                 ColumnLayout {
                     visible: !!root.current && root.current.kind === "cpu"
                     Layout.fillWidth: true
-                    spacing: 6
-                    Caption { text: "Threads" }
+                    spacing: Theme.gapS
+                    C.Caption { text: "Threads" }
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 36
                         Layout.maximumHeight: 36
-                        spacing: 3
+                        spacing: Theme.gapXs
                         Repeater {
                             // A count, so the bars stay and animate from one sample to the next.
                             model: root.sample ? root.sample.cpu.cores.length : 0
@@ -547,9 +520,9 @@ FocusScope {
                 ColumnLayout {
                     visible: !!root.current && root.current.kind === "memory"
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: Theme.gapS
                     readonly property var memory: root.sample ? root.sample.memory : ({total: 1, used: 0, cached: 0})
-                    Caption { text: "Composition" }
+                    C.Caption { text: "Composition" }
                     Item {
                         id: composition
                         Layout.fillWidth: true
@@ -571,8 +544,8 @@ FocusScope {
                 ColumnLayout {
                     visible: !!root.current && root.current.kind === "disk" && root.current.item.mounts.length > 0
                     Layout.fillWidth: true
-                    spacing: 8
-                    Caption { text: "Space" }
+                    spacing: Theme.gapS
+                    C.Caption { text: "Space" }
                     Repeater {
                         model: root.current && root.current.kind === "disk" ? root.current.item.mounts.length : 0
                         ColumnLayout {
@@ -580,7 +553,7 @@ FocusScope {
                             readonly property var mount: root.current && root.current.kind === "disk" && root.current.item.mounts[index]
                                 || ({path: "", used: 0, total: 1})
                             Layout.fillWidth: true
-                            spacing: 4
+                            spacing: Theme.gapXs
                             RowLayout {
                                 Layout.fillWidth: true
                                 C.Label { text: mount.path; font.family: Theme.mono; font.pixelSize: Theme.small; Layout.fillWidth: true; elide: Text.ElideMiddle }
@@ -598,7 +571,7 @@ FocusScope {
                         }
                     }
                 }
-                Caption {
+                C.Caption {
                     visible: !!root.current && root.current.kind === "gpu" && root.current.item.state === "asleep"
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap

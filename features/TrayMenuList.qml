@@ -141,7 +141,7 @@ FocusScope {
                         Keys.onReturnPressed: root.activate(row)
                         Keys.onEnterPressed: root.activate(row)
                         contentItem: RowLayout {
-                            spacing: 10
+                            spacing: Theme.gapM
                             // Checkbox and radio entries keep one column for their mark, so labels line up.
                             C.Icon {
                                 visible: row.kind === "back" || (!!entry && entry.buttonType > 0)

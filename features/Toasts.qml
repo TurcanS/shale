@@ -37,7 +37,7 @@ Scope {
         ListView {
             id: popupList
             anchors.fill: parent
-            spacing: 8
+            spacing: Theme.gapS
             clip: true
             interactive: contentHeight > height
             boundsBehavior: Flickable.StopAtBounds
@@ -128,7 +128,7 @@ Scope {
                 anchors.fill: parent
                 anchors.leftMargin: 13
                 anchors.rightMargin: 16
-                spacing: 10
+                spacing: Theme.gapM
                 C.Icon {
                     id: osdIcon
                     name: ShellState.osdGlyph
@@ -236,11 +236,11 @@ Scope {
                 anchors.fill: parent
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
-                spacing: 12
+                spacing: Theme.gapM
                 C.CoverArt {
                     Layout.preferredWidth: 44
                     Layout.preferredHeight: 44
-                    radius: 10
+                    radius: Theme.radiusSmall + 2
                     source: trackWindow.art
                 }
                 ColumnLayout {
@@ -264,7 +264,7 @@ Scope {
                     glyph: "next"
                     flat: true
                     implicitWidth: 36
-                    implicitHeight: 36
+                    implicitHeight: Theme.controlHeight
                     cornerRadius: 18
                     hint: "Next track"
                     visible: !!NowPlaying.player && NowPlaying.player.canGoNext

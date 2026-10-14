@@ -1,14 +1,17 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell
 import "../core"
 import "../services"
 import "../components" as C
 
 FocusScope {
+    readonly property string title: "Notifications"
+    readonly property int panelWidth: 420
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.gapM
         C.Toggle {
             text: "Do not disturb"
             selected: ShellState.setting("dnd", false)
@@ -21,7 +24,7 @@ FocusScope {
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            spacing: 8
+            spacing: Theme.gapS
             model: Services.notificationModel
             property int refocus: -1
             onCountChanged: if (refocus >= 0) {
@@ -38,22 +41,35 @@ FocusScope {
             section.delegate: RowLayout {
                 id: sectionRow
                 required property string section
+                readonly property var latest: Services.notifications.find(n => n.appName === section)
                 width: list.width
                 height: 38
-                spacing: 8
-                C.Label {
-                    text: sectionRow.section || "Notification"
-                    color: Theme.muted
-                    Layout.fillWidth: true
-                    font.pixelSize: Theme.small
-                    font.weight: Font.DemiBold
+                spacing: Theme.gapS
+                Image {
+                    id: sectionIcon
+                    visible: status === Image.Ready
+                    source: sectionRow.latest && sectionRow.latest.appIcon ? Quickshell.iconPath(sectionRow.latest.appIcon, true) : ""
+                    sourceSize.width: 16
+                    sourceSize.height: 16
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    Layout.leftMargin: 2
                 }
-                C.Button {
-                    text: "Clear"
-                    flat: true
-                    implicitHeight: 30
-                    Accessible.name: "Clear notifications from " + (sectionRow.section || "this app")
-                    onClicked: Services.dismissApplication(sectionRow.section)
+                C.Icon {
+                    visible: !sectionIcon.visible
+                    name: "bell"
+                    color: Theme.muted
+                    Layout.leftMargin: 2
+                }
+                C.SectionHeader {
+                    text: sectionRow.section || "Notification"
+                    C.Button {
+                        text: "Clear"
+                        flat: true
+                        implicitHeight: Theme.controlSmall
+                        Accessible.name: "Clear notifications from " + (sectionRow.section || "this app")
+                        onClicked: Services.dismissApplication(sectionRow.section)
+                    }
                 }
             }
             // Fade inside the delegate: a ListView add transition freezes later rows
@@ -103,7 +119,7 @@ FocusScope {
         RowLayout {
             visible: list.count > 0
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.gapS
             C.Label {
                 text: list.count + (list.count === 1 ? " notification" : " notifications")
                 color: Theme.muted

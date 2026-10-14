@@ -6,6 +6,8 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Clipboard"
+    readonly property bool showHeader: false
     property alias query: search.text
     property var entries: []
     property var staleEntries: []
@@ -121,7 +123,7 @@ FocusScope {
     }
     ColumnLayout {
         anchors.fill: parent
-        spacing: 16
+        spacing: Theme.gapL
         RowLayout {
             C.Field {
                 id: search
@@ -162,7 +164,7 @@ FocusScope {
         }
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.gapS
             visible: root.confirmClear
             C.Label {
                 text: "Delete all clipboard history?"
@@ -194,7 +196,7 @@ FocusScope {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 4
+            spacing: Theme.gapXs
             boundsBehavior: Flickable.StopAtBounds
             highlightMoveDuration: Theme.fast
             highlight: Rectangle {
@@ -232,18 +234,18 @@ FocusScope {
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: 12
-                    spacing: 16
+                    spacing: Theme.gapL
                     C.Icon {
                         visible: row.thumbnail === "" && row.modelData.kind !== "color"
                         name: row.modelData.kind === "link" ? "link" : row.modelData.kind === "path" ? "folder" : "clipboard"
-                        opacity: 0.6
+                        color: Theme.muted
                     }
                     Rectangle {
                         visible: row.modelData.kind === "color"
                         color: row.modelData.color || "transparent"
                         Layout.preferredWidth: 32
                         Layout.preferredHeight: 32
-                        radius: 8
+                        radius: Theme.radiusSmall
                         border.width: 1
                         border.color: Theme.border
                     }
@@ -303,7 +305,7 @@ FocusScope {
         }
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.gapS
             C.Label {
                 text: root.mutating ? "Updating history…" : root.busy ? (search.text ? "Searching history…" : "Loading history…") : root.entries.length + (search.text ? root.entries.length === 1 ? " match" : " matches" : root.entries.length === 1 ? " item" : " items")
                 color: Theme.muted

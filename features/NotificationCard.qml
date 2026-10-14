@@ -118,7 +118,7 @@ Rectangle {
             top: parent.top
             margins: 14
         }
-        spacing: 8
+        spacing: Theme.gapS
         RowLayout {
             Image {
                 id: appIcon
@@ -133,7 +133,7 @@ Rectangle {
                 visible: !root.grouped && !appIcon.visible
                 name: "bell"
                 size: 18
-                opacity: 0.55
+                color: Theme.muted
             }
             C.Label {
                 id: headerTitle
@@ -236,7 +236,7 @@ Rectangle {
             readonly property var buttons: (root.notification.actions || []).map((action, index) => ({action: action, index: index})).filter(item => item.action && item.action.identifier !== "default")
             visible: buttons.length > 0
             Layout.fillWidth: true
-            spacing: 6
+            spacing: Theme.gapS
             Repeater {
                 model: parent.buttons
                 C.Button {

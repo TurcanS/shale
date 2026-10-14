@@ -6,6 +6,8 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Capture"
+    readonly property int panelHeight: 540
     property string mode: "region"
     property string kind: ShellState.recording.active ? "recording" : "screenshot"
     property bool copy: true
@@ -44,23 +46,14 @@ FocusScope {
     }
     ColumnLayout {
         anchors.fill: parent
-        spacing: 16
-        RowLayout {
+        spacing: Theme.gapL
+        C.Segmented {
             Layout.fillWidth: true
-            spacing: 8
-            Repeater {
-                model: ["screenshot", "recording"]
-                C.Button {
-                    required property string modelData
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    text: modelData === "screenshot" ? "Screenshot" : "Recording"
-                    glyph: modelData === "screenshot" ? "camera" : "record"
-                    selected: root.kind === modelData
-                    enabled: !root.pending
-                    onClicked: { root.kind = modelData; root.error = ""; }
-                }
-            }
+            segmentHeight: Theme.controlLarge
+            enabled: !root.pending
+            model: [{key: "screenshot", text: "Screenshot", glyph: "camera"}, {key: "recording", text: "Recording", glyph: "record"}]
+            current: root.kind
+            onActivated: key => { root.kind = key; root.error = ""; }
         }
         ScrollView {
             id: scroll
@@ -76,48 +69,34 @@ FocusScope {
             clip: true
             ColumnLayout {
                 width: scroll.availableWidth
-                spacing: 16
-                C.Label {
+                spacing: Theme.gapL
+                C.SectionHeader {
                     text: root.kind === "recording" && ShellState.recording.active ? "Recording area" : "Capture area"
-                    color: Theme.muted
-                    font.pixelSize: Theme.small
-                    Layout.fillWidth: true
                 }
-                RowLayout {
+                C.Segmented {
                     Layout.fillWidth: true
-                    spacing: 8
+                    Layout.topMargin: -Theme.gapS
+                    segmentHeight: Theme.controlLarge
                     enabled: !root.pending && !(root.kind === "recording" && ShellState.recording.active)
-                    Repeater {
-                        model: ["region", "output", "window"]
-                        C.ActionTile {
-                            required property string modelData
-                            text: modelData === "region" ? "Region" : modelData === "output" ? "Display" : "Window"
-                            glyph: modelData === "region" ? "grid" : modelData === "output" ? "camera" : "window"
-                            selected: root.mode === modelData
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            implicitHeight: Math.max(92, Theme.body + 70)
-                            onClicked: root.mode = modelData
-                        }
-                    }
+                    model: [{key: "region", text: "Region", glyph: "region"}, {key: "output", text: "Display", glyph: "monitor"}, {key: "window", text: "Window", glyph: "window"}]
+                    current: root.mode
+                    onActivated: key => root.mode = key
                 }
                 RowLayout {
                     visible: root.kind === "screenshot"
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapM
                     C.Label {
                         text: "Delay"
                         Layout.fillWidth: true
                     }
-                    Repeater {
-                        model: [0, 3, 5, 10]
-                        C.Button {
-                            required property int modelData
-                            text: modelData === 0 ? "None" : modelData + "s"
-                            selected: ShellState.setting("captureDelay", 0) === modelData
-                            enabled: !root.pending
-                            onClicked: ShellState.setSetting("captureDelay", modelData)
-                        }
+                    C.Segmented {
+                        fill: false
+                        Layout.preferredWidth: 240
+                        enabled: !root.pending
+                        model: [0, 3, 5, 10].map(seconds => ({key: seconds, text: seconds === 0 ? "None" : seconds + "s"}))
+                        current: ShellState.setting("captureDelay", 0)
+                        onActivated: key => ShellState.setSetting("captureDelay", key)
                     }
                 }
                 C.Toggle {
@@ -131,24 +110,18 @@ FocusScope {
                 RowLayout {
                     visible: root.kind === "recording"
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapM
                     C.Label {
                         text: "Audio"
                         Layout.fillWidth: true
                     }
-                    Repeater {
-                        model: [{id: "none", text: "None"}, {id: "system", text: "System"}, {id: "microphone", text: "Microphone"}]
-                        C.Button {
-                            required property var modelData
-                            text: modelData.text
-                            selected: root.audio === modelData.id
-                            enabled: !root.pending && !ShellState.recording.active
-                            Accessible.role: Accessible.RadioButton
-                            Accessible.checkable: true
-                            Accessible.checked: selected
-                            Accessible.name: modelData.id === "none" ? "No audio" : modelData.id === "system" ? "System audio" : "Microphone"
-                            onClicked: ShellState.setSetting("recordAudio", modelData.id)
-                        }
+                    C.Segmented {
+                        fill: false
+                        Layout.preferredWidth: 300
+                        enabled: !root.pending && !ShellState.recording.active
+                        model: [{key: "none", text: "None", accessibleName: "No audio"}, {key: "system", text: "System", accessibleName: "System audio"}, {key: "microphone", text: "Microphone"}]
+                        current: root.audio
+                        onActivated: key => ShellState.setSetting("recordAudio", key)
                     }
                 }
                 C.Label {
@@ -158,12 +131,12 @@ FocusScope {
                     font.pixelSize: Theme.small
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
-                    Layout.topMargin: -8
+                    Layout.topMargin: -Theme.gapS
                 }
                 RowLayout {
                     visible: root.kind === "recording" && ShellState.recording.active
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     Rectangle {
                         Layout.preferredWidth: 7
                         Layout.preferredHeight: 7
@@ -183,20 +156,16 @@ FocusScope {
                         Layout.fillWidth: true
                     }
                 }
-                Rectangle {
+                C.Card {
                     Layout.fillWidth: true
-                    implicitHeight: destination.implicitHeight + 32
-                    color: Theme.surface
-                    radius: Theme.controlRadius
+                    implicitHeight: destination.implicitHeight + 2 * Theme.gapL
                     ColumnLayout {
                         id: destination
                         anchors.fill: parent
-                        anchors.margins: 16
-                        spacing: 4
-                        C.Label {
+                        anchors.margins: Theme.gapL
+                        spacing: Theme.gapXs
+                        C.Caption {
                             text: "Save location"
-                            color: Theme.muted
-                            font.pixelSize: Theme.caption
                             Layout.fillWidth: true
                         }
                         C.Label {
@@ -220,14 +189,14 @@ FocusScope {
         }
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.gapS
             C.Button {
                 visible: Backend.has("hyprpicker", true)
                 text: "Pick color"
                 flat: true
                 glyph: "palette"
                 enabled: !root.pending && Backend.ready
-                implicitHeight: 44
+                implicitHeight: Theme.controlLarge
                 onClicked: {
                     root.pending = true;
                     ShellState.action("color");
@@ -240,7 +209,7 @@ FocusScope {
                 danger: root.kind === "recording" && ShellState.recording.active
                 glyph: root.kind === "screenshot" ? "camera" : ShellState.recording.active ? "stop" : "record"
                 Layout.fillWidth: true
-                implicitHeight: 44
+                implicitHeight: Theme.controlLarge
                 enabled: !root.pending && Backend.ready && !root.missingTool
                 onClicked: root.capture()
             }

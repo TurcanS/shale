@@ -5,6 +5,9 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Calendar"
+    readonly property int panelWidth: 360
+    readonly property int panelHeight: 460 + extraHeight
     property date today: new Date()
     property date month: new Date(today.getFullYear(), today.getMonth(), 1)
     readonly property int firstDay: Qt.locale().firstDayOfWeek % 7
@@ -23,10 +26,10 @@ FocusScope {
     }
     ColumnLayout {
         anchors.fill: parent
-        spacing: 16
+        spacing: Theme.gapL
         RowLayout {
             Layout.fillWidth: true
-            spacing: 16
+            spacing: Theme.gapL
             C.Label {
                 text: Qt.formatDateTime(root.today, "dd")
                 font.pixelSize: 46
@@ -79,10 +82,10 @@ FocusScope {
                 id: calendarBody
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 8
+                spacing: Theme.gapS
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.Button {
                         glyph: "back"
                         implicitWidth: 36
@@ -110,7 +113,7 @@ FocusScope {
                 GridLayout {
                     columns: 7
                     columnSpacing: 2
-                    rowSpacing: 3
+                    rowSpacing: Theme.gapXs
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Repeater {
@@ -161,7 +164,7 @@ FocusScope {
         }
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: Theme.gapS
             C.Button {
                 text: "Today"
                 Layout.fillWidth: true

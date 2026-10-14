@@ -11,12 +11,29 @@ QtObject {
     readonly property color background: surfaces.background
     readonly property color panel: surfaces.panel
     readonly property color surface: surfaces.surface
+    readonly property string defaultAccent: "#9ad6c6"
+    // Shape: panels, then cards and large controls, then small controls (buttons up to 36 px, chips, keycaps).
     readonly property int panelRadius: 16
     readonly property int controlRadius: 12
+    readonly property int radiusSmall: 8
     readonly property int panelPadding: 20
-    readonly property int sectionSpacing: 16
+    // Spacing steps; everything between controls and sections uses one of these.
+    readonly property int gapXs: 4
+    readonly property int gapS: 8
+    readonly property int gapM: 12
+    readonly property int gapL: 16
+    readonly property int gapXl: 24
+    readonly property int sectionSpacing: gapL
+    // Control heights: compact (inline and header buttons), standard, and large (fields, list rows).
+    readonly property int controlSmall: 28
+    readonly property int controlLarge: 44
+    readonly property int rowHeight: Math.max(controlLarge + 12, body + 42)
+    readonly property int iconSmall: 14
+    readonly property int icon: 16
+    readonly property int iconLarge: 20
+    readonly property real disabledOpacity: 0.45
     readonly property int titleSize: 18
-    property color accent: ShellState.setting("accentColor", "#9ad6c6")
+    property color accent: ShellState.setting("accentColor", defaultAccent)
     // Accent changes (for example from a new wallpaper) cross-fade instead of snapping.
     Behavior on accent {
         ColorAnimation {
@@ -49,6 +66,10 @@ QtObject {
     readonly property int label: Math.max(12, body - 1)
     readonly property int small: Math.max(11, body - 2)
     readonly property int caption: Math.max(10, body - 3)
+    // In-page titles and headline numbers.
+    readonly property int heading: Math.max(20, body + 6)
+    // The bar keeps its own fixed sizes so its 32 px height holds at every text size.
+    readonly property int barText: 12
     readonly property bool reduced: ShellState.setting("reducedMotion", false)
     // Power saver always trims effects; the setting keeps them trimmed in every mode.
     readonly property bool lowPower: ShellState.powerSaver || ShellState.setting("batterySaving", false)
@@ -68,9 +89,11 @@ QtObject {
                        first.g * (1 - fraction) + second.g * fraction,
                        first.b * (1 - fraction) + second.b * fraction, 1);
     }
+    // Slider and progress fills.
+    readonly property color fill: mix(selection, accent, 0.70)
     readonly property color activityLevel1: selection
     readonly property color activityLevel2: mix(selection, accent, 0.35)
-    readonly property color activityLevel3: mix(selection, accent, 0.70)
+    readonly property color activityLevel3: fill
     readonly property color activityIdle: mix(raised, selection, 0.65)
     readonly property color activityWindow: mix(raised, accent, 0.45)
     // Watching (video, no input) reads warm against the cool active accent.

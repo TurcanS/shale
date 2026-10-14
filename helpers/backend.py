@@ -1327,13 +1327,6 @@ class Backend:
             return {"color": value}
         if method == "system.sample":
             return await self.sysmon.sample(nvidia=p.get("nvidia") is True, history=p.get("history") is True)
-        if method == "system.stats":
-            mem = {}
-            for line in Path("/proc/meminfo").read_text().splitlines():
-                key, value = line.split(":", 1)
-                mem[key] = int(value.split()[0]) * 1024
-            disk = shutil.disk_usage(Path.home())
-            return {"load": os.getloadavg()[0], "memoryTotal": mem["MemTotal"], "memoryUsed": mem["MemTotal"] - mem["MemAvailable"], "diskTotal": disk.total, "diskUsed": disk.used}
         if method == "capture.screenshot":
             async with self.capture_lock:
                 return await self.screenshot(p)

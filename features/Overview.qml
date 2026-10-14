@@ -10,6 +10,9 @@ import "../components" as C
 
 FocusScope {
     id: root
+    readonly property string title: "Workspaces"
+    readonly property int panelWidth: 980
+    readonly property int panelHeight: 640
     property var moving: null
     readonly property var occupied: new Set(Services.windows.filter(w => w.workspace).map(w => w.workspace.id))
     readonly property int currentId: Services.focusedWorkspace ? Services.focusedWorkspace.id : 0
@@ -67,7 +70,7 @@ FocusScope {
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 12
+                spacing: Theme.gapM
                 C.Icon { name: "chevron"; size: 20 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -134,19 +137,19 @@ FocusScope {
                                     top: parent.top
                                     margins: 12
                                 }
-                                spacing: 8
+                                spacing: Theme.gapS
                                 C.Button {
                                     Layout.fillWidth: true
-                                    implicitHeight: 44
+                                    implicitHeight: Theme.controlLarge
                                     flat: true
                                     hint: root.moving ? "Move window to " + card.modelData.name : "Switch to " + card.modelData.name
                                     enabled: !root.moving || card.modelData.id > 0
                                     contentItem: RowLayout {
-                                        spacing: 10
+                                        spacing: Theme.gapM
                                         C.Label {
                                             text: card.modelData.id > 0 ? String(card.modelData.id).padStart(2, "0") : "S"
                                             font.family: Theme.mono
-                                            font.pixelSize: 22
+                                            font.pixelSize: Theme.heading
                                             color: card.current ? Theme.accentText : Theme.text
                                         }
                                         C.Label {
@@ -171,7 +174,7 @@ FocusScope {
                                         id: windowRow
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        spacing: 6
+                                        spacing: Theme.gapS
                                         C.Button {
                                             id: previewButton
                                             Layout.fillWidth: true
@@ -183,7 +186,7 @@ FocusScope {
                                                 ShellState.close();
                                             }
                                             background: Rectangle {
-                                                radius: 10
+                                                radius: Theme.radiusSmall + 2
                                                 color: Theme.panel
                                                 clip: true
                                                 ScreencopyView {
@@ -212,7 +215,7 @@ FocusScope {
                                             contentItem: Item {}
                                         }
                                         RowLayout {
-                                            spacing: 4
+                                            spacing: Theme.gapXs
                                             Image {
                                                 source: root.appIcon(windowRow.modelData)
                                                 visible: status === Image.Ready
@@ -260,7 +263,7 @@ FocusScope {
                 RowLayout {
                     visible: root.emptySpaces.length > 0
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: Theme.gapM
                     C.Label {
                         text: root.moving ? "Move to empty" : "Empty"
                         color: Theme.muted
@@ -269,7 +272,7 @@ FocusScope {
                     }
                     Flow {
                         Layout.fillWidth: true
-                        spacing: 6
+                        spacing: Theme.gapS
                         Repeater {
                             model: root.emptySpaces
                             C.Button {

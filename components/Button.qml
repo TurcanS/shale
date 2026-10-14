@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import "../core"
+// Qualified: QtQuick.Controls has its own Label, which would ignore the shell font and text size.
+import "." as C
 
 AbstractButton {
     id: root
@@ -15,7 +17,10 @@ AbstractButton {
     property bool accent: false
     // Optional status tint for the label: "warning" or "danger".
     property string tone: ""
-    property real cornerRadius: height > 42 ? Theme.controlRadius : 8
+    property int labelSize: Theme.body
+    property real cornerRadius: height > 42 ? Theme.controlRadius : Theme.radiusSmall
+    // Label and glyph share one colour so state reads the same on both.
+    readonly property color foreground: !enabled ? Theme.disabled : danger || tone === "danger" ? Theme.danger : tone === "warning" ? Theme.warning : accent ? Theme.background : selected ? Theme.accentText : Theme.text
     implicitWidth: Math.max(28, contentItem.implicitWidth + leftPadding + rightPadding)
     implicitHeight: Theme.controlHeight
     Layout.minimumWidth: 0
@@ -62,19 +67,18 @@ AbstractButton {
             id: contents
             anchors.centerIn: parent
             width: Math.min(parent.width, implicitWidth)
-            spacing: 8
-            Icon {
+            spacing: Theme.gapS
+            C.Icon {
                 visible: root.glyph !== ""
                 name: root.glyph
-                size: 16
-                opacity: root.enabled ? 1 : 0.35
-                invert: root.enabled && root.accent
+                color: root.foreground
                 Layout.alignment: Qt.AlignVCenter
             }
-            Label {
+            C.Label {
                 visible: root.text !== ""
                 text: root.text
-                color: !root.enabled ? Theme.disabled : root.danger || root.tone === "danger" ? Theme.danger : root.tone === "warning" ? Theme.warning : root.accent ? Theme.background : root.selected ? Theme.accentText : Theme.text
+                font.pixelSize: root.labelSize
+                color: root.foreground
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter

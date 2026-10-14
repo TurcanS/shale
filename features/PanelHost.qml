@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
@@ -57,6 +58,19 @@ PanelWindow {
     MouseArea {
         anchors.fill: parent
         onClicked: ShellState.close()
+    }
+    // Lifts the panel off the wallpaper; skipped when effects are trimmed.
+    RectangularShadow {
+        anchors.fill: content
+        visible: !content.chromeless && !Theme.lowPower && host.visible
+        radius: content.radius
+        blur: 28
+        offset.y: 8
+        color: Qt.rgba(0, 0, 0, 0.5)
+        opacity: host.progress
+        transform: Translate {
+            y: Theme.reduced ? 0 : (1 - host.progress) * -8
+        }
     }
     PanelContent {
         id: content

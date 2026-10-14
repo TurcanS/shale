@@ -95,10 +95,10 @@ Item {
         RowLayout {
             id: statusRow
             anchors.centerIn: parent
-            spacing: 14
+            spacing: Theme.gapM
             RowLayout {
                 visible: Services.notificationModel.count > 0
-                spacing: 6
+                spacing: Theme.gapS
                 C.Icon {
                     name: "bell"
                     size: 15
@@ -114,7 +114,7 @@ Item {
             }
             RowLayout {
                 visible: Services.batteryAvailable
-                spacing: 6
+                spacing: Theme.gapS
                 C.Icon {
                     name: Services.batteryCharging ? "bolt" : "battery"
                     size: 15
@@ -346,7 +346,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 28
-        spacing: 16
+        spacing: Theme.gapL
         Rectangle {
             visible: !!root.player
             Layout.preferredWidth: Math.min(360, root.width / 2 - 40)
@@ -358,7 +358,7 @@ Item {
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 12
+                spacing: Theme.gapM
                 C.CoverArt {
                     Layout.preferredWidth: 44
                     Layout.preferredHeight: 44

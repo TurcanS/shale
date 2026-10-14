@@ -29,10 +29,10 @@ C.Button {
     }
 
     glyph: "power"
-    implicitHeight: Math.max(68, contentItem.implicitHeight + topPadding + bottomPadding + 6)
+    implicitHeight: Math.max(68, holdContent.implicitHeight + topPadding + bottomPadding + 6)
     implicitWidth: 240
-    padding: 16
-    topPadding: 12
+    padding: Theme.gapL
+    topPadding: Theme.gapM
     bottomPadding: 18
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
@@ -85,7 +85,7 @@ C.Button {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.margins: 12
+            anchors.margins: Theme.gapM
             height: 3
             radius: 1.5
             color: Theme.raised
@@ -109,16 +109,21 @@ C.Button {
     }
 
     contentItem: RowLayout {
-        spacing: 14
+
+        // Named: contentItem is created late, and a binding through it doesn't see later size changes.
+
+        id: holdContent
+        spacing: Theme.gapM
 
         C.Icon {
             name: root.glyph
-            size: 20
+            size: Theme.iconLarge
+            color: root.destructive ? Theme.danger : Theme.text
         }
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 3
+            spacing: Theme.gapXs
 
             C.Label {
                 text: root.text

@@ -14,16 +14,18 @@ ColumnLayout {
     property bool muteable: false
     property bool muted: false
     property string mutedGlyph: "mute"
+    // With a hint, a trailing chevron opens this level's detail page.
+    property string detailHint: ""
     signal moved(real value)
     signal iconClicked()
-    spacing: 5
-    opacity: enabled ? 1 : 0.45
+    signal detailRequested()
+    spacing: Theme.gapXs
+    opacity: enabled ? 1 : Theme.disabledOpacity
     RowLayout {
         Layout.fillWidth: true
         C.Icon {
             visible: !root.muteable
             name: root.glyph
-            size: 16
         }
         C.Button {
             visible: root.muteable
@@ -31,8 +33,8 @@ ColumnLayout {
             flat: true
             selected: root.muted
             opacity: root.muted && root.mutedGlyph === root.glyph ? 0.55 : 1
-            implicitWidth: 28
-            implicitHeight: 28
+            implicitWidth: Theme.controlSmall
+            implicitHeight: Theme.controlSmall
             Layout.leftMargin: -6
             Layout.topMargin: -4
             Layout.bottomMargin: -4
@@ -51,6 +53,18 @@ ColumnLayout {
             text: Math.round((slider.pressed ? slider.value : root.value) * 100) + "%"
             color: Theme.muted
             font.family: Theme.mono
+        }
+        C.Button {
+            visible: root.detailHint !== ""
+            glyph: "chevron"
+            flat: true
+            hint: root.detailHint
+            implicitWidth: Theme.controlSmall
+            implicitHeight: Theme.controlSmall
+            Layout.rightMargin: -4
+            Layout.topMargin: -4
+            Layout.bottomMargin: -4
+            onClicked: root.detailRequested()
         }
     }
     Slider {
@@ -75,7 +89,7 @@ ColumnLayout {
                 width: slider.visualPosition * parent.width
                 height: parent.height
                 radius: 5
-                color: root.muted ? Theme.hover : Theme.activityLevel3
+                color: root.muted ? Theme.hover : Theme.fill
                 Behavior on color {
                     ColorAnimation {
                         duration: Theme.fast

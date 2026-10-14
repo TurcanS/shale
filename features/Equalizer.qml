@@ -164,10 +164,10 @@ Rectangle {
                 id: content
                 x: 12
                 width: parent.width - 24
-                spacing: 12
+                spacing: Theme.gapM
                 Flow {
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: Theme.gapS
                     Repeater {
                         model: root.presetLabels
                         C.Button {
@@ -299,7 +299,7 @@ Rectangle {
                                         width: 4
                                         height: Math.abs(knobY - zeroY)
                                         radius: 2
-                                        color: Theme.activityLevel3
+                                        color: Theme.fill
                                     }
                                 }
                                 handle: Rectangle {

@@ -10,6 +10,10 @@ import "../core/search.js" as Search
 
 FocusScope {
     id: root
+    readonly property string title: "Applications"
+    // The search field heads the panel.
+    readonly property bool showHeader: false
+    readonly property int panelHeight: calculatorQuery && results.length === 0 ? (calculationError ? 262 : 202) : 520
     property alias query: search.text
     property string calculation: ""
     property bool calculationValid: false
@@ -272,7 +276,7 @@ FocusScope {
     }
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: Theme.gapM
         Item {
             Layout.fillWidth: true
             implicitHeight: 48
@@ -335,7 +339,7 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 name: "search"
                 size: 17
-                opacity: 0.6
+                color: Theme.muted
             }
             C.Button {
                 id: clear
@@ -364,10 +368,10 @@ FocusScope {
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 16
-                spacing: 12
+                spacing: Theme.gapM
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: Theme.gapS
                     C.Label {
                         readonly property string noun: root.unitQuery ? "Conversion" : "Calculation"
                         text: root.calculationValid ? noun + " result" : root.calculating ? (root.unitQuery ? "Converting…" : "Calculating…") : noun
@@ -403,7 +407,7 @@ FocusScope {
         RowLayout {
             visible: root.mode === "web"
             Layout.fillWidth: true
-            spacing: 6
+            spacing: Theme.gapS
             Repeater {
                 model: root.engines
                 C.Button {
@@ -430,7 +434,7 @@ FocusScope {
             visible: root.mode === "emoji" && !root.colorEmoji
             Layout.fillWidth: true
             implicitHeight: fontHint.implicitHeight + 16
-            radius: 10
+            radius: Theme.radiusSmall + 2
             color: Theme.surface
             C.Label {
                 id: fontHint
@@ -473,7 +477,7 @@ FocusScope {
             visible: !root.calculatorQuery && root.mode !== "emoji"
             clip: true
             model: root.mode !== "emoji" ? root.results : []
-            spacing: 4
+            spacing: Theme.gapXs
             boundsBehavior: Flickable.StopAtBounds
             highlightMoveDuration: Theme.fast
             ScrollBar.vertical: C.ScrollBar {}
@@ -498,7 +502,7 @@ FocusScope {
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                 }
                 contentItem: RowLayout {
-                    spacing: 12
+                    spacing: Theme.gapM
                     Image {
                         id: appIcon
                         source: {
@@ -517,7 +521,7 @@ FocusScope {
                         visible: appIcon.status !== Image.Ready
                         Layout.preferredWidth: 30
                         Layout.preferredHeight: 30
-                        radius: 9
+                        radius: Theme.radiusSmall
                         color: row.modelData.kind === "app" ? "transparent" : Theme.raised
                         C.Icon {
                             anchors.centerIn: parent
@@ -527,7 +531,7 @@ FocusScope {
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 3
+                        spacing: Theme.gapXs
                         C.Label { text: row.modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
                         C.Label {
                             visible: row.modelData.subtitle !== row.modelData.name && row.modelData.subtitle !== ""
@@ -597,7 +601,7 @@ FocusScope {
                 background: Rectangle {
                     anchors.fill: parent
                     anchors.margins: 2
-                    radius: 10
+                    radius: Theme.radiusSmall + 2
                     color: cell.down ? Theme.selectionHover : cell.GridView.isCurrentItem ? Theme.selection : "transparent"
                 }
                 contentItem: Text {
@@ -623,7 +627,7 @@ FocusScope {
             Layout.fillWidth: true
             Layout.leftMargin: 4
             Layout.rightMargin: 4
-            spacing: 6
+            spacing: Theme.gapS
             C.Label {
                 visible: root.mode === "apps" && root.query === ""
                 text: "Type a prefix to search"
@@ -657,7 +661,7 @@ FocusScope {
                         search.forceActiveFocus();
                     }
                     background: Rectangle {
-                        radius: 8
+                        radius: Theme.radiusSmall
                         color: modeButton.hovered ? Theme.hover : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                     }
@@ -665,7 +669,7 @@ FocusScope {
                     Row {
                         id: chipRow
                         anchors.centerIn: parent
-                        spacing: 5
+                        spacing: Theme.gapXs
                         Text {
                             text: modeButton.modelData.prefix
                             color: Theme.accentText

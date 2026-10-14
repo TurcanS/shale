@@ -450,9 +450,9 @@ ShellRoot {
                 page.copy({raw: "new", text: "new"});
                 test.check(page.entries.length === 0 && Backend.sequence === beforeCopy, "Changing search clears stale entries and blocks stale copy");
                 page.busy = false;
-                page.mutate("system.stats", {});
+                page.mutate("system.sample", {});
                 const pendingMutation = Backend.sequence;
-                page.mutate("system.stats", {});
+                page.mutate("system.sample", {});
                 page.copy({raw: "new", text: "new"});
                 test.check(page.mutating && Backend.sequence === pendingMutation, "Pending clipboard mutation blocks duplicate actions and copy");
                 Backend.receive(JSON.stringify({id: pendingMutation, ok: false, error: {message: "Temporary history failure"}}));

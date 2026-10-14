@@ -9,9 +9,9 @@ TextField {
     font.pixelSize: Theme.body
     selectionColor: Theme.selectionHover
     selectedTextColor: Theme.text
-    implicitHeight: 44
-    leftPadding: 14
-    rightPadding: 14
+    implicitHeight: Theme.controlLarge
+    leftPadding: Theme.gapM + 2
+    rightPadding: Theme.gapM + 2
     selectByMouse: true
     verticalAlignment: TextInput.AlignVCenter
     Accessible.name: placeholderText

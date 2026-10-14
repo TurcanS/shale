@@ -138,17 +138,17 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 12
-        spacing: 10
+        spacing: Theme.gapM
 
         // No city yet: a quiet invitation instead of an empty card.
         RowLayout {
             visible: !root.hasLocation && !root.searching
             Layout.fillWidth: true
-            spacing: 12
+            spacing: Theme.gapM
             C.Icon {
                 name: "cloud-sun"
                 size: 22
-                opacity: 0.8
+                color: Theme.muted
             }
             ColumnLayout {
                 Layout.fillWidth: true
@@ -177,7 +177,7 @@ Rectangle {
         RowLayout {
             visible: root.searching
             Layout.fillWidth: true
-            spacing: 6
+            spacing: Theme.gapS
             C.Field {
                 id: searchField
                 Layout.fillWidth: true
@@ -185,7 +185,7 @@ Rectangle {
                 placeholderText: "Search for a city"
                 Accessible.name: "Search for a city"
                 background: Rectangle {
-                    radius: 10
+                    radius: Theme.radiusSmall + 2
                     color: Theme.raised
                     border.width: searchField.activeFocus ? 1 : 0
                     border.color: Theme.accent
@@ -267,7 +267,7 @@ Rectangle {
         RowLayout {
             visible: root.hasLocation && !root.searching
             Layout.fillWidth: true
-            spacing: 12
+            spacing: Theme.gapM
             C.Icon {
                 name: root.weather ? root.weather.current.icon : "cloud"
                 size: 32
@@ -278,11 +278,11 @@ Rectangle {
                 spacing: 1
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.gapS
                     C.Label {
                         visible: !!root.weather
                         text: root.weather ? root.degrees(root.weather.current.temperature) : ""
-                        font.pixelSize: 24
+                        font.pixelSize: Theme.heading + 4
                         font.weight: Font.DemiBold
                     }
                     C.Label {
@@ -330,7 +330,7 @@ Rectangle {
         RowLayout {
             visible: root.hasLocation && !root.searching && root.menuOpen
             Layout.fillWidth: true
-            spacing: 6
+            spacing: Theme.gapS
             C.Button {
                 text: "Change city"
                 glyph: "search"
@@ -360,7 +360,7 @@ Rectangle {
         RowLayout {
             visible: root.hasLocation && !root.searching && !root.menuOpen && !!root.weather && root.weather.days.length > 0
             Layout.fillWidth: true
-            spacing: 6
+            spacing: Theme.gapS
             Repeater {
                 model: root.weather ? root.weather.days : []
                 Rectangle {
@@ -369,14 +369,14 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
                     implicitHeight: dayColumn.implicitHeight + 12
-                    radius: 10
+                    radius: Theme.radiusSmall + 2
                     color: Theme.raised
                     Accessible.role: Accessible.StaticText
                     Accessible.name: root.dayName(modelData.date) + ", " + modelData.label + ", high " + root.degrees(modelData.high) + ", low " + root.degrees(modelData.low)
                     ColumnLayout {
                         id: dayColumn
                         anchors.centerIn: parent
-                        spacing: 3
+                        spacing: Theme.gapXs
                         C.Label {
                             text: root.dayName(dayCell.modelData.date)
                             color: Theme.muted
@@ -389,7 +389,7 @@ Rectangle {
                             Layout.alignment: Qt.AlignHCenter
                         }
                         Row {
-                            spacing: 5
+                            spacing: Theme.gapXs
                             Layout.alignment: Qt.AlignHCenter
                             C.Label {
                                 text: root.degrees(dayCell.modelData.high)

@@ -24,7 +24,7 @@ ColumnLayout {
         const order = [MprisLoopState.None, MprisLoopState.Playlist, MprisLoopState.Track];
         player.loopState = order[(order.indexOf(player.loopState) + 1) % order.length];
     }
-    spacing: 16
+    spacing: Theme.gapL
     C.EmptyState {
         visible: !root.player
         Layout.fillWidth: true
@@ -95,14 +95,14 @@ ColumnLayout {
             anchors.centerIn: parent
             width: 124
             height: 124
-            radius: 16
+            radius: Theme.panelRadius
             color: Theme.raised
             visible: artwork.status !== Image.Ready
             Rectangle {
                 anchors.centerIn: parent
                 width: 76
                 height: 76
-                radius: 12
+                radius: Theme.controlRadius
                 color: Theme.hover
                 C.Icon {
                     anchors.centerIn: parent
@@ -150,7 +150,7 @@ ColumnLayout {
             anchors.margins: 10
             width: Math.min(parent.width / 2 - 20, playerName.implicitWidth + 16)
             height: 24
-            radius: 12
+            radius: Theme.controlRadius
             color: Qt.rgba(0, 0, 0, 0.4)
             C.Label {
                 id: playerName
@@ -182,7 +182,7 @@ ColumnLayout {
     ColumnLayout {
         visible: !!root.player
         Layout.fillWidth: true
-        spacing: 4
+        spacing: Theme.gapXs
         C.Label {
             text: root.player ? (root.player.trackTitle || "Unknown track") : ""
             font.pixelSize: Math.max(20, Theme.body + 4)
@@ -285,12 +285,12 @@ ColumnLayout {
     RowLayout {
         visible: !!root.player
         Layout.alignment: Qt.AlignHCenter
-        spacing: 12
+        spacing: Theme.gapM
         // Unsupported modes keep their space so play/pause stays centred.
         C.Button {
             glyph: "shuffle"
             implicitWidth: 36
-            implicitHeight: 36
+            implicitHeight: Theme.controlHeight
             cornerRadius: 18
             flat: true
             enabled: !!root.player && root.player.shuffleSupported
@@ -305,7 +305,7 @@ ColumnLayout {
         C.Button {
             glyph: "previous"
             implicitWidth: 44
-            implicitHeight: 44
+            implicitHeight: Theme.controlLarge
             cornerRadius: 22
             hint: "Previous track"
             enabled: !!root.player && root.player.canGoPrevious
@@ -324,7 +324,7 @@ ColumnLayout {
         C.Button {
             glyph: "next"
             implicitWidth: 44
-            implicitHeight: 44
+            implicitHeight: Theme.controlLarge
             cornerRadius: 22
             hint: "Next track"
             enabled: !!root.player && root.player.canGoNext
@@ -334,7 +334,7 @@ ColumnLayout {
             readonly property int loop: enabled ? root.player.loopState : MprisLoopState.None
             glyph: loop === MprisLoopState.Track ? "repeat-one" : "repeat"
             implicitWidth: 36
-            implicitHeight: 36
+            implicitHeight: Theme.controlHeight
             cornerRadius: 18
             flat: true
             enabled: !!root.player && root.player.loopSupported
@@ -347,7 +347,7 @@ ColumnLayout {
     Flow {
         visible: Services.players.length > 1 || Services.selectedPlayer !== ""
         Layout.fillWidth: true
-        spacing: 6
+        spacing: Theme.gapS
         C.Button {
             text: "Automatic"
             implicitHeight: 30

@@ -6,43 +6,33 @@ Button {
     id: root
     // Optional second line explaining what the switch does or its current state.
     property string description: ""
-    // With a glyph the row becomes a header-style toggle (Wi-Fi, Bluetooth).
+    // With a glyph the row becomes a header-style toggle (Wi-Fi, Bluetooth); positive adds a status dot.
     property bool positive: false
-    implicitHeight: Math.max(glyph !== "" ? 64 : 48, contentItem.implicitHeight + topPadding + bottomPadding)
-    padding: 12
+    // Flat inside a Group: no card of its own, only a hover highlight.
+    implicitHeight: Math.max(glyph !== "" ? 64 : Theme.controlLarge + 4, toggleContent.implicitHeight + topPadding + bottomPadding)
+    padding: Theme.gapM
+    topPadding: Theme.gapS + 2
+    bottomPadding: Theme.gapS + 2
     Accessible.role: Accessible.CheckBox
     Accessible.checkable: true
     Accessible.checked: selected
     Accessible.description: description
     background: Rectangle {
-        radius: Theme.controlRadius
-        color: root.hovered || root.visualFocus || root.down ? Theme.hover : Theme.surface
+        radius: root.flat ? Theme.radiusSmall : Theme.controlRadius
+        color: root.hovered || root.visualFocus || root.down ? Theme.hover : root.flat ? "transparent" : Theme.surface
         Behavior on color { ColorAnimation { duration: Theme.fast } }
     }
     contentItem: RowLayout {
-        spacing: 12
-        Rectangle {
+        // Named: contentItem is created late, and a binding through it doesn't see later size changes.
+        id: toggleContent
+        spacing: Theme.gapM
+        GlyphTile {
             visible: root.glyph !== ""
-            Layout.preferredWidth: 38
-            Layout.preferredHeight: 38
-            radius: 11
+            size: 38
+            glyph: root.glyph
+            positive: root.positive
             color: root.selected ? Theme.selection : Theme.raised
-            opacity: root.enabled ? 1 : 0.45
-            Behavior on color { ColorAnimation { duration: Theme.fast } }
-            Icon {
-                anchors.centerIn: parent
-                name: root.glyph
-                size: 18
-            }
-            Rectangle {
-                visible: root.positive
-                width: 7
-                height: 7
-                radius: 3.5
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                color: Theme.success
-            }
+            opacity: root.enabled ? 1 : Theme.disabledOpacity
         }
         ColumnLayout {
             Layout.fillWidth: true
@@ -72,7 +62,7 @@ Button {
             radius: 10
             // The off track must stay visible on the hovered row background.
             color: root.selected ? Theme.accent : root.hovered || root.visualFocus || root.down ? Theme.raised : Theme.hover
-            opacity: root.enabled ? 1 : 0.4
+            opacity: root.enabled ? 1 : Theme.disabledOpacity
             Behavior on color { ColorAnimation { duration: Theme.fast } }
             Rectangle {
                 x: root.selected ? 17 : 3
