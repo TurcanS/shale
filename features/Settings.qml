@@ -18,10 +18,10 @@ FocusScope {
     property real pageProgress: 1
     property bool alive: true
     Component.onDestruction: alive = false
-    // The installer copies VERSION next to shell.qml; a checkout without one shows no number.
+    // The installer writes the commit it installed next to shell.qml; a checkout run directly has none.
     property string version: ""
     FileView {
-        path: Paths.localPath(Qt.resolvedUrl("../VERSION"))
+        path: Paths.localPath(Qt.resolvedUrl("../COMMIT"))
         printErrors: false
         onLoaded: root.version = text().trim().split("\n")[0].slice(0, 40)
     }

@@ -67,12 +67,22 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def version(folder=None):
-    """The Shale version in a checkout or an installed shell folder, or 'unknown'."""
+def version(folder=None, root=ROOT, run=subprocess.run):
+    """Which Shale this is: the commit an installed shell folder was installed from (its COMMIT file), or the commit
+    this checkout is at, with "-modified" when tracked files have uncommitted changes. 'unknown' without either."""
+    if folder:
+        try:
+            return (Path(folder) / 'COMMIT').read_text().split()[0]
+        except (OSError, IndexError):
+            return 'unknown'
     try:
-        return (Path(folder or ROOT) / 'VERSION').read_text().split()[0]
-    except (OSError, IndexError):
+        head = run(['git', '-C', str(root), 'rev-parse', '--short=7', 'HEAD'], capture_output=True, text=True, timeout=10)
+        if head.returncode != 0 or not head.stdout.strip():
+            return 'unknown'
+        changes = run(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
         return 'unknown'
+    return head.stdout.strip() + ('-modified' if changes.stdout.strip() else '')
 
 
 # ---- Reading hyprland.lua ---------------------------------------------------------------------
@@ -587,9 +597,13 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
         if any(p.startswith('.') or p == '__pycache__' for p in relative.parts):
             continue
         if item.is_file() and (relative.parts[0] in ('core', 'components', 'features', 'services', 'helpers', 'assets')
-                               or str(relative) in ('scripts/session-action', 'VERSION') or item.name in ('shell.qml', 'qmldir')):
+                               or str(relative) == 'scripts/session-action' or item.name in ('shell.qml', 'qmldir')):
             mode = 0o755 if str(relative) == 'scripts/session-action' else item.stat().st_mode & 0o777
             targets[shell / relative] = (item.read_bytes(), mode)
+    # What `shale --version` and Settings show; a copy without git history installs without one.
+    commit = version()
+    if commit != 'unknown':
+        targets[shell / 'COMMIT'] = ((commit + '\n').encode(), 0o644)
     targets[home / '.local/bin/shale'] = ((ROOT / 'scripts/shale').read_bytes(), 0o755)
     wanted = ([] if shell_only else SHORTCUTS) + ([WALLPAPER] if wallpaper_shortcut else [])
     if not wanted:
@@ -1314,7 +1328,8 @@ def main():
         updating = args.update or args.pulled
         print(BANNER)
         if updating:
-            print(f'Updating Shale {version(home / ".config/quickshell/shale")} to {version()}.\n')
+            installed = version(home / ".config/quickshell/shale")
+            print(f'Updating Shale{"" if installed == "unknown" else " from " + installed} to {version()}.\n')
         if args.update and not args.apply:
             print(f'Preview only: with --apply, this first runs git pull --ff-only in {ROOT}. Below is the plan for this '
                   'copy as it is now.\n')

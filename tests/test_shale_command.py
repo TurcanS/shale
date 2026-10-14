@@ -74,11 +74,11 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(self.run_shale("--version")[0].stdout, "Shale unknown\n")
         shell = self.home / ".config/quickshell/shale"
         shell.mkdir(parents=True)
-        (shell / "VERSION").write_text("1.2.3\n")
-        self.assertEqual(self.run_shale("--version")[0].stdout, "Shale 1.2.3\n")
-        self.assertEqual(self.run_shale("version")[0].stdout, "Shale 1.2.3\n")
+        (shell / "COMMIT").write_text("a97d3ee-modified\n")
+        self.assertEqual(self.run_shale("--version")[0].stdout, "Shale a97d3ee-modified\n")
+        self.assertEqual(self.run_shale("version")[0].stdout, "Shale a97d3ee-modified\n")
         result, calls = self.run_shale("status")
-        self.assertEqual(json.loads(result.stdout), {"version": "1.2.3", "panel": "", "helperReady": True})
+        self.assertEqual(json.loads(result.stdout), {"version": "a97d3ee-modified", "panel": "", "helperReady": True})
         self.assertEqual(calls[-1], f"quickshell ipc -p {shell} call shell status")
         # A shell that isn't running fails the way quickshell does.
         self.stub("quickshell", "echo 'No running instances' >&2; exit 1")

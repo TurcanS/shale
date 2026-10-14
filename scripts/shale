@@ -3,7 +3,7 @@ set -eu
 config="$HOME/.config/quickshell/shale"
 version() {
   v=
-  [ -r "$config/VERSION" ] && read -r v < "$config/VERSION" || true
+  [ -r "$config/COMMIT" ] && read -r v < "$config/COMMIT" || true
   case "$v" in ''|*[!0-9A-Za-z.+~-]*) v=unknown ;; esac
   echo "$v"
 }

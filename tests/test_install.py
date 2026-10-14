@@ -321,20 +321,36 @@ class PreflightTests(unittest.TestCase):
 
 
 class VersionTests(unittest.TestCase):
-    def test_the_version_file_is_installed_into_the_shell_folder(self):
+    def test_the_commit_is_installed_into_the_shell_folder(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             targets = installer.payload(home, shell_only=True)
-        self.assertEqual(targets[home / '.config/quickshell/shale/VERSION'][0], (installer.ROOT / 'VERSION').read_bytes())
-        self.assertRegex(installer.version(), r'^\d+\.\d+\.\d+$')
+        self.assertRegex(installer.version(), r'^[0-9a-f]{7,}(-modified)?$')
+        self.assertEqual(targets[home / '.config/quickshell/shale/COMMIT'][0], (installer.version() + '\n').encode())
+        self.assertNotIn(home / '.config/quickshell/shale/VERSION', targets)
 
-    def test_version_reads_the_first_word_or_says_unknown(self):
+    def test_version_reads_the_installed_commit_or_says_unknown(self):
         with tempfile.TemporaryDirectory() as temp:
             self.assertEqual(installer.version(temp), 'unknown')
-            (Path(temp) / 'VERSION').write_text('')
+            (Path(temp) / 'COMMIT').write_text('')
             self.assertEqual(installer.version(temp), 'unknown')
-            (Path(temp) / 'VERSION').write_text('2.0.1\n')
-            self.assertEqual(installer.version(temp), '2.0.1')
+            (Path(temp) / 'COMMIT').write_text('a97d3ee-modified\n')
+            self.assertEqual(installer.version(temp), 'a97d3ee-modified')
+
+    def test_a_checkout_says_which_commit_and_whether_it_was_changed(self):
+        def git(changes='', fail=False):
+            def run(command, **options):
+                if fail:
+                    raise OSError('no git')
+                out = 'a97d3ee\n' if 'rev-parse' in command else changes
+                return subprocess.CompletedProcess(command, 0, out, '')
+            return run
+        self.assertEqual(installer.version(run=git()), 'a97d3ee')
+        self.assertEqual(installer.version(run=git(' M helpers/sysmon.py\n')), 'a97d3ee-modified')
+        self.assertEqual(installer.version(run=git(fail=True)), 'unknown')
+        with tempfile.TemporaryDirectory() as temp:
+            # A downloaded archive has no git history.
+            self.assertEqual(installer.version(root=Path(temp)), 'unknown')
 
     def test_version_option(self):
         script = Path(installer.__file__)
@@ -663,7 +679,7 @@ class UninstallTests(unittest.TestCase):
         before = self.snapshot()
         self.install(wallpaper_shortcut=True)
         self.assertNotEqual(self.config.read_text(), self.original)
-        self.assertTrue((self.shell / 'VERSION').is_file())
+        self.assertEqual(installer.version(self.shell), installer.version())
         skipped, output = self.uninstall()
         self.assertEqual(skipped, 0, output)
         self.assertEqual(self.snapshot(), before)
@@ -896,20 +912,21 @@ class UpdateTests(unittest.TestCase):
         remote, checkout, other = self.base / 'remote.git', self.base / 'checkout', self.base / 'other'
         self.git('init', '--bare', str(remote), cwd=self.base)
         self.git('clone', str(remote), str(other), cwd=self.base)
-        (other / 'VERSION').write_text('1.0.0\n')
-        self.git('add', 'VERSION', cwd=other)
+        (other / 'notes').write_text('one\n')
+        self.git('add', 'notes', cwd=other)
         self.git('commit', '-m', 'one', cwd=other)
         self.git('push', 'origin', 'HEAD', cwd=other)
         self.git('clone', str(remote), str(checkout), cwd=self.base)
-        (other / 'VERSION').write_text('1.1.0\n')
+        (other / 'notes').write_text('two\n')
         self.git('commit', '-am', 'two', cwd=other)
         self.git('push', 'origin', 'HEAD', cwd=other)
         self.assertTrue(self.pull(checkout)[0])
-        self.assertEqual(installer.version(checkout), '1.1.0')
+        self.assertEqual(installer.version(root=checkout), installer.version(root=other))
+        self.assertRegex(installer.version(root=checkout), r'^[0-9a-f]{7}$')
         # A checkout with local commits of its own can't fast-forward: nothing is installed.
-        (checkout / 'VERSION').write_text('9.9.9\n')
+        (checkout / 'notes').write_text('mine\n')
         self.git('commit', '-am', 'mine', cwd=checkout)
-        (other / 'VERSION').write_text('1.2.0\n')
+        (other / 'notes').write_text('three\n')
         self.git('commit', '-am', 'three', cwd=other)
         self.git('push', 'origin', 'HEAD', cwd=other)
         with self.assertRaisesRegex(ValueError, 'nothing was installed'):
@@ -974,7 +991,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_after_the_pull_it_reinstalls_without_packages_and_restarts_a_running_shell(self):
         install, run, output = self.main('--apply', '--pulled', running=True)
-        self.assertIn(f'Updating Shale unknown to {installer.version()}', output)
+        self.assertIn(f'Updating Shale to {installer.version()}', output)
         self.assertEqual(install.call_args.kwargs['packages'], ['adwaita-fonts'])
         self.assertFalse(install.call_args.kwargs['hints'])
         run.assert_called_once_with([str(self.base / '.local/bin/shale'), 'restart'])

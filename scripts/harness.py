@@ -3,7 +3,7 @@ links back to the repository."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LINKED = ("assets", "components", "core", "features", "helpers", "scripts", "services", "VERSION")
+LINKED = ("assets", "components", "core", "features", "helpers", "scripts", "services")
 
 
 def harness(name, directory):
