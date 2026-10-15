@@ -59,6 +59,8 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin",
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
+            "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
+            "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto",
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -73,6 +75,17 @@ SEARCH_ENGINES = ("duckduckgo", "google", "brave")
 # so system audio names the default output's monitor.
 RECORD_AUDIO = {"none": None, "system": "@DEFAULT_MONITOR@", "microphone": "@DEFAULT_SOURCE@"}
 # "ask" until the user chooses in the Activity panel; nothing is recorded until "on".
+# Bar items and control center parts, as core/barItems.js and core/controlItems.js name them. A layout lists
+# only what the user arranged; the shell puts anything it doesn't mention in its default place.
+BAR_ITEMS = ("launcher", "workspaces", "windowTitle", "clock", "media", "tray", "recording", "privacy", "focus", "timer",
+             "stayAwake", "keyboard", "vpn", "wifi", "audio", "battery", "notifications", "control")
+# Never hidden: what is recording or listening stays visible, and the control center leads back to Settings.
+BAR_REQUIRED = ("recording", "privacy", "control")
+CONTROL_TILES = ("wifi", "bluetooth", "dnd", "awake", "grayscale", "lid")
+CONTROL_SECTIONS = ("focus", "levels", "media")
+CONTROL_FOOTER = ("capture", "settings", "lock", "session")
+# Personal history and state; a settings export leaves them out and an import ignores them.
+PRIVATE_KEYS = ("appUsage", "emojiUsage", "runHistory", "pinnedApps", "focusSession", "timers", "weatherLocation")
 ACTIVITY_TRACKING = ("ask", "on", "off")
 
 def keyboard_state(devices):
@@ -182,6 +195,14 @@ def is_time(value):
     """A positive epoch time in milliseconds, as JavaScript's Date.now() gives it."""
     return type(value) in (int, float) and math.isfinite(value) and 0 < value < 1e14
 
+def check_ids(lists, known, what):
+    """Lists of IDs from `known`, none repeated across them."""
+    if not all(isinstance(ids, list) for ids in lists):
+        raise BackendError("invalid", f"Incorrect {what}.")
+    ids = [item for items in lists for item in items]
+    if not all(isinstance(item, str) and item in known for item in ids) or len(ids) != len(set(ids)):
+        raise BackendError("invalid", f"Incorrect {what}.")
+
 def check_setting(key, value):
     """Raises an "invalid" error for a value of a known setting that the shell can't use."""
     if type(value) is not type(DEFAULTS[key]):
@@ -222,6 +243,38 @@ def check_setting(key, value):
         raise BackendError("invalid", "Incorrect timers.")
     if key == "runHistory" and (len(value) > 20 or not all(isinstance(c, str) and 0 < len(c) <= 500 for c in value)):
         raise BackendError("invalid", "Incorrect command history.")
+    if key == "barLayout":
+        if not set(value) <= {"left", "center", "right", "hidden"}:
+            raise BackendError("invalid", "Incorrect bar layout.")
+        check_ids(list(value.values()), BAR_ITEMS, "bar layout")
+        if set(value.get("hidden", [])) & set(BAR_REQUIRED):
+            raise BackendError("invalid", "The recording, privacy and control center items can't be hidden.")
+    if key == "controlLayout":
+        if not set(value) <= {"tiles", "hiddenTiles", "sections", "footer", "hiddenFooter"}:
+            raise BackendError("invalid", "Incorrect control center layout.")
+        check_ids([value.get("tiles", []), value.get("hiddenTiles", [])], CONTROL_TILES, "control center tiles")
+        check_ids([value.get("footer", []), value.get("hiddenFooter", [])], CONTROL_FOOTER, "control center buttons")
+        sections = value.get("sections", {})
+        if not isinstance(sections, dict) or not set(sections) <= set(CONTROL_SECTIONS) or not all(type(v) is bool for v in sections.values()):
+            raise BackendError("invalid", "Incorrect control center sections.")
+        if "settings" in value.get("hiddenFooter", []):
+            raise BackendError("invalid", "The Settings button can't be hidden.")
+    if key == "clockFormat" and value not in ("time", "day-time", "date-time"):
+        raise BackendError("invalid", "Choose a supported clock format.")
+    if key == "workspaceStyle" and value not in ("numbers", "dots"):
+        raise BackendError("invalid", "Choose numbers or dots.")
+    if key == "workspaceSlots" and value not in (0, 5, 10):
+        raise BackendError("invalid", "Choose how many workspaces to show.")
+    if key == "trayIcons" and not -1 <= value <= 5:
+        raise BackendError("invalid", "Choose up to five tray icons.")
+    if key == "batteryPercent" and value not in ("auto", "always", "never"):
+        raise BackendError("invalid", "Choose when to show the battery percentage.")
+    if key == "barStyle" and value not in ("floating", "edge"):
+        raise BackendError("invalid", "Choose a floating or edge-to-edge bar.")
+    if key == "weekStart" and value not in ("locale", "monday", "sunday", "saturday"):
+        raise BackendError("invalid", "Choose the first day of the week.")
+    if key == "terminal" and value != "auto" and value not in (prefix[0] for prefix in Backend.TERMINALS):
+        raise BackendError("invalid", "Choose a supported terminal.")
     try:
         if key == "weatherLocation":
             weather.validate_location(value)
@@ -268,6 +321,58 @@ def save_settings(changes):
     current.update(changes)
     atomic_json(CONFIG, changed_only(current))
     return current
+
+def reset_settings(keys):
+    """Puts `keys` back to their defaults; returns every setting."""
+    if not isinstance(keys, list) or not all(isinstance(key, str) and key in DEFAULTS and key != "version" for key in keys):
+        raise BackendError("invalid", "Choose settings to reset.")
+    return save_settings({key: DEFAULTS[key] for key in keys})
+
+def export_path(value):
+    """An absolute or ~/ path to a .json file whose folder exists."""
+    if not isinstance(value, str) or not (value.startswith("~/") or value.startswith("/")) or "\n" in value or not value.endswith(".json"):
+        raise BackendError("invalid", "Enter a .json file path beginning with / or ~/.")
+    path = Path(value).expanduser()
+    if not path.parent.is_dir():
+        raise BackendError("invalid", f"The folder {path.parent} doesn't exist.")
+    return path
+
+def export_settings(value):
+    """Writes what the user changed, without history or location, to a file another computer can import."""
+    path = export_path(value)
+    current = settings()
+    current.pop("diagnostic", None)
+    data = {key: value for key, value in changed_only(current).items() if key not in PRIVATE_KEYS}
+    data["exported"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        atomic_json(path, data)
+    except OSError as error:
+        raise BackendError("failed", f"Could not write {path}: {error.strerror or error}.") from None
+    return {"path": str(path), "count": len(data) - 2}
+
+def import_settings(value):
+    """Applies every usable setting in an exported file; returns {settings, applied, skipped}."""
+    path = export_path(value)
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise BackendError("invalid", f"{path} doesn't exist.") from None
+    except (OSError, ValueError):
+        raise BackendError("invalid", "That file isn't a Shale settings export.") from None
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise BackendError("invalid", "That file isn't a Shale settings export.")
+    usable, skipped = {}, []
+    for key, item in data.items():
+        if key in ("version", "exported"):
+            continue
+        try:
+            if key not in DEFAULTS or key in PRIVATE_KEYS:
+                raise BackendError("invalid", key)
+            check_setting(key, item)
+            usable[key] = item
+        except BackendError:
+            skipped.append(key)
+    return {"settings": save_settings(usable), "applied": sorted(usable), "skipped": sorted(skipped)}
 
 def migrated_settings():
     """settings(), after upgrades that depend on more than the file. History recorded before
@@ -651,6 +756,10 @@ class Backend:
 
     def terminal(self):
         """The command prefix that runs a program in a terminal, or [] when none is installed."""
+        picked = settings()["terminal"]
+        prefix = next((list(prefix) for prefix in self.TERMINALS if prefix[0] == picked), None)
+        if prefix and shutil.which(picked):
+            return prefix
         chosen = os.environ.get("TERMINAL", "").strip()
         if chosen and shutil.which(chosen):
             return [chosen, "-e"]
@@ -667,6 +776,7 @@ class Backend:
                 "dbus": importlib.util.find_spec("dbus_next") is not None,
                 "lid": any(Path("/proc/acpi/button/lid").glob("*")),
                 "terminal": self.terminal(),
+                "terminals": [prefix[0] for prefix in self.TERMINALS if shutil.which(prefix[0])],
                 "builtinPanel": builtin_panel, "version": 1}
 
     async def compositor_saver(self, saver, refresh):
@@ -1063,6 +1173,12 @@ class Backend:
             if current["activityTracking"] != "on":
                 self.close_activity()
             return current
+        if method == "settings.reset":
+            return reset_settings(p.get("keys"))
+        if method == "settings.export":
+            return export_settings(p.get("path"))
+        if method == "settings.import":
+            return import_settings(p.get("path"))
         if method == "wallpaperscom.search":
             try:
                 return await asyncio.to_thread(wallpaperscom.search, p.get("query", ""), p.get("page", 1), settings()["wallpaperDirectory"])

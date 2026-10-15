@@ -306,6 +306,61 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(changes=changes), self.assertRaises(b.BackendError):
                 await self.backend.dispatch("settings.set", changes)
 
+    async def test_layout_and_bar_settings_are_validated(self):
+        layout = {"left": ["clock", "workspaces"], "center": ["media"], "hidden": ["windowTitle", "tray"]}
+        control = {"tiles": ["dnd", "wifi"], "hiddenTiles": ["lid"], "sections": {"media": False}, "hiddenFooter": ["lock"]}
+        changed = await self.backend.dispatch("settings.set", {"barLayout": layout, "controlLayout": control, "clockFormat": "date-time",
+                                                               "clockSeconds": True, "workspaceStyle": "dots", "workspaceSlots": 5,
+                                                               "trayIcons": 0, "batteryPercent": "never", "barStyle": "edge", "weekStart": "monday"})
+        self.assertEqual((changed["barLayout"], changed["controlLayout"], changed["workspaceSlots"]), (layout, control, 5))
+        for changes in [{"barLayout": {"left": ["clock", "clock"]}}, {"barLayout": {"left": ["clock"], "right": ["clock"]}},
+                        {"barLayout": {"hidden": ["recording"]}}, {"barLayout": {"hidden": ["control"]}}, {"barLayout": {"left": ["nope"]}},
+                        {"barLayout": {"top": []}}, {"barLayout": {"left": "clock"}}, {"controlLayout": {"tiles": ["wifi"], "hiddenTiles": ["wifi"]}},
+                        {"controlLayout": {"sections": {"focus": "no"}}}, {"controlLayout": {"sections": {"weather": True}}},
+                        {"controlLayout": {"hiddenFooter": ["settings"]}}, {"controlLayout": {"extra": []}}, {"clockFormat": "iso"},
+                        {"workspaceSlots": 7}, {"trayIcons": 6}, {"trayIcons": -2}, {"batteryPercent": "sometimes"}, {"barStyle": "glass"},
+                        {"weekStart": "friday"}, {"terminal": "xterm"}]:
+            with self.subTest(changes=changes), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("settings.set", changes)
+        self.assertEqual((await self.backend.dispatch("settings.set", {"terminal": "kitty"}))["terminal"], "kitty")
+
+    async def test_settings_reset_puts_back_defaults(self):
+        await self.backend.dispatch("settings.set", {"fontSize": 18, "barStyle": "edge", "dnd": True})
+        reset = await self.backend.dispatch("settings.reset", {"keys": ["fontSize", "barStyle"]})
+        self.assertEqual((reset["fontSize"], reset["barStyle"], reset["dnd"]), (14, "floating", True))
+        self.assertEqual(json.loads(b.CONFIG.read_text()), {"version": 1, "dnd": True})
+        for keys in (["version"], ["bogus"], "fontSize", None):
+            with self.subTest(keys=keys), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("settings.reset", {"keys": keys})
+
+    async def test_settings_export_and_import_leave_out_history(self):
+        await self.backend.dispatch("settings.set", {"fontSize": 18, "barStyle": "edge", "pinnedApps": ["firefox"], "runHistory": ["ls"],
+                                                     "weatherLocation": {"name": "Paris", "region": "", "latitude": 48.85, "longitude": 2.35}})
+        target = self.path / "backup.json"
+        exported = await self.backend.dispatch("settings.export", {"path": str(target)})
+        self.assertEqual((exported["path"], exported["count"]), (str(target), 2))
+        data = json.loads(target.read_text())
+        self.assertEqual({key: data[key] for key in data if key != "exported"}, {"version": 1, "fontSize": 18, "barStyle": "edge"})
+        b.CONFIG.unlink()
+        data.update({"surfaceTone": "oled", "futureKey": 1, "runHistory": ["rm -rf ~"], "dnd": True})
+        target.write_text(json.dumps(data))
+        imported = await self.backend.dispatch("settings.import", {"path": str(target)})
+        self.assertEqual((imported["applied"], imported["skipped"]), (["barStyle", "dnd", "fontSize"], ["futureKey", "runHistory", "surfaceTone"]))
+        self.assertEqual((imported["settings"]["fontSize"], imported["settings"]["runHistory"]), (18, []))
+        self.assertEqual(b.settings()["barStyle"], "edge")
+        target.write_text('{"version": 2}')
+        for path in (str(target), str(self.path / "missing.json"), "relative.json", str(self.path / "nofolder/x.json"), str(self.path / "x.txt")):
+            with self.subTest(path=path), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("settings.import", {"path": path})
+
+    def test_a_chosen_terminal_comes_first_when_installed(self):
+        installed = {"foot", "kitty"}
+        with patch.object(b.shutil, "which", side_effect=lambda name: name in installed), patch.dict(os.environ, {"TERMINAL": ""}):
+            b.save_settings({"terminal": "kitty"})
+            self.assertEqual(self.backend.terminal(), ["kitty"])
+            b.save_settings({"terminal": "alacritty"})
+            self.assertEqual(self.backend.terminal(), ["foot"])
+
     def test_keyboard_state_reads_the_main_keyboard(self):
         devices = {"keyboards": [{"name": "video-bus", "layout": "us", "variant": "", "active_layout_index": 0, "main": False},
                                  {"name": "at-kbd", "layout": "us,ru, de", "variant": "intl,,", "active_layout_index": 1,
