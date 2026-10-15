@@ -93,3 +93,33 @@ class SearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class LauncherCommandTests(unittest.TestCase):
+    def js(self, expression):
+        script = SEARCH + "\nprocess.stdout.write(JSON.stringify(" + expression + "));"
+        return json.loads(subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout)
+
+    def test_durations(self):
+        cases = {"10m": 600, "90s": 90, "1h30m": 5400, "1.5h": 5400, "25": 1500, "2 min": 120, "45sec": 45, "1h 5m 3s": 3903,
+                 "": 0, "abc": 0, "m": 0, "10x": 0, "-5m": 0}
+        self.assertEqual(self.js("[" + ",".join(f"parseDuration({json.dumps(k)})" for k in cases) + "]"), list(cases.values()))
+
+    def test_timer_queries_take_the_duration_and_a_label(self):
+        self.assertEqual(self.js('[timerQuery("timer 10m tea time"), timerQuery("Timer 1h 30m"), timerQuery("timer 5 eggs")]'),
+                         [{"seconds": 600, "label": "tea time"}, {"seconds": 5400, "label": ""}, {"seconds": 300, "label": "eggs"}])
+        self.assertEqual(self.js('[timerQuery("timer"), timerQuery("timer tea"), timerQuery("timer 25h"), timerQuery("timers 5m"), timerQuery("my timer 5m")]'),
+                         [None] * 5)
+
+    def test_focus_queries_last_one_to_240_minutes(self):
+        self.assertEqual(self.js('[focusQuery("focus 40"), focusQuery("Focus 1h"), focusQuery("focus 90m"), focusQuery("focus"), focusQuery("focus 0"), focusQuery("focus 5h"), focusQuery("focus abc")]'),
+                         [40, 60, 90, None, None, None, None])
+
+    def test_actions_need_a_word_start_of_two_letters(self):
+        names = self.js('["reb", "restart", "shut", "r", "wifi", "start", "lock"].map(term => ACTIONS.filter(a => scoreAction(a, term) > 0).map(a => a.key))')
+        self.assertEqual(names, [["power:reboot"], ["power:reboot"], ["power:shutdown"], [], ["page:wifi"], [], ["lock"]])
+
+    def test_windows_match_their_app_or_a_word_of_the_title(self):
+        self.assertEqual(self.js('[scoreWindow("Inbox - Mail", "org.mozilla.Thunderbird", "thunder") > 0, scoreWindow("README.md - Code", "code-oss", "readme") > 0, scoreWindow("README.md - Code", "code-oss", "eadme"), scoreWindow("x", "firefox", "")]'),
+                         [True, True, 0, 0])

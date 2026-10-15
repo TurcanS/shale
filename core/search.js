@@ -140,3 +140,78 @@ function addressUrl(text) {
     const local = host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
     return (local ? "http://" : "https://") + text;
 }
+
+// Seconds in a duration: "90s", "10m", "1h30m", "1.5h" or a bare number of minutes. 0 when it isn't one.
+function parseDuration(text) {
+    text = String(text || "").trim().toLowerCase();
+    if (/^\d+(\.\d+)?$/.test(text))
+        return Math.round(Number(text) * 60);
+    const match = /^(?:(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in(?:utes?|s)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?|s)?)?)?$/.exec(text);
+    if (!match || !(match[1] || match[2] || match[3]))
+        return 0;
+    return Math.round(Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0));
+}
+
+// "timer 10m tea" → {seconds: 600, label: "tea"}; null for anything else. Timers last up to a day.
+function timerQuery(text) {
+    const match = /^\s*timer\s+(.+?)\s*$/i.exec(String(text || ""));
+    if (!match)
+        return null;
+    // The duration may be written with spaces ("1h 30m"); take the longest leading part that parses.
+    const parts = match[1].split(/\s+/);
+    for (let count = parts.length; count > 0; count--) {
+        const seconds = parseDuration(parts.slice(0, count).join(""));
+        if (seconds > 0)
+            return seconds <= 86400 ? {seconds: seconds, label: parts.slice(count).join(" ").slice(0, 60)} : null;
+    }
+    return null;
+}
+
+// "focus 40" or "focus 1h" → 40 or 60 minutes; null for anything else. Sessions last 1 to 240 minutes.
+function focusQuery(text) {
+    const match = /^\s*focus\s+(.+?)\s*$/i.exec(String(text || ""));
+    if (!match)
+        return null;
+    const minutes = Math.round(parseDuration(match[1]) / 60);
+    return minutes >= 1 && minutes <= 240 ? minutes : null;
+}
+
+// Things the launcher can do besides opening apps. Session actions that end the session open the session
+// menu, whose hold-to-confirm buttons stay the only way to log out, restart or shut down.
+var ACTIONS = [
+    {key: "lock", name: "Lock screen", keywords: ["lock"], glyph: "lock"},
+    {key: "suspend", name: "Suspend", keywords: ["sleep", "suspend"], glyph: "moon"},
+    {key: "power:logout", name: "Log out", keywords: ["logout", "sign out", "exit"], glyph: "logout"},
+    {key: "power:reboot", name: "Restart", keywords: ["reboot", "restart"], glyph: "refresh"},
+    {key: "power:shutdown", name: "Shut down", keywords: ["shutdown", "power off", "poweroff", "turn off"], glyph: "power"},
+    {key: "page:wifi", name: "Wi-Fi", keywords: ["wifi", "wireless", "network", "vpn"], glyph: "wifi"},
+    {key: "page:bluetooth", name: "Bluetooth", keywords: ["bluetooth", "headphones"], glyph: "bluetooth"},
+    {key: "page:audio", name: "Sound", keywords: ["sound", "audio", "volume", "microphone"], glyph: "volume"},
+    {key: "page:power", name: "Power mode", keywords: ["battery", "power mode", "performance", "saver"], glyph: "battery"},
+    {key: "panel:settings", name: "Shale settings", keywords: ["settings", "preferences", "config"], glyph: "settings"},
+    {key: "panel:system", name: "System monitor", keywords: ["task manager", "processes", "cpu", "memory"], glyph: "gauge"},
+    {key: "panel:clipboard", name: "Clipboard history", keywords: ["clipboard", "paste"], glyph: "clipboard"},
+    {key: "panel:wallpaper", name: "Wallpapers", keywords: ["wallpaper", "background"], glyph: "palette"},
+    {key: "panel:activity", name: "Activity", keywords: ["screen time", "usage"], glyph: "activity"},
+    {key: "screenshot", name: "Screenshot", keywords: ["screenshot", "capture", "print screen"], glyph: "region"},
+    {key: "color", name: "Pick a color", keywords: ["color picker", "colour", "eyedropper"], glyph: "palette"},
+    {key: "focus", name: "Focus", keywords: ["focus", "do not disturb", "pomodoro"], glyph: "focus"},
+    {key: "dnd", name: "Do not disturb", keywords: ["dnd", "notifications", "quiet"], glyph: "bell-off"}
+];
+
+// An action's score on the apps' scale; only a clear start of a word counts, so short typing stays for apps.
+function scoreAction(action, term) {
+    if (!term || term.length < 2)
+        return 0;
+    const best = Math.max(fieldScore(fold(action.name), term, false, false), ...action.keywords.map(keyword => fieldScore(fold(keyword), term, false, false)));
+    return best >= 600 ? best * 2 - 100 : 0;
+}
+
+// An open window's score from its title and app id. Titles are long, so only word starts count there.
+function scoreWindow(title, appId, term) {
+    if (!term)
+        return 0;
+    const app = fieldScore(fold(appId).split(".").pop(), term, true, true);
+    const named = descriptionScore(fold(title), term);
+    return Math.max(app * 2, named * 1.6);
+}

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import "../core"
+import "../services"
 import "../components" as C
 import "../core/paths.js" as Paths
 import "../core/search.js" as Search
@@ -25,7 +26,7 @@ FocusScope {
     // A query that looked like a conversion but named no known unit ("7 days to die") searches apps instead.
     property string rejectedConversion: ""
     property string rejectedReason: ""
-    // A leading character picks what the launcher searches: apps (default), : emoji, / files, ? the web.
+    // A leading character picks what the launcher searches: apps (default), : emoji, / files, ? the web, > a command.
     readonly property string mode: modeOf(query)
     readonly property string term: mode === "apps" ? query.trim() : query.slice(1).trim()
     readonly property bool unitQuery: isConversion(query) && rejectedConversion !== query
@@ -39,7 +40,7 @@ FocusScope {
     readonly property Item view: mode === "emoji" ? grid : list
     function modeOf(value) {
         const first = value.charAt(0);
-        return first === ":" ? "emoji" : first === "/" ? "files" : first === "?" ? "web" : "apps";
+        return first === ":" ? "emoji" : first === "/" ? "files" : first === "?" ? "web" : first === ">" ? "run" : "apps";
     }
     function isExpression(value) {
         const text = value.trim();
@@ -85,12 +86,106 @@ FocusScope {
         const ranked = apps.map(app => ({
             kind: "app", name: app.entry.name, subtitle: app.entry.genericName || app.entry.comment || app.entry.id,
             glyph: app.entry.icon, entry: app.entry, key: app.entry.id, rank: Search.scoreApp(app.text, folded)
-        })).filter(i => i.rank > 0).sort((a, b) => {
-            const boost = i => (pinned.indexOf(i.key) >= 0 ? (term ? 100 : 100000) : 0) + Search.usageBoost(usage[i.key]);
+        })).filter(i => i.rank > 0);
+        // Open windows and built-in actions compete with apps on one scale. An open window edges out launching
+        // its app again, even a frequently used one.
+        const extras = folded ? windowResults(folded).concat(actionResults(folded)) : [];
+        const sorted = ranked.concat(extras).sort((a, b) => {
+            const boost = i => i.kind === "window" ? 400 : i.kind !== "app" ? 0 : (pinned.indexOf(i.key) >= 0 ? (term ? 100 : 100000) : 0) + Search.usageBoost(usage[i.key]);
             return b.rank + boost(b) - a.rank - boost(a) || a.name.localeCompare(b.name);
         });
         // Every app stays reachable from the empty query; a search only needs the best matches.
-        return term ? ranked.slice(0, 100) : ranked;
+        return commandResults.concat(term ? sorted.slice(0, 100) : sorted);
+    }
+    // "timer 10m tea" and "focus 40" become one row each, above everything else.
+    readonly property var commandResults: {
+        if (mode !== "apps")
+            return [];
+        const timer = Search.timerQuery(query);
+        if (timer)
+            return [{kind: "timer", key: "timer", name: "Start a " + Focus.minutesText(timer.seconds) + " timer" + (timer.label ? " · " + timer.label : ""),
+                     subtitle: "Counts down in the bar and chimes when done", fallback: "timer", seconds: timer.seconds, label: timer.label}];
+        const minutes = Search.focusQuery(query);
+        if (minutes)
+            return [{kind: "focus", key: "focus", name: "Focus for " + minutes + " min", subtitle: "Holds notifications, then sums them up",
+                     fallback: "focus", minutes: minutes}];
+        return [];
+    }
+    function windowResults(folded) {
+        const results = [];
+        for (const window of Services.windows) {
+            const appId = window.wayland ? window.wayland.appId || "" : (window.lastIpcObject || {}).class || "";
+            const rank = Search.scoreWindow(window.title, appId, folded);
+            if (rank <= 0)
+                continue;
+            const entry = appId && DesktopEntries.heuristicLookup ? DesktopEntries.heuristicLookup(appId) : null;
+            const workspace = window.workspace ? (window.workspace.id > 0 ? "workspace " + window.workspace.id : String(window.workspace.name || "").replace(/^special:/, "")) : "";
+            results.push({kind: "window", key: "window:" + window.address, name: window.title || (entry ? entry.name : appId) || "Window",
+                          subtitle: "Switch to " + (entry ? entry.name : appId || "window") + (workspace ? " · " + workspace : ""),
+                          glyph: entry ? entry.icon : appId, fallback: "window", window: window, rank: rank});
+        }
+        return results.sort((a, b) => b.rank - a.rank).slice(0, 5);
+    }
+    function actionResults(folded) {
+        return Search.ACTIONS.map(action => ({kind: "action", key: "action:" + action.key, action: action.key, name: action.name,
+                                              subtitle: actionSubtitle(action.key), fallback: action.glyph, rank: Search.scoreAction(action, folded)}))
+            .filter(item => item.rank > 0);
+    }
+    function actionSubtitle(key) {
+        if (key.startsWith("power:"))
+            return "Opens the session menu";
+        if (key === "focus")
+            return Focus.active ? "End focus · " + Focus.minutesText(Focus.remainingSeconds) + " left" : "Focus for " + Focus.lastMinutes + " minutes";
+        if (key === "dnd")
+            return ShellState.setting("dnd", false) ? "Turn off" : "Turn on";
+        return key.startsWith("page:") ? "Control center" : "Shale";
+    }
+    function runAction(key) {
+        const [kind, name] = key.split(":");
+        if (kind === "power")
+            ShellState.open("power");
+        else if (kind === "page") {
+            ShellState.open("control");
+            ShellState.detail = name;
+        } else if (kind === "panel")
+            ShellState.open(name);
+        else if (key === "lock" || key === "suspend" || key === "color")
+            ShellState.action(key);
+        else {
+            ShellState.close();
+            if (key === "screenshot")
+                ShellState.action("screenshot");
+            else if (key === "focus")
+                Focus.active ? Focus.end(true) : Focus.start(Focus.lastMinutes);
+            else if (key === "dnd")
+                ShellState.setSetting("dnd", !ShellState.setting("dnd", false));
+        }
+    }
+
+    // Commands: ">" runs one in its own scope, Shift+Enter in a terminal. The last 20 are kept.
+    readonly property var runResults: {
+        if (mode !== "run") return [];
+        const history = ShellState.setting("runHistory", []);
+        const results = term ? [{kind: "run", key: "run", name: term, subtitle: "Run · Shift+Enter to run in a terminal", fallback: "terminal", command: term}] : [];
+        const folded = Search.fold(term);
+        for (const command of history)
+            if (command !== term && Search.fold(command).indexOf(folded) >= 0)
+                results.push({kind: "run", key: "history:" + command, name: command, subtitle: "Recent command", fallback: "terminal", command: command});
+        return results;
+    }
+    function runCommand(command, inTerminal) {
+        if (inTerminal) {
+            const terminal = Backend.capabilities.terminal || [];
+            if (!terminal.length) {
+                ShellState.message("Install a terminal, such as foot or kitty, or set $TERMINAL.", "error");
+                return false;
+            }
+            // The shell stays open afterwards, so the output can be read.
+            ShellState.launch(terminal.concat(["sh", "-c", command + '\nexec "${SHELL:-sh}"']), "", "shale-run");
+        } else
+            ShellState.launch(["sh", "-c", command], "", "shale-run");
+        ShellState.setSetting("runHistory", [command].concat(ShellState.setting("runHistory", []).filter(c => c !== command)).slice(0, 20));
+        return true;
     }
 
     // Emoji: bundled data (scripts/build-emoji.py), loaded the first time the picker is used.
@@ -184,7 +279,7 @@ FocusScope {
         results.push({kind: "web", key: "search", name: term, subtitle: "Search " + engine.name, fallback: "search", url: engine.url + encodeURIComponent(term)});
         return results;
     }
-    readonly property var results: mode === "emoji" ? emojiResults : mode === "files" ? fileResults : mode === "web" ? webResults : appResults
+    readonly property var results: mode === "emoji" ? emojiResults : mode === "files" ? fileResults : mode === "web" ? webResults : mode === "run" ? runResults : appResults
 
     function activate(item, modifiers) {
         if (!item) return;
@@ -206,6 +301,18 @@ FocusScope {
                 ShellState.openPath(item.path);
         } else if (item.kind === "web") {
             ShellState.openUrl(item.url);
+        } else if (item.kind === "window") {
+            Services.focusWindow(item.window);
+        } else if (item.kind === "action") {
+            runAction(item.action);
+            return;
+        } else if (item.kind === "timer") {
+            Focus.addTimer(item.seconds, item.label);
+        } else if (item.kind === "focus") {
+            Focus.start(item.minutes);
+        } else if (item.kind === "run") {
+            if (!runCommand(item.command, modifiers & Qt.ShiftModifier))
+                return;
         } else {
             if (!item.entry.runInTerminal) {
                 ShellState.launch(item.entry.command, item.entry.workingDirectory, item.entry.id);
@@ -286,7 +393,7 @@ FocusScope {
                 focus: true
                 leftPadding: 42
                 rightPadding: clear.visible ? 42 : 14
-                placeholderText: "Apps & calculations"
+                placeholderText: "Apps, windows & calculations"
                 onTextChanged: {
                     ++root.calculationGeneration;
                     root.calculationValid = false;
@@ -320,7 +427,7 @@ FocusScope {
                     } else if (root.mode === "web" && event.key === Qt.Key_Tab) {
                         root.cycleEngine();
                         event.accepted = true;
-                    } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) && root.mode === "files") {
+                    } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) && (root.mode === "files" || root.mode === "run")) {
                         root.activate(root.results[list.currentIndex], event.modifiers);
                         event.accepted = true;
                     } else if (event.key === Qt.Key_P && (event.modifiers & Qt.ControlModifier) && root.mode === "apps" && !root.calculatorQuery && root.results[list.currentIndex]) {
@@ -457,6 +564,7 @@ FocusScope {
                 text: root.mode === "emoji" ? (root.term ? "Emoji" : "Recent & all emoji")
                     : root.mode === "files" ? "Files in your home folder"
                     : root.mode === "web" ? "Web"
+                    : root.mode === "run" ? "Run a command"
                     : root.query.trim() ? "Search results" : ShellState.setting("pinnedApps", []).length ? "Pinned & frequently used" : "All apps"
                 color: Theme.muted
                 font.pixelSize: Theme.small
@@ -565,9 +673,11 @@ FocusScope {
                 glyph: "search"
                 title: root.mode === "files" ? (!root.term ? "Search your files" : root.filesBusy ? "Searching…" : root.filesError ? "Search failed" : "No matching files")
                     : root.mode === "web" ? "Search the web"
+                    : root.mode === "run" ? "Run a command"
                     : root.query.trim() ? "No matching apps" : "No apps available"
                 description: root.mode === "files" ? (root.filesError || (!root.term ? "Type part of a file or folder name." : root.filesBusy ? "" : "Hidden and ignored files are skipped."))
                     : root.mode === "web" ? "Type what you are looking for after the question mark."
+                    : root.mode === "run" ? "Type a command after the >. Shift+Enter runs it in a terminal."
                     : root.rejectedConversion === root.query ? root.rejectedReason + " No app matches either."
                     : root.query.trim() ? "Try another app name." : "Installed applications will appear here."
             }
@@ -640,14 +750,17 @@ FocusScope {
                 text: root.mode === "emoji" ? (root.results[grid.currentIndex] ? root.results[grid.currentIndex].name + " · Enter to copy" : "")
                     : root.mode === "files" ? "Enter to open · Ctrl+Enter for its folder · Shift+Enter to copy the path"
                     : root.mode === "web" ? "Enter to open in your browser"
-                    : "Ctrl+P to pin"
+                    : root.mode === "run" ? "Enter to run · Shift+Enter in a terminal"
+                    : !root.results[list.currentIndex] || root.results[list.currentIndex].kind === "app" ? "Ctrl+P to pin"
+                    : root.results[list.currentIndex].kind === "window" ? "Enter to switch to it"
+                    : "Enter to start"
                 color: Theme.disabled
                 font.pixelSize: Theme.caption
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
             Repeater {
-                model: root.mode === "apps" && root.query === "" ? [{prefix: ":", label: "Emoji"}, {prefix: "/", label: "Files"}, {prefix: "?", label: "Web"}, {prefix: "=", label: "Calculate"}] : []
+                model: root.mode === "apps" && root.query === "" ? [{prefix: ":", label: "Emoji"}, {prefix: "/", label: "Files"}, {prefix: "?", label: "Web"}, {prefix: ">", label: "Run"}, {prefix: "=", label: "Calculate"}] : []
                 AbstractButton {
                     id: modeButton
                     required property var modelData

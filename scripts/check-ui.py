@@ -12,7 +12,7 @@ SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail 
 # Machines without a backlight, Wi-Fi, lid or capture tools.
 SCENARIOS += [("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
 SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Diagnostics"]]
-SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units"]]
+SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units", "run", "timer", "focus", "actions"]]
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]
 SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "apps", "app", "optin", "off"]]
 SCENARIOS += [("settings", detail) for detail in ["color-frost", "color-warm"]]
@@ -53,7 +53,8 @@ with tempfile.TemporaryDirectory(prefix="shale-ui-") as directory:
                    SHALE_SCREENSHOT=str(screenshot), SHALE_CATEGORY=("Appearance" if detail.startswith("color-") else detail) if panel == "settings" else "",
                    SHALE_ACCENT="#a5c8ef" if detail == "color-frost" else "#e0c283" if detail == "color-warm" else args.accent,
                    SHALE_TONE="midnight" if detail == "color-frost" else "warm" if detail == "color-warm" else args.tone,
-                   SHALE_QUERY={"calculator": "12345 * 6789", "emoji": ":heart", "files": "/quickshell", "web": "?quickshell.org", "units": "10 km to mi"}.get(detail, "") if panel == "launcher" else "",
+                   SHALE_QUERY={"calculator": "12345 * 6789", "emoji": ":heart", "files": "/quickshell", "web": "?quickshell.org", "units": "10 km to mi",
+                                "run": ">notify-send hi", "timer": "timer 10m tea", "focus": "focus 40", "actions": "restart"}.get(detail, "") if panel == "launcher" else "",
                    SHALE_POPULATED="1" if detail == "populated" else "",
                    SHALE_WEATHER=detail.removeprefix("weather-") if detail.startswith("weather-") else "",
                    SHALE_CAPTURE_KIND="recording" if detail == "recording" else "",
