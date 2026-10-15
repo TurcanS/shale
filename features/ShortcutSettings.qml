@@ -63,6 +63,8 @@ ColumnLayout {
             if (e) {
                 root.error = e.message;
                 root.errorAction = action;
+                // It may have been saved even so (Hyprland couldn't take it right now).
+                root.load();
                 return;
             }
             root.listing = r;

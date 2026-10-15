@@ -14,38 +14,6 @@ ColumnLayout {
     function move(id, zone, step) {
         ShellState.setSetting("barLayout", BarItems.moved(ShellState.setting("barLayout", {}), id, zone, step));
     }
-    // A label with a choice beside it.
-    component Choice: RowLayout {
-        id: choice
-        property string label: ""
-        property string description: ""
-        property var model: []
-        property var current: null
-        signal activated(var key)
-        Layout.fillWidth: true
-        spacing: Theme.gapM
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 0
-            C.Label {
-                text: choice.label
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-            C.Caption {
-                visible: choice.description !== ""
-                text: choice.description
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-        C.Segmented {
-            fill: false
-            model: choice.model
-            current: choice.current
-            onActivated: key => choice.activated(key)
-        }
-    }
     C.SectionHeader {
         text: "Layout"
         Layout.topMargin: Theme.gapS
@@ -186,13 +154,13 @@ ColumnLayout {
         text: "Look"
         Layout.topMargin: Theme.gapM
     }
-    Choice {
+    C.ChoiceRow {
         label: "Style"
         model: [{key: "floating", text: "Floating"}, {key: "edge", text: "Edge to edge"}]
         current: ShellState.setting("barStyle", "floating")
         onActivated: key => ShellState.setSetting("barStyle", key)
     }
-    Choice {
+    C.ChoiceRow {
         label: "Clock"
         model: [{key: "time", text: "Time"}, {key: "day-time", text: "Day"}, {key: "date-time", text: "Date"}]
         current: ShellState.setting("clockFormat", "day-time")
@@ -207,27 +175,27 @@ ColumnLayout {
             onClicked: ShellState.setSetting("clockSeconds", !selected)
         }
     }
-    Choice {
+    C.ChoiceRow {
         label: "Workspaces"
         model: [{key: "numbers", text: "Numbers"}, {key: "dots", text: "Dots"}]
         current: ShellState.setting("workspaceStyle", "numbers")
         onActivated: key => ShellState.setSetting("workspaceStyle", key)
     }
-    Choice {
+    C.ChoiceRow {
         label: "Empty workspaces"
         description: "Keep the first ones on the bar even without windows"
         model: [{key: 0, text: "Hide"}, {key: 5, text: "1–5"}, {key: 10, text: "1–10"}]
         current: ShellState.setting("workspaceSlots", 0)
         onActivated: key => ShellState.setSetting("workspaceSlots", key)
     }
-    Choice {
+    C.ChoiceRow {
         label: "Tray icons"
         description: "The rest open from the tray button"
         model: [{key: -1, text: "Auto", hint: "More on wider screens"}, {key: 0, text: "0"}, {key: 1, text: "1"}, {key: 2, text: "2"}, {key: 3, text: "3"}, {key: 5, text: "5"}]
         current: ShellState.setting("trayIcons", -1)
         onActivated: key => ShellState.setSetting("trayIcons", key)
     }
-    Choice {
+    C.ChoiceRow {
         label: "Battery percentage"
         description: "Low battery always shows it"
         model: [{key: "auto", text: "Auto", hint: "Hidden on narrow screens"}, {key: "always", text: "Always"}, {key: "never", text: "Never"}]

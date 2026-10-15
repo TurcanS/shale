@@ -138,7 +138,7 @@ FocusScope {
             return Focus.active ? "End focus · " + Focus.minutesText(Focus.remainingSeconds) + " left" : "Focus for " + Focus.lastMinutes + " minutes";
         if (key === "dnd")
             return ShellState.setting("dnd", false) ? "Turn off" : "Turn on";
-        return key.startsWith("page:") ? "Control center" : "Shale";
+        return key.startsWith("page:") ? "Control center" : key.startsWith("settings:") ? "Settings" : "Shale";
     }
     function runAction(key) {
         const [kind, name] = key.split(":");
@@ -149,6 +149,8 @@ FocusScope {
             ShellState.detail = name;
         } else if (kind === "panel")
             ShellState.open(name);
+        else if (kind === "settings")
+            ShellState.openSettings(name);
         else if (key === "lock" || key === "suspend" || key === "color")
             ShellState.action(key);
         else {

@@ -123,9 +123,14 @@ case "$1" in
     esac
     ;;
   --version|version) echo "Shale $(version)" ;;
-  launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system)
+  settings)
+    # `shale settings bar` opens Settings on that page; without one it toggles Settings.
+    if [ -n "$2" ]; then exec quickshell ipc -p "$config" call shell settingsPage "$2"; fi
+    exec quickshell ipc -p "$config" call shell toggle settings
+    ;;
+  launcher|clipboard|control|notifications|overview|capture|power|calendar|wallpaper|activity|system)
     exec quickshell ipc -p "$config" call shell toggle "$1"
     ;;
-  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' ;;
-  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' >&2; exit 2 ;;
+  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' ;;
+  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' >&2; exit 2 ;;
 esac

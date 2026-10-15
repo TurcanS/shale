@@ -13,7 +13,7 @@ PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "over
 SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail in ["wifi", "bluetooth", "audio", "power", "media", "tray", "custom"]]
 # Machines without a backlight, Wi-Fi, lid or capture tools.
 SCENARIOS += [("control", "wifi-vpn"), ("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
-SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Shortcuts-old", "Bar-custom", "Control center", "Control center-custom", "Diagnostics"]]
+SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Shortcuts-old", "Bar-custom", "Control center", "Control center-custom", "General", "Backup", "Diagnostics"]]
 SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units", "run", "timer", "focus", "actions"]]
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]
 SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "apps", "app", "optin", "off"]]

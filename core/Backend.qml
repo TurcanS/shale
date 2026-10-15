@@ -9,6 +9,12 @@ QtObject {
     property int sequence: 0
     property var pending: ({})
     property var capabilities: ({})
+    function refreshCapabilities() {
+        request("capabilities", {}, (result, error) => {
+            if (!error)
+                capabilities = result;
+        });
+    }
     // Whether a helper command is installed; `assumed` answers until the helper has reported.
     function has(command, assumed) {
         const commands = capabilities.commands;
@@ -74,10 +80,7 @@ QtObject {
             root.ready = true;
             // A notice about the previous helper stopping no longer applies.
             root.lastError = "";
-            root.request("capabilities", {}, (result, error) => {
-                if (!error)
-                    root.capabilities = result;
-            });
+            root.refreshCapabilities();
         }
         onExited: {
             root.ready = false;

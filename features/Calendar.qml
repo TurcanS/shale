@@ -10,7 +10,7 @@ FocusScope {
     readonly property int panelHeight: 460 + extraHeight
     property date today: new Date()
     property date month: new Date(today.getFullYear(), today.getMonth(), 1)
-    readonly property int firstDay: Qt.locale().firstDayOfWeek % 7
+    readonly property int firstDay: ShellState.firstDayOfWeek
     readonly property int offset: (month.getDay() - firstDay + 7) % 7
     // The panel grows by the weather card so the month grid keeps its size.
     readonly property int extraHeight: weatherCard.implicitHeight + 16

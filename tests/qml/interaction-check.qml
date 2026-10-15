@@ -87,6 +87,33 @@ ShellRoot {
         }
         return null;
     }
+    property var shortcuts: null
+    function findItem(item, test) {
+        for (const child of item.children) {
+            if (test(child))
+                return child;
+            const found = findItem(child, test);
+            if (found)
+                return found;
+        }
+        return null;
+    }
+    function checkShortcutRecorder(page) {
+        page.start("color");
+        check(page.recording === "color", "Change starts listening for keys");
+        input.keyPress(Qt.Key_Shift, Qt.ShiftModifier);
+        check(page.held === "SHIFT", "Held modifiers show while recording");
+        input.keyRelease(Qt.Key_Shift, Qt.NoModifier);
+        input.keyClick(Qt.Key_Escape);
+        check(page.recording === "", "Escape stops listening without a change");
+        page.start("color");
+        input.keyClick(Qt.Key_K);
+        input.wait(400);
+        check(page.error.indexOf("Super, Ctrl or Alt") >= 0, "A letter without Super, Ctrl or Alt is refused");
+        page.start("color");
+        input.keyClick(Qt.Key_K, Qt.MetaModifier | Qt.ShiftModifier);
+        check(page.recording === "" && page.busy, "Super+Shift+K is taken as the new shortcut");
+    }
     function checkTooltip() {
         input.mouseMove(tipButton, 15, 15);
         input.wait(250);
@@ -329,7 +356,7 @@ ShellRoot {
         onTriggered: {
             if (test.busy)
                 return;
-            if (++test.ticks > 80) {
+            if (++test.ticks > 140) {
                 test.check(false, "Interaction check timed out");
                 Qt.quit();
                 return;
@@ -500,6 +527,45 @@ ShellRoot {
                     return;
                 test.check(page.resourceKeys === test.systemKeys, "A new sample keeps the resource rows instead of rebuilding them");
                 test.check(page.history.cpu[page.history.cpu.length - 1][0] === page.now, "A new sample extends the kept history in place");
+                ShellState.openSettings("control-center");
+                test.step++;
+                break;
+            case 12:
+                if (page.category === undefined)
+                    return;
+                test.check(page.category === "Control center", "shale settings control-center opens that page");
+                ShellState.openSettings("Shortcuts");
+                test.check(page.category === "Shortcuts", "Asking for another page while Settings is open switches to it");
+                test.shortcuts = test.findItem(page, item => item.listing !== undefined && item.recording !== undefined);
+                test.step++;
+                break;
+            case 13:
+                if (!test.shortcuts || !test.shortcuts.listing.ready)
+                    return;
+                test.busy = true;
+                test.checkShortcutRecorder(test.shortcuts);
+                test.busy = false;
+                test.step++;
+                break;
+            case 14:
+                if (test.shortcuts.busy)
+                    return;
+                Backend.request("settings.get", {}, r => {
+                    test.check(r.shortcuts.color === "SUPER + SHIFT + K", "Pressed keys are saved as the new shortcut");
+                    test.check(test.shortcuts.listing.shortcuts.find(item => item.action === "color").keys === "SUPER + SHIFT + K", "The page shows the new keys");
+                    ShellState.setSetting("barStyle", "edge");
+                    ShellState.setSetting("clockSeconds", true);
+                    ShellState.resetSettings(["barStyle"], () => {
+                        test.check(ShellState.setting("barStyle", "") === "floating" && ShellState.setting("clockSeconds", false) === true,
+                                   "Resetting puts back only the page's settings and keeps a change still being saved");
+                        test.step = 16;
+                    });
+                });
+                test.step++;
+                break;
+            case 15:
+                break;
+            case 16:
                 console.log("INTERACTION CHECK COMPLETE", test.failures);
                 Qt.quit();
                 break;

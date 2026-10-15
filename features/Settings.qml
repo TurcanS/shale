@@ -82,6 +82,9 @@ FocusScope {
     // Plain on/off preferences, grouped per category.
     readonly property var toggles: ({
             Appearance: [
+                {label: "Music visualizer", key: "visualizer", defaultValue: true, description: "In the bar and on the media page"}
+            ],
+            General: [
                 {label: "24-hour clock", key: "clock24h", defaultValue: true}
             ],
             Motion: [
@@ -98,21 +101,51 @@ FocusScope {
                 {label: "Keep notification history across restarts", key: "persistNotifications", description: "Up to 200 notifications for seven days. Contents stay hidden on the lock screen."}
             ],
             Audio: [
-                {label: "Allow volume amplification up to 150%", key: "amplification"}
+                {label: "Allow volume amplification up to 150%", key: "amplification"},
+                {label: "Show time left instead of track length", key: "mediaRemaining"}
             ]
         })
     readonly property var categories: [
         {name: "Appearance", icon: "palette", description: "Shape the way your desktop feels."},
-        {name: "Motion", icon: "bolt", description: "Choose a pace that feels right."},
         {name: "Bar", icon: "window", description: "Keep the essentials where you need them."},
         {name: "Control center", icon: "settings", description: "The switches and buttons you reach for most."},
+        {name: "Shortcuts", icon: "grid", description: "Keyboard shortcuts and the commands behind them."},
+        {name: "General", icon: "calendar", description: "Time, units, search and the terminal."},
+        {name: "Motion", icon: "bolt", description: "Choose a pace that feels right."},
         {name: "Notifications", icon: "bell", description: "Decide what needs your attention."},
         {name: "Audio", icon: "volume", description: "Set the limits for your listening."},
         {name: "Capture", icon: "camera", description: "A home for screenshots and recordings."},
         {name: "Activity", icon: "activity", description: "Your private desktop history."},
-        {name: "Shortcuts", icon: "grid", description: "Keyboard shortcuts and the commands behind them."},
+        {name: "Backup", icon: "folder", description: "Keep a copy of your settings or move them."},
         {name: "Diagnostics", icon: "info", description: "Check the services behind your desktop."}
     ]
+    // The settings each page owns, for its reset button.
+    readonly property var resetKeys: ({
+            Appearance: ["fontSize", "accentColor", "accentManual", "accentFromWallpaper", "surfaceTone", "visualizer", "wallpaperDirectory", "lockScreen"],
+            Bar: ["hideFullscreen", "barMedia", "trackChangeCard", "hiddenOutputs", "barLayout", "barStyle", "clockFormat", "clockSeconds",
+                  "workspaceStyle", "workspaceSlots", "trayIcons", "batteryPercent"],
+            "Control center": ["controlLayout"],
+            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal"],
+            Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
+            Notifications: ["persistNotifications", "focusMinutes"],
+            Audio: ["amplification", "mediaRemaining"],
+            Capture: ["screenshotDirectory", "recordingDirectory", "recordAudio", "captureDelay"]
+        })
+    // Opens a page by its name or as typed after `shale settings` ("control-center").
+    function showPage(name) {
+        const wanted = String(name || "").toLowerCase().replace(/[-_]/g, " ").trim();
+        const found = categories.find(item => item.name.toLowerCase() === wanted);
+        if (found)
+            category = found.name;
+    }
+    Component.onCompleted: showPage(ShellState.detail)
+    Connections {
+        target: ShellState
+        function onDetailChanged() {
+            if (ShellState.panel === "settings")
+                root.showPage(ShellState.detail);
+        }
+    }
     function revealCategory() {
         if (!compactNavigation) return;
         const index = categories.findIndex(item => item.name === category);
@@ -339,10 +372,44 @@ FocusScope {
                     visible: root.category === "Bar"
                     Layout.fillWidth: true
                 }
+                C.ChoiceRow {
+                    visible: root.category === "Notifications"
+                    label: "Focus length"
+                    description: "Notifications wait until a focus session ends"
+                    model: [25, 50, 90].map(minutes => ({key: minutes, text: minutes + " min"}))
+                    current: ShellState.setting("focusMinutes", 25)
+                    onActivated: key => ShellState.setSetting("focusMinutes", key)
+                }
+                C.Button {
+                    visible: root.category === "Audio"
+                    text: "Open the equalizer"
+                    glyph: "equalizer"
+                    Layout.fillWidth: true
+                    onClicked: {
+                        ShellState.open("control");
+                        ShellState.detail = "media";
+                    }
+                }
+                BackupSettings {
+                    visible: root.category === "Backup"
+                    Layout.fillWidth: true
+                }
                 ColumnLayout {
                     visible: root.category === "Capture"
                     Layout.fillWidth: true
                     spacing: Theme.gapL
+                    C.ChoiceRow {
+                        label: "Recording sound"
+                        model: [{key: "none", text: "None"}, {key: "system", text: "System"}, {key: "microphone", text: "Microphone"}]
+                        current: ShellState.setting("recordAudio", "none")
+                        onActivated: key => ShellState.setSetting("recordAudio", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Screenshot delay"
+                        model: [0, 3, 5, 10].map(seconds => ({key: seconds, text: seconds ? seconds + " s" : "None"}))
+                        current: ShellState.setting("captureDelay", 0)
+                        onActivated: key => ShellState.setSetting("captureDelay", key)
+                    }
                     FolderField {
                         label: "Screenshot folder"
                         key: "screenshotDirectory"
@@ -376,6 +443,41 @@ FocusScope {
                         Layout.fillWidth: true
                     }
                     C.Button { text: "Open activity"; glyph: "activity"; Layout.fillWidth: true; onClicked: ShellState.open("activity") }
+                }
+                ColumnLayout {
+                    visible: root.category === "General"
+                    Layout.fillWidth: true
+                    spacing: Theme.gapM
+                    C.ChoiceRow {
+                        label: "Week starts on"
+                        description: "In the calendar and Activity"
+                        model: [{key: "locale", text: "Auto", hint: "As your language and region have it"}, {key: "monday", text: "Mon"}, {key: "sunday", text: "Sun"}, {key: "saturday", text: "Sat"}]
+                        current: ShellState.setting("weekStart", "locale")
+                        onActivated: key => ShellState.setSetting("weekStart", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Weather units"
+                        model: [{key: "metric", text: "°C, km/h"}, {key: "imperial", text: "°F, mph"}]
+                        current: ShellState.setting("weatherUnits", "metric")
+                        onActivated: key => ShellState.setSetting("weatherUnits", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Web search"
+                        description: "Type ? in the launcher"
+                        model: [{key: "duckduckgo", text: "DuckDuckGo"}, {key: "google", text: "Google"}, {key: "brave", text: "Brave"}]
+                        current: ShellState.setting("searchEngine", "duckduckgo")
+                        onActivated: key => ShellState.setSetting("searchEngine", key)
+                    }
+                    C.ChoiceRow {
+                        readonly property string chosen: ShellState.setting("terminal", "auto")
+                        readonly property var installed: Backend.capabilities.terminals || []
+                        label: "Terminal"
+                        description: "For commands run with > in the launcher"
+                        model: [{key: "auto", text: "Auto", hint: "$TERMINAL or the first one installed"}]
+                            .concat(installed.concat(chosen !== "auto" && installed.indexOf(chosen) < 0 ? [chosen] : []).map(name => ({key: name, text: name})))
+                        current: chosen
+                        onActivated: key => ShellState.setSetting("terminal", key)
+                    }
                 }
                 ControlSettings {
                     visible: root.category === "Control center"
@@ -458,11 +560,26 @@ FocusScope {
                             }
                         }
                     }
+                    C.ChoiceRow {
+                        label: "System monitor graphs"
+                        model: [{key: 60, text: "1 min"}, {key: 300, text: "5 min"}]
+                        current: ShellState.setting("systemWindow", 60)
+                        onActivated: key => ShellState.setSetting("systemWindow", key)
+                    }
                     C.Button {
                         text: "Open system monitor"
                         glyph: "gauge"
                         Layout.fillWidth: true
                         onClicked: ShellState.open("system")
+                    }
+                }
+                C.ResetButton {
+                    visible: !!root.resetKeys[root.category]
+                    Layout.topMargin: Theme.gapM
+                    description: "Hold to put this page back to how Shale comes"
+                    onConfirmed: {
+                        const page = root.category;
+                        ShellState.resetSettings(root.resetKeys[page], () => ShellState.message(page + " settings reset", "success"));
                     }
                 }
                 Item {

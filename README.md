@@ -24,6 +24,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Capture**: screenshots, screen recording with system audio or microphone, color picker.
 - **Focus**: a timed session (25, 50 or 90 min, or `shale focus 40`) holds notifications and shows a countdown ring in the bar. When it ends, one card sums up what came in, grouped by app. Countdown timers too (`shale timer 10m Tea`).
 - **Activity**: opt-in, local-only app usage history with a yearly heatmap.
+- **Make it yours**: move, reorder or hide what the bar shows, pick its clock, workspace dots, tray icons and an edge-to-edge style; arrange the control center's tiles and buttons; change any shortcut by pressing the new keys; back up your settings to a file and bring them to another computer.
 - **System monitor**: live CPU, memory, disks, network, GPUs, temperatures and fans (Ctrl+Shift+Esc), with the last five minutes already graphed when it opens. A sleeping laptop GPU is left asleep.
 
 ## Requirements
@@ -82,15 +83,18 @@ To undo a single install instead: `python3 scripts/install.py --rollback ~/.loca
 | Super+M | Session menu |
 | Super+L | Lock |
 
+To change one, open Settings → Shortcuts, choose Change and press the new keys; it works right away. Keys your Hyprland config already uses are refused, so nothing gets bound twice. The calendar, color picker, do not disturb, focus and closing a panel can get a shortcut there too.
+
 Volume, brightness and media keys come from Hyprland's example config; Shale shows an OSD for them.
 
-Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale focus 50`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
+Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale settings shortcuts`, `shale focus 50`, `shale dnd`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
 
 ## Files
 
 | | |
 |---|---|
-| Settings | `~/.config/shale/config.json` |
+| Settings | `~/.config/shale/config.json` (Settings → Backup exports a copy) |
+| Shortcuts changed in Settings | `~/.config/shale/shortcuts.lua`, read by `~/.config/hypr/shale.lua` |
 | Activity, wallpaper choices, installer backups | `~/.local/state/shale/` |
 | Cache | `~/.cache/shale/` |
 

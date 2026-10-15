@@ -32,7 +32,7 @@ FocusScope {
     readonly property string tracking: ShellState.setting("activityTracking", "ask")
     readonly property date selected: new Date(selectedDate + "T12:00:00")
     // Weeks start on the locale's first day, as in the Calendar.
-    readonly property int weekStart: Qt.locale().firstDayOfWeek % 7
+    readonly property int weekStart: ShellState.firstDayOfWeek
     readonly property var insights: overview.insights || ({})
     readonly property var dayMap: {
         const result = {};

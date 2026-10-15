@@ -823,7 +823,10 @@ class Backend:
             if old != new:
                 moved = await self.hypr_eval(shortcuts.rebind_lua(action, [old], new, SHALE_COMMAND)) and moved
         if not moved:
-            await run("hyprctl", "reload")
+            try:
+                await run("hyprctl", "reload")
+            except BackendError:
+                raise BackendError("failed", "Saved. Hyprland couldn't take the change now; it applies when Hyprland reloads its config.") from None
 
     async def shortcuts(self, action, p):
         bound, ready = shortcuts.installed(HYPR)

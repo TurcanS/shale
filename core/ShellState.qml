@@ -25,6 +25,8 @@ QtObject {
     property int osdSerial: 0
     // Follows Settings → 24-hour clock everywhere a time of day is shown.
     readonly property string timeFormat: setting("clock24h", true) ? "HH:mm" : "h:mm AP"
+    // 0 is Sunday. Settings → General may choose instead of the locale.
+    readonly property int firstDayOfWeek: ({monday: 1, sunday: 0, saturday: 6})[setting("weekStart", "locale")] ?? Qt.locale().firstDayOfWeek % 7
     // Where the bar ends (its height plus its gap from the screen edge); panels and popups open below it.
     readonly property int barBottom: setting("barStyle", "floating") === "edge" ? 32 : 37
     property bool lidAwake: false
@@ -187,6 +189,28 @@ QtObject {
         next[key] = value;
         settings = next;
         save.restart();
+    }
+    // Settings back to their defaults; a pending save goes first so it can't bring old values back.
+    function resetSettings(keys, done) {
+        if (save.running) {
+            save.stop();
+            save.triggered();
+        }
+        Backend.request("settings.reset", {keys: keys}, (r, e) => {
+            if (e) {
+                message(e.message, "error");
+                return;
+            }
+            settings = r;
+            settingsSaved();
+            if (done)
+                done();
+        });
+    }
+    // Opens Settings on a page, by its name ("Control center") or as typed after `shale settings` (control-center).
+    function openSettings(page) {
+        open("settings");
+        detail = page || "";
     }
     function targetScreen() {
         if (Hyprland.focusedMonitor)
@@ -467,6 +491,12 @@ QtObject {
     }
     // The helper has the settings; for example, it records activity only once tracking is saved as on.
     signal settingsSaved()
+    // The helper picks the terminal for `>` commands from the settings, so it is asked again after a change.
+    property string terminalChoice: "auto"
+    onSettingsSaved: if (setting("terminal", "auto") !== terminalChoice) {
+        terminalChoice = setting("terminal", "auto");
+        Backend.refreshCapabilities();
+    }
     property Timer save: Timer {
         interval: 350
         onTriggered: Backend.request("settings.set", {
@@ -617,6 +647,9 @@ QtObject {
             const on = state === "toggle" ? !root.setting("dnd", false) : state === "on";
             root.setSetting("dnd", on);
             root.osd(on ? "Do not disturb on" : "Do not disturb off", -1, on ? "bell-off" : "bell");
+        }
+        function settingsPage(name: string): void {
+            root.openSettings(name);
         }
         function page(name: string): void {
             if (["wifi", "bluetooth", "audio", "power", "media", "tray"].indexOf(name) < 0)
