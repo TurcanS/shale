@@ -177,6 +177,9 @@ class ActivityStore:
             CREATE TABLE IF NOT EXISTS windows (id INTEGER PRIMARY KEY, window_key TEXT NOT NULL, app TEXT NOT NULL,
                 start INTEGER NOT NULL, end INTEGER, last_seen INTEGER NOT NULL, start_known INTEGER NOT NULL, end_reason TEXT NOT NULL DEFAULT 'open');
             CREATE TABLE IF NOT EXISTS legacy_days (day TEXT PRIMARY KEY, active REAL NOT NULL, unlocked REAL NOT NULL);
+            -- Focus sessions from the bar's focus timer; v1's "focus" table was app focus and is gone.
+            CREATE TABLE IF NOT EXISTS focus_sessions (id INTEGER PRIMARY KEY, start INTEGER NOT NULL, end INTEGER NOT NULL CHECK(end > start));
+            CREATE INDEX IF NOT EXISTS focus_sessions_start ON focus_sessions(start);
             -- Day first, then all the daily totals read: those come from the index alone, without the table.
             DROP INDEX IF EXISTS segments_day;
             CREATE INDEX IF NOT EXISTS segments_daily ON segments(day, state, start, end);
@@ -501,12 +504,24 @@ class ActivityStore:
         return self.status()
 
     def clear(self):
-        for table in ("segments", "windows", "legacy_days"):
+        for table in ("segments", "windows", "legacy_days", "focus_sessions"):
             self.db.execute("DELETE FROM " + table)
         self.started = None
         self.db.execute("DELETE FROM meta WHERE key='started'")
         self._reset_runtime()
         self.db.commit()
+        return self.status()
+
+    def add_focus(self, start, end):
+        """Records a finished focus session (epoch milliseconds). Nothing is kept while tracking is paused."""
+        if type(start) not in (int, float) or type(end) not in (int, float) or not 0 < start < end:
+            raise ValueError("Incorrect focus session.")
+        start, end = int(start), int(end)
+        if end - start > 4 * 3600000 + 60000 or end > self._now() + 60000:
+            raise ValueError("Incorrect focus session.")
+        if not self.paused:
+            self.db.execute("INSERT INTO focus_sessions(start,end) VALUES(?,?)", (start, end))
+            self.db.commit()
         return self.status()
 
     def status(self):
@@ -628,6 +643,9 @@ class ActivityStore:
                 result["firstActive"] = beginning if result["firstActive"] is None else min(result["firstActive"], beginning)
                 result["lastActive"] = ending if result["lastActive"] is None else max(result["lastActive"], ending)
         result["apps"] = self._apps(value, value)
+        result["focus"] = [{"start": max(a, start), "end": min(b, end)} for a, b in self.db.execute(
+            "SELECT start,end FROM focus_sessions WHERE start<? AND end>? ORDER BY start", (end, start))]
+        result["focused"] = sum(block["end"] - block["start"] for block in result["focus"]) / 1000
         if windows:
             for app, beginning, ending, known, reason in self.db.execute(
                     "SELECT app,start,end,start_known,end_reason FROM windows WHERE start<? AND COALESCE(end,?)>? ORDER BY start", (end, now, start)):

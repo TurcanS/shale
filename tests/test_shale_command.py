@@ -64,6 +64,23 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls[-2:], ["systemctl --user reset-failed shale.service", "systemctl --user start shale.service"])
 
+    def test_focus_and_timer_call_the_focus_target(self):
+        shell = f"{self.home}/.config/quickshell/shale"
+        for args, call in ((("focus",), "start 0"), (("focus", "50"), "start 50"), (("focus", "end"), "end"),
+                           (("timer", "90"), "timer 90 "), (("timer", "10m", "Tea"), "timer 600 Tea"), (("timer", "2h"), "timer 7200 ")):
+            with self.subTest(args=args):
+                result, calls = self.run_shale(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-1], f"quickshell ipc -p {shell} call focus {call}")
+
+    def test_focus_and_timer_refuse_bad_lengths(self):
+        for args in (("focus", "0"), ("focus", "241"), ("focus", "5; rm"), ("timer", ""), ("timer", "0"), ("timer", "10x"),
+                     ("timer", "25h"), ("timer", "999999"), ("timer", "-5m")):
+            with self.subTest(args=args):
+                result, calls = self.run_shale(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(calls, [])
+
     def test_restart_reloads_units_an_update_changed(self):
         result, calls = self.run_shale("restart")
         self.assertEqual(result.returncode, 0, result.stderr)

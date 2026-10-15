@@ -7,6 +7,7 @@ version() {
   case "$v" in ''|*[!0-9A-Za-z.+~-]*) v=unknown ;; esac
   echo "$v"
 }
+label=${3:-}
 set -- "${1:-launcher}" "${2:-}"
 case "$1" in
   start)
@@ -84,6 +85,26 @@ case "$1" in
       *) echo 'Usage: shale page {wifi|bluetooth|audio|power|media|tray}' >&2; exit 2 ;;
     esac
     ;;
+  focus)
+    case "$2" in
+      ''|start) exec quickshell ipc -p "$config" call focus start 0 ;;
+      end|stop) exec quickshell ipc -p "$config" call focus end ;;
+      status) exec quickshell ipc -p "$config" call focus status ;;
+      [1-9]|[1-9][0-9]|[1-9][0-9][0-9])
+        [ "$2" -le 240 ] && exec quickshell ipc -p "$config" call focus start "$2"
+        echo 'Focus sessions last 1 to 240 minutes' >&2; exit 2 ;;
+      *) echo 'Usage: shale focus [MINUTES|end|status]' >&2; exit 2 ;;
+    esac
+    ;;
+  timer)
+    # 90 or 90s is seconds, 10m minutes, 1h hours; an optional label follows.
+    amount=${2%[smh]}
+    case "$amount" in ''|*[!0-9]*|0*) echo 'Usage: shale timer DURATION[s|m|h] [LABEL]' >&2; exit 2 ;; esac
+    [ ${#amount} -le 5 ] || { echo 'Timers last up to 24 hours' >&2; exit 2; }
+    case "$2" in *m) amount=$((amount * 60)) ;; *h) amount=$((amount * 3600)) ;; esac
+    [ "$amount" -le 86400 ] || { echo 'Timers last up to 24 hours' >&2; exit 2; }
+    exec quickshell ipc -p "$config" call focus timer "$amount" "$label"
+    ;;
   color) exec quickshell ipc -p "$config" call shell action color ;;
   stop-recording) exec quickshell ipc -p "$config" call shell action stop-recording ;;
   status)
@@ -98,6 +119,6 @@ case "$1" in
   launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system)
     exec quickshell ipc -p "$config" call shell toggle "$1"
     ;;
-  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' ;;
-  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|color|stop-recording|status|--version}' >&2; exit 2 ;;
+  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|end]|timer DURATION [LABEL]|color|stop-recording|status|--version}' ;;
+  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|end]|timer DURATION [LABEL]|color|stop-recording|status|--version}' >&2; exit 2 ;;
 esac

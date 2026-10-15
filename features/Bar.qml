@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
@@ -371,6 +372,88 @@ PanelWindow {
                 C.Icon { visible: privacyButton.sharing; name: "cast"; size: 16; color: Theme.background; anchors.verticalCenter: parent.verticalCenter }
             }
             onClicked: bar.toggleControl("audio")
+        }
+        BarButton {
+            id: focusButton
+            visible: Focus.active
+            accent: true
+            flat: true
+            readonly property string remaining: Focus.remainingSeconds < 60 ? Focus.remainingSeconds + "s" : Focus.minutesText(Focus.remainingSeconds)
+            hint: "Focus · " + remaining + " left\nClick to end · Scroll to add or take 5 min"
+            tooltip: barTooltip
+            Accessible.name: "Focus, " + remaining + " left"
+            onClicked: Focus.end(true)
+            WheelHandler {
+                onWheel: event => {
+                    if (event.angleDelta.y !== 0)
+                        Focus.extend(event.angleDelta.y > 0 ? 5 : -5);
+                }
+            }
+            contentItem: Item {
+                implicitWidth: focusRow.implicitWidth
+                implicitHeight: focusRow.implicitHeight
+                RowLayout {
+                    id: focusRow
+                    anchors.centerIn: parent
+                    spacing: Theme.gapS
+                    // The ring empties as the session runs out.
+                    Shape {
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                        preferredRendererType: Shape.CurveRenderer
+                        ShapePath {
+                            strokeColor: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.3)
+                            strokeWidth: 2
+                            fillColor: "transparent"
+                            PathAngleArc { centerX: 8; centerY: 8; radiusX: 6.5; radiusY: 6.5; startAngle: 0; sweepAngle: 360 }
+                        }
+                        ShapePath {
+                            strokeColor: Theme.background
+                            strokeWidth: 2
+                            fillColor: "transparent"
+                            capStyle: ShapePath.RoundCap
+                            PathAngleArc { centerX: 8; centerY: 8; radiusX: 6.5; radiusY: 6.5; startAngle: -90; sweepAngle: 360 * Focus.progress }
+                        }
+                    }
+                    C.Label {
+                        text: focusButton.remaining
+                        color: Theme.background
+                        font.family: Theme.mono
+                        font.pixelSize: Theme.barText
+                    }
+                }
+            }
+        }
+        BarButton {
+            id: timerButton
+            readonly property var timer: Focus.nextTimer
+            readonly property int remaining: timer ? Math.max(0, Math.ceil((timer.endsAt - Focus.now) / 1000)) : 0
+            visible: !!timer
+            flat: true
+            hint: Focus.timers.map(t => (t.label || Focus.minutesText(t.seconds) + " timer") + " · " + Focus.clockText(Math.max(0, Math.ceil((t.endsAt - Focus.now) / 1000)))).join("\n") + "\nClick to cancel the first"
+            tooltip: barTooltip
+            Accessible.name: "Timer, " + Focus.clockText(remaining) + " left"
+            onClicked: {
+                const timer = timerButton.timer, left = timerButton.remaining;
+                Focus.cancelTimer(timer.id);
+                ShellState.message("Timer cancelled", "info", {label: "Undo", run: () => Focus.addTimer(left, timer.label)});
+            }
+            contentItem: Item {
+                implicitWidth: timerRow.implicitWidth
+                implicitHeight: timerRow.implicitHeight
+                RowLayout {
+                    id: timerRow
+                    anchors.centerIn: parent
+                    spacing: Theme.gapS
+                    C.Icon { name: "timer"; size: 16; color: timerButton.foreground }
+                    C.Label {
+                        text: Focus.clockText(timerButton.remaining)
+                        color: timerButton.foreground
+                        font.family: Theme.mono
+                        font.pixelSize: Theme.barText
+                    }
+                }
+            }
         }
         BarButton {
             visible: ShellState.presentation

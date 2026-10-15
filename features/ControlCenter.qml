@@ -293,6 +293,36 @@ FocusScope {
                             }
                         }
                     }
+                    // A focus session: popups held, a ring in the bar, then one digest of what came in.
+                    C.ListRow {
+                        Layout.fillWidth: true
+                        text: "Focus"
+                        glyph: "focus"
+                        selected: Focus.active
+                        checkmark: false
+                        subtitle: Focus.active ? Focus.minutesText(Focus.remainingSeconds) + " left · Notifications held" : "Holds notifications, then sums them up"
+                        hint: Focus.active ? "End focus" : "Focus for " + Focus.lastMinutes + " minutes"
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.checkable: true
+                        Accessible.checked: Focus.active
+                        onClicked: Focus.active ? Focus.end(true) : Focus.start(Focus.lastMinutes)
+                        trailing: [
+                            C.Segmented {
+                                visible: !Focus.active
+                                fill: false
+                                segmentHeight: 30
+                                model: [{key: 25, text: "25m", hint: "Focus for 25 minutes"}, {key: 50, text: "50m", hint: "Focus for 50 minutes"}, {key: 90, text: "90m", hint: "Focus for 90 minutes"}]
+                                current: Focus.lastMinutes
+                                onActivated: key => Focus.start(key)
+                            },
+                            C.Button {
+                                visible: Focus.active
+                                text: "+5 min"
+                                implicitHeight: 30
+                                onClicked: Focus.extend(5)
+                            }
+                        ]
+                    }
                     C.Card {
                         Layout.fillWidth: true
                         implicitHeight: levels.implicitHeight + 2 * Theme.gapM

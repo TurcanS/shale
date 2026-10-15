@@ -22,6 +22,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Wallpapers** from local folders, Wallhaven and Wallpapers.com, through hyprpaper, awww or swww. Accent color can follow the wallpaper.
 - **Lock screen** with PAM (ext-session-lock); hyprlock as an alternative.
 - **Capture**: screenshots, screen recording with system audio or microphone, color picker.
+- **Focus**: a timed session (25, 50 or 90 min, or `shale focus 40`) holds notifications and shows a countdown ring in the bar. When it ends, one card sums up what came in, grouped by app. Countdown timers too (`shale timer 10m Tea`).
 - **Activity**: opt-in, local-only app usage history with a yearly heatmap.
 - **System monitor**: live CPU, memory, disks, network, GPUs, temperatures and fans (Ctrl+Shift+Esc), with the last five minutes already graphed when it opens. A sleeping laptop GPU is left asleep.
 
@@ -83,7 +84,7 @@ To undo a single install instead: `python3 scripts/install.py --rollback ~/.loca
 
 Volume, brightness and media keys come from Hyprland's example config; Shale shows an OSD for them.
 
-Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
+Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale focus 50`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
 
 ## Files
 

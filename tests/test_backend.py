@@ -306,6 +306,22 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(changes=changes), self.assertRaises(b.BackendError):
                 await self.backend.dispatch("settings.set", changes)
 
+    async def test_focus_and_timer_settings_are_validated(self):
+        session = {"started": 1760000000000, "ends": 1760001500000}
+        timers = [{"label": "Tea", "ends": 1760000300000, "seconds": 300}]
+        changed = await self.backend.dispatch("settings.set", {"focusMinutes": 50, "focusSession": session, "timers": timers,
+                                                               "runHistory": ["make -j8"]})
+        self.assertEqual((changed["focusMinutes"], changed["focusSession"], changed["timers"], changed["runHistory"]),
+                         (50, session, timers, ["make -j8"]))
+        self.assertEqual((await self.backend.dispatch("settings.set", {"focusSession": {}}))["focusSession"], {})
+        for changes in [{"focusMinutes": 30}, {"focusSession": {"started": 5}}, {"focusSession": {"started": 9, "ends": 3}},
+                        {"focusSession": {"started": True, "ends": 3}}, {"focusSession": {"started": 1, "ends": float("inf")}},
+                        {"timers": [{"label": "x", "ends": 1, "seconds": 0}]}, {"timers": [timers[0]] * 11},
+                        {"timers": [{"label": "x" * 61, "ends": 1, "seconds": 5}]}, {"timers": [{"ends": 1, "seconds": 5}]},
+                        {"runHistory": [""]}, {"runHistory": ["ls"] * 21}, {"runHistory": [3]}]:
+            with self.subTest(changes=changes), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("settings.set", changes)
+
     async def test_equalizer_settings_persist_and_reject_invalid_bands(self):
         bands = [6, 5.5, 4.5, 3, 1, 0, 0, 0, 0, 0]
         changed = await self.backend.dispatch("settings.set", {"eqEnabled": True, "eqPreset": "bass", "eqBands": bands, "visualizer": False})

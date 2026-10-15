@@ -58,6 +58,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
             "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin",
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
+            "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -164,6 +165,10 @@ def atomic_json(path, value):
         if os.path.exists(name):
             os.unlink(name)
 
+def is_time(value):
+    """A positive epoch time in milliseconds, as JavaScript's Date.now() gives it."""
+    return type(value) in (int, float) and math.isfinite(value) and 0 < value < 1e14
+
 def check_setting(key, value):
     """Raises an "invalid" error for a value of a known setting that the shell can't use."""
     if type(value) is not type(DEFAULTS[key]):
@@ -192,6 +197,18 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose system audio, the microphone or no audio.")
     if key == "activityTracking" and value not in ACTIVITY_TRACKING:
         raise BackendError("invalid", "Choose whether to record activity.")
+    if key == "focusMinutes" and value not in (25, 50, 90):
+        raise BackendError("invalid", "Choose a supported focus length.")
+    if key == "focusSession" and value and not (set(value) == {"started", "ends"} and all(is_time(value[k]) for k in value)
+                                                and value["started"] < value["ends"]):
+        raise BackendError("invalid", "Incorrect focus session.")
+    if key == "timers" and (len(value) > 10 or not all(isinstance(t, dict) and set(t) == {"label", "ends", "seconds"}
+                                                         and isinstance(t["label"], str) and len(t["label"]) <= 60
+                                                         and is_time(t["ends"]) and type(t["seconds"]) is int and 0 < t["seconds"] <= 86400
+                                                         for t in value)):
+        raise BackendError("invalid", "Incorrect timers.")
+    if key == "runHistory" and (len(value) > 20 or not all(isinstance(c, str) and 0 < len(c) <= 500 for c in value)):
+        raise BackendError("invalid", "Incorrect command history.")
     try:
         if key == "weatherLocation":
             weather.validate_location(value)
@@ -926,7 +943,7 @@ class Backend:
 
     async def dispatch(self, method, p):
         if method.startswith("activity."):
-            if method == "activity.update" and migrated_settings()["activityTracking"] != "on":
+            if method in ("activity.update", "activity.focus") and migrated_settings()["activityTracking"] != "on":
                 self.close_activity()
                 return {"tracking": False}
             try:
@@ -953,6 +970,8 @@ class Backend:
                     return self.activity.pause(p["paused"])
                 if method == "activity.clear":
                     return self.activity.clear()
+                if method == "activity.focus":
+                    return self.activity.add_focus(p.get("start"), p.get("end"))
             except (ValueError, OverflowError, sqlite3.Error) as error:
                 raise BackendError("invalid", str(error)) from None
             raise BackendError("invalid", "Unknown activity operation.")

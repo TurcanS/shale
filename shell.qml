@@ -37,7 +37,8 @@ ShellRoot {
         });
     }
     Component.onCompleted: {
-        Services.dnd = Qt.binding(() => ShellState.setting("dnd", false));
+        // A focus session holds popups too, without changing the user's own Do not disturb.
+        Services.dnd = Qt.binding(() => ShellState.setting("dnd", false) || Focus.active);
         Services.locked = Qt.binding(() => ShellState.locked);
         Services.amplification = Qt.binding(() => ShellState.setting("amplification", false));
         Services.trackStreams = Qt.binding(() => ShellState.panel === "control" && ShellState.detail === "audio");

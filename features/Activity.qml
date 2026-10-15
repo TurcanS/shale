@@ -805,12 +805,13 @@ FocusScope {
                             C.Label { text: root.weekly ? "Week total" : Qt.formatDate(root.selected, "dddd"); font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
                             Repeater {
                                 model: {
-                                    const source = root.weekly ? (root.week.days || []).reduce((sum, entry) => ({active: sum.active + entry.active, watching: sum.watching + (entry.watching || 0), unlocked: sum.unlocked + entry.unlocked}), {active: 0, watching: 0, unlocked: 0}) : root.day;
+                                    const source = root.weekly ? (root.week.days || []).reduce((sum, entry) => ({active: sum.active + entry.active, watching: sum.watching + (entry.watching || 0), unlocked: sum.unlocked + entry.unlocked, focused: sum.focused + (entry.focused || 0)}), {active: 0, watching: 0, unlocked: 0, focused: 0}) : root.day;
                                     const rows = [
                                         {label: "Active", value: root.formatTime(source.active), color: Theme.accent},
                                         {label: "Watching", value: root.formatTime(source.watching), color: Theme.activityWatching},
                                         {label: "Idle", value: root.formatTime(Math.max(0, source.unlocked - source.active - (source.watching || 0))), color: Theme.activityIdle}
                                     ];
+                                    if (source.focused >= 60) rows.push({label: "Focused", value: root.formatTime(source.focused), color: Theme.text});
                                     if (!root.weekly && root.day.firstActive) rows.push({label: "First – last", value: root.clockTime(root.day.firstActive) + "–" + root.clockTime(root.day.lastActive), color: "transparent"});
                                     return rows;
                                 }
@@ -873,6 +874,18 @@ FocusScope {
                                         width: Math.max(1, root.timeX(modelData.end, presence.width) - x)
                                         height: presence.height
                                         color: root.stateColor(modelData.state)
+                                    }
+                                }
+                                // Focus sessions underline the time they covered.
+                                Repeater {
+                                    model: root.day.focus || []
+                                    Rectangle {
+                                        required property var modelData
+                                        x: root.timeX(modelData.start, presence.width)
+                                        y: presence.height - 2
+                                        width: Math.max(2, root.timeX(modelData.end, presence.width) - x)
+                                        height: 2
+                                        color: Theme.text
                                     }
                                 }
                             }

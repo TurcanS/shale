@@ -188,6 +188,26 @@ class ActivityTests(unittest.TestCase):
         self.assertIsNone(self.store.overview()["started"])
         self.assertEqual(self.store.overview()["days"], [])
 
+    def test_focus_sessions_show_in_their_days_and_clear_with_history(self):
+        now = int(self.clock.wall() * 1000)
+        self.store.add_focus(now - 3000000, now - 1500000)
+        # One session across midnight counts on both days.
+        midnight = day_bounds("2025-06-03")[0]
+        self.store.add_focus(midnight - 600000, midnight + 600000)
+        today = self.store.day("2025-06-03")
+        self.assertEqual(today["focus"], [{"start": midnight, "end": midnight + 600000}, {"start": now - 3000000, "end": now - 1500000}])
+        self.assertEqual(today["focused"], 600 + 1500)
+        self.assertEqual(self.store.day("2025-06-02")["focused"], 600)
+        self.assertEqual(self.store.week("2025-06-03")["days"][1]["focused"], 2100)
+        for start, end in ((now, now), (now - 1, "x"), (0, now), (now - 5 * 3600000, now), (now, now + 3600000)):
+            with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+                self.store.add_focus(start, end)
+        self.store.pause(True)
+        self.store.add_focus(now - 120000, now - 60000)
+        self.assertEqual(len(self.store.day("2025-06-03")["focus"]), 2)
+        self.store.clear()
+        self.assertEqual(self.store.day("2025-06-03")["focus"], [])
+
     def test_local_midnight_and_dst_hours(self):
         # Re-read TZ only after patch.dict has restored it, so later tests see the real zone.
         self.addCleanup(time.tzset)
