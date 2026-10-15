@@ -2,6 +2,7 @@
 """Render every panel using Qt's software backend and reject QML runtime errors, or open one panel by hand."""
 import os
 import argparse
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "over
 SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail in ["wifi", "bluetooth", "audio", "power", "media", "tray"]]
 # Machines without a backlight, Wi-Fi, lid or capture tools.
 SCENARIOS += [("control", "wifi-vpn"), ("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
-SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Shortcuts-old", "Diagnostics"]]
+SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Shortcuts-old", "Bar-custom", "Diagnostics"]]
 SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units", "run", "timer", "focus", "actions"]]
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]
 SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "apps", "app", "optin", "off"]]
@@ -20,6 +21,15 @@ SCENARIOS += [("settings", detail) for detail in ["color-frost", "color-warm"]]
 SCENARIOS += [("system", detail) for detail in ["memory", "disk", "network", "gpu", "gpu-asleep", "bare"]]
 SCENARIOS += [("calendar", detail) for detail in ["weather-forecast", "weather-search"]]
 SCENARIOS += [("lock", detail) for detail in ["", "error", "caps"]]
+SCENARIOS += [("bar", detail) for detail in ["default", "custom", "narrow"]]
+# Settings each preview keeps over the helper's.
+PREVIEW_SETTINGS = {
+    ("bar", "custom"): {"barLayout": {"left": ["clock", "workspaces"], "center": ["media", "launcher"], "hidden": ["windowTitle", "notifications"]},
+                        "clockFormat": "date-time", "clockSeconds": True, "workspaceStyle": "dots", "workspaceSlots": 5, "barStyle": "edge",
+                        "batteryPercent": "always"},
+    ("settings", "Bar-custom"): {"barLayout": {"left": ["clock", "workspaces"], "center": ["media", "launcher"], "hidden": ["windowTitle", "notifications"]},
+                                 "barStyle": "edge"},
+}
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output-dir", type=Path, help="Keep screenshots for visual inspection")
 parser.add_argument("--panels", nargs="+", help="Render only these panel names")
@@ -67,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix="shale-ui-") as directory:
                    SHALE_CAPTURE_KIND="recording" if detail == "recording" else "",
                    # The first-run question, tracking turned off, or (every other scenario) tracking on.
                    SHALE_ACTIVITY={"optin": "ask", "off": "off"}.get(detail, "on") if panel == "activity" else "")
-        env["SHALE_VIEWPORT_WIDTH"] = str(args.width)
+        env["SHALE_SETTINGS"] = json.dumps(PREVIEW_SETTINGS.get((panel, detail), {}))
+        env["SHALE_VIEWPORT_WIDTH"] = str(700 if (panel, detail) == ("bar", "narrow") else args.width)
         env["SHALE_VIEWPORT_HEIGHT"] = str(args.height)
         env.pop("WAYLAND_DISPLAY", None)
         env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)

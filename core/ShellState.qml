@@ -25,6 +25,8 @@ QtObject {
     property int osdSerial: 0
     // Follows Settings → 24-hour clock everywhere a time of day is shown.
     readonly property string timeFormat: setting("clock24h", true) ? "HH:mm" : "h:mm AP"
+    // Where the bar ends (its height plus its gap from the screen edge); panels and popups open below it.
+    readonly property int barBottom: setting("barStyle", "floating") === "edge" ? 32 : 37
     property bool lidAwake: false
     property bool lidBusy: false
     function toggleLidAwake() {

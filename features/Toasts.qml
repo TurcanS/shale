@@ -18,7 +18,7 @@ Scope {
             right: true
         }
         margins {
-            top: 48
+            top: ShellState.barBottom + 11
             right: 12
         }
         implicitWidth: Math.min(380, screen.width - 24)
@@ -201,7 +201,7 @@ Scope {
         anchors {
             top: true
         }
-        margins.top: 46
+        margins.top: ShellState.barBottom + 9
         implicitWidth: 340
         implicitHeight: 64
         visible: reveal > 0
@@ -287,7 +287,7 @@ Scope {
         anchors {
             top: true
         }
-        margins.top: 46
+        margins.top: ShellState.barBottom + 9
         implicitWidth: Math.min(380, screen.width - 24)
         implicitHeight: digestColumn.implicitHeight + 2 * Theme.gapM
         visible: reveal > 0

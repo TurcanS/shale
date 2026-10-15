@@ -39,14 +39,31 @@ ShellRoot {
                 context: lockPreview
             }
         }
+        readonly property bool barPreview: Quickshell.env("SHALE_PREVIEW") === "bar"
         PanelContent {
             id: content
-            visible: !lockLoader.active
+            visible: !lockLoader.active && !window.barPreview
             anchors.centerIn: parent
             width: Math.min(parent.width - 24, preferredWidth)
             height: Math.min(parent.height - 90, preferredHeight)
-            panel: Quickshell.env("SHALE_PREVIEW") === "lock" ? "launcher" : Quickshell.env("SHALE_PREVIEW") || "launcher"
+            panel: ["lock", "bar"].indexOf(Quickshell.env("SHALE_PREVIEW")) >= 0 ? "launcher" : Quickshell.env("SHALE_PREVIEW") || "launcher"
             active: true
+        }
+        // The bar as it sits at the top of a screen, with a few status items showing.
+        Rectangle {
+            id: barFrame
+            visible: window.barPreview
+            width: parent.width
+            height: 42
+            color: "#000000"
+            BarContent {
+                readonly property bool edge: ShellState.setting("barStyle", "floating") === "edge"
+                x: edge ? 0 : 8
+                y: edge ? 0 : 5
+                width: parent.width - 2 * x
+                height: 32
+                outputName: "preview"
+            }
         }
         Component.onCompleted: {
             ShellState.panel = content.panel;
@@ -75,6 +92,17 @@ ShellRoot {
                     surfaceTone: Quickshell.env("SHALE_TONE") || "charcoal"
                 });
             window.applyActivity();
+            window.applySettings();
+            if (window.barPreview) {
+                ShellState.keyboard = {layouts: [{code: "us", variant: ""}, {code: "ro", variant: ""}], index: 0, name: "English (US)"};
+                ShellState.presentation = true;
+            }
+        }
+        // SHALE_SETTINGS: a JSON object of settings kept over the helper's.
+        readonly property var previewSettings: JSON.parse(Quickshell.env("SHALE_SETTINGS") || "{}")
+        function applySettings() {
+            if (Object.keys(previewSettings).some(key => JSON.stringify(ShellState.settings[key]) !== JSON.stringify(previewSettings[key])))
+                ShellState.settings = Object.assign({}, ShellState.settings, previewSettings);
         }
         readonly property var sampleVpn: ({available: true, connections: [{path: "/s/2", name: "home-wg", kind: "wireguard", state: "on"},
                                                                          {path: "/s/1", name: "Office", kind: "openvpn", state: "off"}]})
@@ -107,6 +135,7 @@ ShellRoot {
                         surfaceTone: tone || ShellState.setting("surfaceTone", "charcoal")
                     });
                 window.applyActivity();
+                window.applySettings();
             }
         }
         Timer {
@@ -119,10 +148,16 @@ ShellRoot {
                 ShellState.wifi = {available: false, reason: "No NetworkManager Wi-Fi device is available.", networks: [], powered: false, state: "unavailable"};
             }
         }
+        // SHALE_SCROLL: how far down a Settings page to show.
+        Timer {
+            interval: 1800
+            running: content.panel === "settings" && Quickshell.env("SHALE_SCROLL") !== ""
+            onTriggered: content.pageItem.scrollTo(Number(Quickshell.env("SHALE_SCROLL")))
+        }
         Timer {
             interval: 2500
             running: Quickshell.env("SHALE_SCREENSHOT") !== ""
-            onTriggered: (lockLoader.active ? lockLoader.item : content).grabToImage(result => {
+            onTriggered: (lockLoader.active ? lockLoader.item : window.barPreview ? barFrame : content).grabToImage(result => {
                 result.saveToFile(Quickshell.env("SHALE_SCREENSHOT"));
                 Qt.quit();
             })

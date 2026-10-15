@@ -78,7 +78,7 @@ PanelWindow {
         width: Math.min(parent.width - 24, preferredWidth)
         height: Math.min(parent.height - 90, preferredHeight)
         x: ["control", "notifications"].indexOf(panel) >= 0 ? parent.width - width - 12 : (parent.width - width) / 2
-        y: (["control", "notifications", "calendar"].indexOf(panel) >= 0 ? 46 : Math.max(48, (parent.height - height) * 0.38))
+        y: (["control", "notifications", "calendar"].indexOf(panel) >= 0 ? ShellState.barBottom + 9 : Math.max(ShellState.barBottom + 11, (parent.height - height) * 0.38))
         transform: Translate {
             y: Theme.reduced ? 0 : (1 - host.progress) * -8
         }

@@ -127,6 +127,10 @@ FocusScope {
         pageEntrance.restart();
         Qt.callLater(() => root.revealCategory());
     }
+    // For previews of long pages.
+    function scrollTo(y) {
+        settingsScroll.contentItem.contentY = Math.max(0, Math.min(y, settingsScroll.contentItem.contentHeight - settingsScroll.height));
+    }
     onCompactNavigationChanged: if (compactNavigation) Qt.callLater(() => root.revealCategory())
     RowLayout {
         anchors.fill: parent
@@ -330,31 +334,9 @@ FocusScope {
                         onClicked: ShellState.setSetting("lockScreen", builtin ? "hyprlock" : "builtin")
                     }
                 }
-                ColumnLayout {
+                BarSettings {
                     visible: root.category === "Bar"
                     Layout.fillWidth: true
-                    spacing: Theme.gapS
-                    C.SectionHeader {
-                        text: "Show the bar on"
-                        Layout.topMargin: Theme.gapS
-                    }
-                    C.Group {
-                        Repeater {
-                            model: Quickshell.screens
-                            C.Toggle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                flat: true
-                                text: modelData.name
-                                description: modelData.model || ""
-                                selected: ShellState.setting("hiddenOutputs", []).indexOf(modelData.name) < 0
-                                onClicked: {
-                                    const hidden = ShellState.setting("hiddenOutputs", []);
-                                    ShellState.setSetting("hiddenOutputs", hidden.indexOf(modelData.name) < 0 ? hidden.concat([modelData.name]) : hidden.filter(n => n !== modelData.name));
-                                }
-                            }
-                        }
-                    }
                 }
                 ColumnLayout {
                     visible: root.category === "Capture"
