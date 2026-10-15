@@ -140,10 +140,12 @@ def overrides_lua(changed):
     return "-- Written by Shale from Settings → Shortcuts; change shortcuts there.\nreturn {\n" + rows + "}\n"
 
 
-def rebind_lua(action, old, new, command):
-    """Code for `hyprctl eval` that moves `action` from the keys `old` to `new` ("" for none) right away."""
-    code = "".join(f"pcall(hl.unbind, {lua_string(keys)}) " for keys in old if keys)
-    if new:
-        code += (f"hl.bind({lua_string(new)}, hl.dsp.exec_cmd({lua_string(command + ' ' + action)}), "
-                 f"{{description = {lua_string('Shale: ' + action)}}})")
-    return code
+def rebind_lua(moves, command):
+    """Code for `hyprctl eval` that moves shortcuts right away: `moves` is {action: (old keys, new keys)}, "" for
+    none. Every old bind goes before any new one is made, so actions can swap keys."""
+    code = "".join(f"pcall(hl.unbind, {lua_string(old)}) " for old, _ in moves.values() if old)
+    for action, (_, new) in moves.items():
+        if new:
+            code += (f"hl.bind({lua_string(new)}, hl.dsp.exec_cmd({lua_string(command + ' ' + action)}), "
+                     f"{{description = {lua_string('Shale: ' + action)}}}) ")
+    return code.strip()

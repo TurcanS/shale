@@ -111,7 +111,7 @@ class Sampler:
                 result["history"] = {key: list(points) for key, points in self.history.items()}
             return result
 
-    async def tick(self, interval):
+    async def tick(self):
         """Background sampling while the panel is closed: only the cheap counters the graphs need, never sensors,
         mounts or nvidia-smi. Skipped while the panel is sampling on its own (every second or two)."""
         async with self.lock:

@@ -230,11 +230,13 @@ class PayloadTests(unittest.TestCase):
         self.assertIn('Shortcut clash: Super+V is bound to hl.dsp.exec_cmd("mine")', str(printed.call_args_list))
         # Files that aren't there, or outside ~/.config/hypr, are reported rather than followed.
         (hypr / 'keys.lua').unlink()
-        self.write_config('require("keys")\ndofile("/usr/share/hypr/hyprland.lua")\n')
+        outside = self.home / 'elsewhere.lua'
+        outside.write_text('hl.bind("SUPER + V", hl.dsp.exec_cmd("mine"))\n')
+        self.write_config(f'require("keys")\ndofile("{outside}")\n')
         reports.clear()
         installer.payload(self.home, report=reports.append)
         self.assertIn('~/.config/hypr/keys.lua does not exist', reports[0])
-        self.assertIn('/usr/share/hypr/hyprland.lua is outside ~/.config/hypr', reports[1])
+        self.assertIn('elsewhere.lua is outside ~/.config/hypr', reports[1])
 
     def test_session_action_is_installed_executable(self):
         repo = self.home / 'repo'

@@ -27,7 +27,6 @@ QtObject {
     // Control heights: compact (inline and header buttons), standard, and large (fields, list rows).
     readonly property int controlSmall: 28
     readonly property int controlLarge: 44
-    readonly property int rowHeight: Math.max(controlLarge + 12, body + 42)
     readonly property int iconSmall: 14
     readonly property int icon: 16
     readonly property int iconLarge: 20

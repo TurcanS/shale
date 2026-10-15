@@ -239,8 +239,10 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose whether to record activity.")
     if key == "focusMinutes" and value not in (25, 50, 90):
         raise BackendError("invalid", "Choose a supported focus length.")
-    if key == "focusSession" and value and not (set(value) == {"started", "ends"} and all(is_time(value[k]) for k in value)
-                                                and value["started"] < value["ends"]):
+    # "recorded": where Activity's record already ends, for a session resumed with Undo.
+    if key == "focusSession" and value and not (set(value) in ({"started", "ends"}, {"started", "ends", "recorded"})
+                                                and all(is_time(value[k]) for k in value) and value["started"] < value["ends"]
+                                                and value["started"] <= value.get("recorded", value["started"]) <= value["ends"]):
         raise BackendError("invalid", "Incorrect focus session.")
     if key == "timers" and (len(value) > 10 or not all(isinstance(t, dict) and set(t) == {"label", "ends", "seconds"}
                                                          and isinstance(t["label"], str) and len(t["label"]) <= 60
@@ -679,6 +681,9 @@ class Backend:
         self.weather_lock = asyncio.Lock()
         self.lock_hint_lock = asyncio.Lock()
         self.shortcut_lock = asyncio.Lock()
+        # Clipboard entries deleted, and wipes so far: a preview still being decoded for one must not be saved after.
+        self.clipboard_deleted = set()
+        self.clipboard_wipes = 0
         # Leaves the key-recording submap if Settings never says it's done.
         self.record_timeout = None
 
@@ -730,6 +735,38 @@ class Backend:
         if daemon == "foreign" or (daemon is None and not wallpaper.installed()):
             raise wallpaper.unavailable(daemon, BackendError)
         return await wallpaper.active(run, daemon) if daemon else {}
+
+    async def apply_equalizer(self, enabled, bands):
+        """Makes the filter match: off, or running with `bands` (validated). Call with eq_lock held."""
+        # Past validation, any ValueError is PipeWire's (unreadable pw-dump output), not the bands.
+        try:
+            if not enabled:
+                await asyncio.to_thread(self.equalizer.stop)
+            elif not self.equalizer.running:
+                await self.equalizer.start(run, bands)
+            elif bands != self.equalizer.bands:
+                await self.equalizer.update(run, bands)
+        except RuntimeError as error:
+            raise BackendError("failed", str(error)) from None
+        except ValueError:
+            raise BackendError("failed", "PipeWire gave an unreadable answer; try again.") from None
+
+    async def settings_replaced(self, before, after):
+        """What settings changed in bulk (import, reset) mean beyond the file. Activity recording stops once it is
+        off, and the running equalizer follows. Returns a problem to report, or None."""
+        if after["activityTracking"] != "on":
+            self.close_activity()
+        if (before["eqEnabled"], before["eqBands"]) == (after["eqEnabled"], after["eqBands"]):
+            return None
+        self.eq_requests += 1  # settled here; resume_equalizer must not act on the old settings
+        try:
+            async with self.eq_lock:
+                await self.apply_equalizer(after["eqEnabled"], equalizer.validate(after["eqBands"]))
+        except (BackendError, ValueError) as error:
+            return "The equalizer couldn't follow: " + getattr(error, "message", str(error))
+        finally:
+            emit("eq", self.equalizer.status())
+        return None
 
     async def resume_equalizer(self, delays):
         """Starts the filter the settings ask for, trying again after each delay (PipeWire may still be
@@ -818,11 +855,8 @@ class Backend:
         finally:
             if os.path.exists(name):
                 os.unlink(name)
-        moved = True
-        for action, (old, new) in moves.items():
-            if old != new:
-                moved = await self.hypr_eval(shortcuts.rebind_lua(action, [old], new, SHALE_COMMAND)) and moved
-        if not moved:
+        changes = {action: keys for action, keys in moves.items() if keys[0] != keys[1]}
+        if changes and not await self.hypr_eval(shortcuts.rebind_lua(changes, SHALE_COMMAND)):
             try:
                 await run("hyprctl", "reload")
             except BackendError:
@@ -1301,10 +1335,14 @@ class Backend:
                 self.close_activity()
             return current
         if method == "settings.reset":
-            return reset_settings(p.get("keys"))
+            before = settings()
+            current = reset_settings(p.get("keys"))
+            await self.settings_replaced(before, current)
+            return current
         if method == "settings.export":
             return export_settings(p.get("path"))
         if method == "settings.import":
+            before = settings()
             result = import_settings(p.get("path"))
             wanted = result.pop("shortcuts")
             if wanted is not None:
@@ -1312,6 +1350,7 @@ class Backend:
                     applied = await self.import_shortcuts(wanted)
                 (result["applied"] if applied else result["skipped"]).append("shortcuts")
                 result["settings"] = settings()
+            result["problem"] = await self.settings_replaced(before, result["settings"])
             return result
         if method.startswith("shortcuts."):
             async with self.shortcut_lock:
@@ -1432,18 +1471,7 @@ class Backend:
                         bands = equalizer.validate(p.get("bands"))
                     except ValueError as error:
                         raise BackendError("invalid", str(error)) from None
-                    # Past validation, any ValueError is PipeWire's (unreadable pw-dump output), not the bands.
-                    try:
-                        if not p["enabled"]:
-                            await asyncio.to_thread(self.equalizer.stop)
-                        elif not self.equalizer.running:
-                            await self.equalizer.start(run, bands)
-                        elif bands != self.equalizer.bands:
-                            await self.equalizer.update(run, bands)
-                    except RuntimeError as error:
-                        raise BackendError("failed", str(error)) from None
-                    except ValueError:
-                        raise BackendError("failed", "PipeWire gave an unreadable answer; try again.") from None
+                    await self.apply_equalizer(p["enabled"], bands)
                 return self.equalizer.status()
         if method == "session.lockedHint":
             # Tells logind (and hypridle, activity tracking) that the shell's lock screen is up.
@@ -1578,7 +1606,10 @@ class Backend:
             identity = entry.partition("\t")[0]
             if not identity.isdigit() or "\n" in entry:
                 raise BackendError("invalid", "Select a clipboard entry.")
+            wipes = self.clipboard_wipes
             data = await run("cliphist", "decode", data=entry.encode())
+            if identity in self.clipboard_deleted or wipes != self.clipboard_wipes:
+                return {"path": ""}
             extension = ".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if data.startswith(b"\xff\xd8\xff") else None
             if extension is None or len(data) > 20 * 1024 * 1024:
                 return {"path": ""}
@@ -1671,6 +1702,12 @@ class Backend:
             if not entry.partition("\t")[0].isdigit() or "\n" in entry:
                 raise BackendError("invalid", "Select a clipboard entry.")
             data = await run("cliphist", "delete" if method.endswith("delete") else "decode", data=entry.encode())
+            if method.endswith("delete"):
+                # The preview is a full copy of the image; it goes with the entry.
+                identity = entry.partition("\t")[0]
+                self.clipboard_deleted.add(identity)
+                for extension in (".png", ".jpg"):
+                    (CACHE / "clipboard" / (identity + extension)).unlink(missing_ok=True)
             if method.endswith("open"):
                 # Previews are cut and flattened, so the full entry decides what opens.
                 try:
@@ -1689,6 +1726,8 @@ class Backend:
             return {"done": True}
         if method == "clipboard.clear":
             await run("cliphist", "wipe")
+            self.clipboard_wipes += 1
+            shutil.rmtree(CACHE / "clipboard", ignore_errors=True)
             return {"done": True}
         if method == "color.pick":
             value = (await run("hyprpicker", "--format", "hex", timeout=120, cancel_ok=True)).decode().strip()
@@ -1840,7 +1879,7 @@ async def keep_system_history(backend):
         if backend.activity_locked or backend.activity_sleeping:
             continue
         try:
-            await backend.sysmon.tick(interval)
+            await backend.sysmon.tick()
         except Exception as error:
             if not reported:
                 log_unexpected(error, "System history")
@@ -1938,6 +1977,9 @@ async def main():
         props = await backend.interface("org.freedesktop.login1", path, "org.freedesktop.DBus.Properties")
         backend.activity_locked = bool((await props.call_get("org.freedesktop.login1.Session", "LockedHint")).value)
         def resample():
+            # Only while recording is on: a change saved some other way (an import) may have turned it off.
+            if backend.activity and settings()["activityTracking"] != "on":
+                backend.close_activity()
             if backend.activity and backend.activity_snapshot:
                 snap = backend.activity_snapshot
                 backend.activity.ingest({**snap, "unlocked": bool(snap.get("unlocked")) and not backend.activity_locked and not backend.activity_sleeping})

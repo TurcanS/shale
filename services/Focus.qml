@@ -10,6 +10,9 @@ QtObject {
     id: root
     property real startedAt: 0
     property real endsAt: 0
+    // Where Activity's record of this session already ends: a session resumed with Undo recorded its first part
+    // when it ended, and only the rest is recorded when it ends again.
+    property real recordedUntil: 0
     property real now: Date.now()
     readonly property bool active: endsAt > 0
     readonly property int remainingSeconds: active ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0
@@ -36,6 +39,7 @@ QtObject {
         now = Date.now();
         if (!active) {
             startedAt = now;
+            recordedUntil = 0;
             digest = null;
         }
         endsAt = now + length * 60000;
@@ -56,11 +60,16 @@ QtObject {
             return;
         const started = startedAt, ends = endsAt;
         const finished = Math.min(Date.now(), ends);
+        const from = Math.max(started, recordedUntil);
+        let recorded = recordedUntil;
         startedAt = 0;
         endsAt = 0;
+        recordedUntil = 0;
         persist();
-        if (ShellState.setting("activityTracking", "ask") === "on" && finished - started >= 60000)
-            Backend.request("activity.focus", {start: started, end: finished});
+        if (ShellState.setting("activityTracking", "ask") === "on" && finished - from >= 60000) {
+            Backend.request("activity.focus", {start: from, end: finished});
+            recorded = finished;
+        }
         const minutes = Math.max(1, Math.round((finished - started) / 60000));
         const missed = Services.notifications.filter(n => !n.transient && n.timestamp >= started);
         if (missed.length) {
@@ -79,21 +88,23 @@ QtObject {
                 ShellState.message(minutes + " min of focus · Nothing missed", "success");
         }
         if (early)
-            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends)});
+            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends, recorded)});
         else
             chime();
     }
-    function resume(started, ends) {
+    function resume(started, ends, recorded) {
         if (active || ends <= Date.now())
             return;
         digest = null;
         startedAt = started;
         endsAt = ends;
+        recordedUntil = recorded || 0;
         now = Date.now();
         persist();
     }
     function persist() {
-        ShellState.setSetting("focusSession", active ? {started: startedAt, ends: endsAt} : {});
+        ShellState.setSetting("focusSession", !active ? {} : recordedUntil > startedAt ? {started: startedAt, ends: endsAt, recorded: recordedUntil}
+                                                                                       : {started: startedAt, ends: endsAt});
     }
 
     property int timerSerial: 0
@@ -154,6 +165,7 @@ QtObject {
         if (session && session.ends > current && session.started > 0 && !root.active) {
             root.startedAt = session.started;
             root.endsAt = session.ends;
+            root.recordedUntil = session.recorded || 0;
             root.now = current;
         } else if (session && session.ends)
             ShellState.setSetting("focusSession", {}); // ended while the shell was down

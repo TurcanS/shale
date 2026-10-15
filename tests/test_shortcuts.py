@@ -145,11 +145,33 @@ class FragmentTests(unittest.TestCase):
         self.assertEqual(s.lua_string("SUPER + K"), '"SUPER + K"')
         # Every byte of a non-ASCII character is escaped, so the path reaches Lua byte for byte.
         self.assertEqual(s.lua_string("/home/josé"), '"/home/jos\\195\\169"')
-        self.assertIn('shale launcher"', s.rebind_lua("launcher", ["SUPER + SPACE"], "SUPER + D", "/h/.local/bin/shale"))
-        self.assertTrue(s.rebind_lua("launcher", ["SUPER + SPACE"], "", "/h").startswith('pcall(hl.unbind, "SUPER + SPACE")'))
+        self.assertIn('shale launcher"', s.rebind_lua({"launcher": ("SUPER + SPACE", "SUPER + D")}, "/h/.local/bin/shale"))
+        self.assertEqual(s.rebind_lua({"launcher": ("SUPER + SPACE", "")}, "/h"), 'pcall(hl.unbind, "SUPER + SPACE")')
         if shutil.which("luac"):
-            for code in (s.overrides_lua({"launcher": "SUPER + D", "close": ""}), s.rebind_lua("lock", ["SUPER + L"], "SUPER + K", '/home/o"k/shale')):
+            for code in (s.overrides_lua({"launcher": "SUPER + D", "close": ""}), s.rebind_lua({"lock": ("SUPER + L", "SUPER + K")}, '/home/o"k/shale')):
                 self.assertEqual(subprocess.run(["luac", "-p", "-"], input=code.encode(), capture_output=True).returncode, 0, code)
+
+
+class SwapTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("lua"), "lua is not installed")
+    def test_swaps_and_cycles_leave_every_action_bound(self):
+        stub = ('''local bindings = {["SUPER + SPACE"] = "Shale: launcher", ["SUPER + V"] = "Shale: clipboard", ["SUPER + A"] = "Shale: control"}
+hl = {dsp = {exec_cmd = function(command) return command end}}
+hl.unbind = function(keys) bindings[keys] = nil end
+hl.bind = function(keys, command, options) bindings[keys] = options.description end
+''')
+        report = "\nlocal keys = {} for k in pairs(bindings) do keys[#keys + 1] = k .. '=' .. bindings[k] end table.sort(keys) print(table.concat(keys, ','))"
+        cases = {
+            "swap": ({"launcher": ("SUPER + SPACE", "SUPER + V"), "clipboard": ("SUPER + V", "SUPER + SPACE")},
+                     "SUPER + A=Shale: control,SUPER + SPACE=Shale: clipboard,SUPER + V=Shale: launcher"),
+            "cycle": ({"launcher": ("SUPER + SPACE", "SUPER + V"), "clipboard": ("SUPER + V", "SUPER + A"), "control": ("SUPER + A", "SUPER + SPACE")},
+                      "SUPER + A=Shale: clipboard,SUPER + SPACE=Shale: control,SUPER + V=Shale: launcher"),
+        }
+        for name, (moves, expected) in cases.items():
+            with self.subTest(name=name):
+                code = stub + s.rebind_lua(moves, "/h/shale") + report
+                result = subprocess.run(["lua", "-"], input=code, capture_output=True, text=True)
+                self.assertEqual(result.stdout.strip(), expected, result.stderr)
 
 
 class CatalogTests(unittest.TestCase):

@@ -27,7 +27,9 @@ ColumnLayout {
             ShellState.settings = r.settings;
             ShellState.settingsSaved();
             result = (r.applied.length ? "Applied " + r.applied.length + " setting" + (r.applied.length === 1 ? "" : "s") + "." : "Nothing to apply.")
-                + (r.skipped.length ? " Skipped " + r.skipped.join(", ") + (r.skipped.indexOf("shortcuts") >= 0 ? " (their keys are taken here)" : "") + "." : "");
+                + (r.skipped.length ? " Skipped " + r.skipped.join(", ") + (r.skipped.indexOf("shortcuts") >= 0 ? " (their keys are taken here)" : "") + "." : "")
+                + (r.problem ? " " + r.problem : "");
+            failed = !!r.problem;
         });
     }
     C.Label {

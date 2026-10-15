@@ -364,6 +364,70 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
             b.save_settings({"terminal": "alacritty"})
             self.assertEqual(self.backend.terminal(), ["foot"])
 
+    async def test_importing_tracking_off_stops_recording(self):
+        b.save_settings({"activityTracking": "on"})
+        await self.backend.dispatch("activity.update", {"unlocked": True, "idle": False, "windows": [{"id": "a", "app": "editor"}], "focused": "a"})
+        self.assertIsNotNone(self.backend.activity)
+        target = self.path / "off.json"
+        target.write_text(json.dumps({"version": 1, "activityTracking": "off"}))
+        await self.backend.dispatch("settings.import", {"path": str(target)})
+        self.assertIsNone(self.backend.activity)
+        self.assertIsNone(self.backend.activity_snapshot)
+        b.save_settings({"activityTracking": "on"})
+        await self.backend.dispatch("activity.update", {"unlocked": True, "idle": False, "windows": [], "focused": ""})
+        await self.backend.dispatch("settings.reset", {"keys": ["activityTracking"]})
+        self.assertIsNone(self.backend.activity)
+
+    async def test_imported_equalizer_settings_reach_the_running_filter(self):
+        class Filter:
+            running, bands = True, [0] * len(b.equalizer.BANDS)
+            def stop(self):
+                self.running = False
+            async def start(self, run, bands):
+                self.running, self.bands = True, bands
+            async def update(self, run, bands):
+                self.bands = bands
+            def status(self):
+                return {"enabled": self.running, "bands": self.bands if self.running else None}
+        self.backend.equalizer = Filter()
+        b.save_settings({"eqEnabled": True})
+        target = self.path / "eq.json"
+        louder = [3] * len(b.equalizer.BANDS)
+        target.write_text(json.dumps({"version": 1, "eqEnabled": True, "eqBands": louder}))
+        with patch.object(b, "emit") as emitted:
+            result = await self.backend.dispatch("settings.import", {"path": str(target)})
+        self.assertEqual((self.backend.equalizer.bands, result["problem"]), (louder, None))
+        emitted.assert_called_with("eq", {"enabled": True, "bands": louder})
+        target.write_text(json.dumps({"version": 1, "eqEnabled": False}))
+        with patch.object(b, "emit"):
+            await self.backend.dispatch("settings.import", {"path": str(target)})
+        self.assertFalse(self.backend.equalizer.running)
+        # Nothing about the equalizer in the file: the filter is left alone.
+        target.write_text(json.dumps({"version": 1, "dnd": True}))
+        with patch.object(b, "emit") as emitted:
+            await self.backend.dispatch("settings.import", {"path": str(target)})
+        emitted.assert_not_called()
+
+    async def test_deleting_or_clearing_clipboard_entries_drops_their_cached_images(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"image"
+        with patch.object(b, "run", AsyncMock(return_value=png)):
+            first = Path((await self.backend.dispatch("clipboard.thumbnail", {"entry": "42\timage"}))["path"])
+            second = Path((await self.backend.dispatch("clipboard.thumbnail", {"entry": "43\timage"}))["path"])
+            await self.backend.dispatch("clipboard.delete", {"entry": "42\timage"})
+            self.assertFalse(first.exists())
+            self.assertTrue(second.exists())
+            # A preview of a deleted entry that was still being decoded isn't saved afterwards.
+            self.assertEqual(await self.backend.dispatch("clipboard.thumbnail", {"entry": "42\timage"}), {"path": ""})
+            await self.backend.dispatch("clipboard.clear", {})
+            self.assertFalse(second.exists())
+
+    def test_a_resumed_session_keeps_its_recorded_end(self):
+        b.check_setting("focusSession", {"started": 1760000000000, "ends": 1760001500000, "recorded": 1760000600000})
+        for value in ({"started": 1760000000000, "ends": 1760001500000, "recorded": 1750000000000},
+                      {"started": 1760000000000, "ends": 1760001500000, "extra": 1760000600000}):
+            with self.subTest(value=value), self.assertRaises(b.BackendError):
+                b.check_setting("focusSession", value)
+
     def test_keyboard_state_reads_the_main_keyboard(self):
         devices = {"keyboards": [{"name": "video-bus", "layout": "us", "variant": "", "active_layout_index": 0, "main": False},
                                  {"name": "at-kbd", "layout": "us,ru, de", "variant": "intl,,", "active_layout_index": 1,
@@ -598,10 +662,13 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
     async def test_power_profiles_without_introspected_properties(self):
         variant = lambda value: SimpleNamespace(value=value)
         proxy = SimpleNamespace(call_get_all=AsyncMock(return_value={"ActiveProfile": variant("balanced"), "Profiles": variant([{"Profile":variant("balanced")},{"Profile":variant("power-saver")}])}))
-        with patch.object(self.backend, "interface", AsyncMock(return_value=proxy)) as interface:
-            result = await self.backend.dispatch("power.profiles", {})
+        # tuned is true with Shale's TuneD profiles, false with others and None without tuned-ppd's ppd.conf.
+        for ppd, tuned in (("[profiles]\nbalanced=shale-balanced\n", True), ("[profiles]\nbalanced=balanced\n", False), (OSError(), None)):
+            with self.subTest(tuned=tuned), patch.object(self.backend, "interface", AsyncMock(return_value=proxy)) as interface, \
+                    patch.object(b.Path, "read_text", side_effect=ppd if isinstance(ppd, Exception) else lambda *a, **k: ppd):
+                result = await self.backend.dispatch("power.profiles", {})
+            self.assertEqual(result["tuned"], tuned)
         self.assertEqual({k: result[k] for k in ("active", "profiles")}, {"active":"balanced","profiles":["balanced","power-saver"]})
-        self.assertIsInstance(result["tuned"], bool)
         self.assertEqual(interface.call_args.args[2], "org.freedesktop.DBus.Properties")
 
     def fake_hyprland(self, state):

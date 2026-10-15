@@ -269,10 +269,10 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
         sampler = sysmon.Sampler(self.proc, self.sys, run=self.fake_run, clock=self.clock, pci_ids=self.pci,
                                  statvfs=lambda path: mounted.append(path))
         sampler.sensors = lambda: self.fail("sensors are read")
-        self.assertTrue(await sampler.tick(2))
+        self.assertTrue(await sampler.tick())
         self.diskstats(1000, 2000, 100 + 1000)
         self.clock.now += 2
-        self.assertTrue(await sampler.tick(2))
+        self.assertTrue(await sampler.tick())
         self.assertEqual((mounted, self.calls), ([], []))
         self.assertEqual(set(sampler.history), {"cpu", "memory", "disk:nvme0n1", "gpu:card0"})
         self.assertEqual(sampler.history["disk:nvme0n1"][-1], (102.0, 50.0))
@@ -282,10 +282,10 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_the_panel_opens_on_the_history_the_ticks_kept(self):
         sampler = self.sampler()
-        await sampler.tick(2)
+        await sampler.tick()
         self.stat(cpu=(200, 0, 150, 850, 0), cores=[(50, 0, 50, 400, 0)] * 2 + [(0, 0, 0, 0, 0)] * 9)
         self.clock.now += 2
-        await sampler.tick(2)
+        await sampler.tick()
         self.clock.now += 1
         first = await sampler.sample(history=True)
         # The first tick had no earlier counters, so it breaks the line instead of drawing a zero.
@@ -298,14 +298,14 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
         sampler = self.sampler()
         await sampler.sample()
         self.clock.now += 2
-        self.assertFalse(await sampler.tick(2))
+        self.assertFalse(await sampler.tick())
         self.clock.now += 1
-        self.assertTrue(await sampler.tick(2))
+        self.assertTrue(await sampler.tick())
         self.assertEqual(len(sampler.history["cpu"]), 2)
 
     async def test_rates_are_never_measured_over_a_fraction_of_a_second(self):
         sampler = self.sampler()
-        await sampler.tick(2)
+        await sampler.tick()
         self.stat(cpu=(200, 0, 150, 850, 0), cores=[(50, 0, 50, 400, 0)] * 2 + [(0, 0, 0, 0, 0)] * 9)
         self.clock.now += 0.1
         # Measured against the tick's counters, not over the last 0.1 s.
@@ -318,17 +318,17 @@ class SamplerTests(unittest.IsolatedAsyncioTestCase):
     async def test_history_keeps_only_the_window(self):
         sampler = self.sampler(window=10)
         for _ in range(16):
-            await sampler.tick(2)
+            await sampler.tick()
             self.clock.now += 2
         self.assertEqual([time for time, _ in sampler.history["cpu"]], [120.0, 122.0, 124.0, 126.0, 128.0, 130.0])
 
     async def test_a_gap_breaks_every_line(self):
         sampler = self.sampler()
-        await sampler.tick(2)
+        await sampler.tick()
         self.clock.now += 2
-        await sampler.tick(2)
+        await sampler.tick()
         self.clock.now += 60
-        await sampler.tick(2)
+        await sampler.tick()
         self.assertEqual((sampler.history["cpu"][-1], sampler.history["memory"][-1]), ((162.0, None), (162.0, None)))
         self.assertEqual(sampler.history["memory"][-2], (102.0, 40.0))
 
