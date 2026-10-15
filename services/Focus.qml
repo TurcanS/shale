@@ -171,6 +171,12 @@ QtObject {
         function end(): void {
             root.end(true);
         }
+        function toggle(): void {
+            if (root.active)
+                root.end(true);
+            else
+                root.start(root.lastMinutes);
+        }
         function timer(seconds: int, label: string): void {
             if (seconds > 0)
                 root.addTimer(seconds, label);

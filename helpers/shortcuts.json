@@ -1,0 +1,21 @@
+[
+    {"action": "launcher", "title": "Launcher", "keys": "SUPER + SPACE"},
+    {"action": "clipboard", "title": "Clipboard", "keys": "SUPER + V"},
+    {"action": "control", "title": "Control center", "keys": "SUPER + A"},
+    {"action": "notifications", "title": "Notifications", "keys": "SUPER + N"},
+    {"action": "overview", "title": "Workspace overview", "keys": "SUPER + O"},
+    {"action": "settings", "title": "Settings", "keys": "SUPER + COMMA"},
+    {"action": "activity", "title": "Activity", "keys": "SUPER + SHIFT + A"},
+    {"action": "system", "title": "System monitor", "keys": "CTRL + SHIFT + Escape"},
+    {"action": "power", "title": "Session menu", "keys": "SUPER + M"},
+    {"action": "screenshot region", "title": "Region screenshot", "keys": "Print"},
+    {"action": "lock", "title": "Lock screen", "keys": "SUPER + L"},
+    {"action": "screenshot output", "title": "Display screenshot", "keys": "SHIFT + Print"},
+    {"action": "capture", "title": "Capture", "keys": "SUPER + Print"},
+    {"action": "wallpaper", "title": "Wallpapers", "keys": "SUPER + SHIFT + W", "optIn": true},
+    {"action": "calendar", "title": "Calendar", "keys": ""},
+    {"action": "color", "title": "Color picker", "keys": ""},
+    {"action": "dnd", "title": "Do not disturb", "keys": ""},
+    {"action": "focus toggle", "title": "Start or end focus", "keys": ""},
+    {"action": "close", "title": "Close panel", "keys": ""}
+]

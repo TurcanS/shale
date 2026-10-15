@@ -394,75 +394,9 @@ FocusScope {
                     }
                     C.Button { text: "Open activity"; glyph: "activity"; Layout.fillWidth: true; onClicked: ShellState.open("activity") }
                 }
-                ColumnLayout {
+                ShortcutSettings {
                     visible: root.category === "Shortcuts"
                     Layout.fillWidth: true
-                    spacing: Theme.gapM
-                    C.Label {
-                        text: "Keys come from the installed Hyprland fragment. Copy a command to bind it elsewhere."
-                        color: Theme.muted
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                    C.Group {
-                        Repeater {
-                            // Mirrors integration/shale.lua; Wallpapers is bound only when installed with --wallpaper-shortcut.
-                            model: [
-                                {title: "Launcher", keys: ["Super", "Space"], command: "shale launcher"},
-                                {title: "Clipboard", keys: ["Super", "V"], command: "shale clipboard"},
-                                {title: "Control center", keys: ["Super", "A"], command: "shale control"},
-                                {title: "Notifications", keys: ["Super", "N"], command: "shale notifications"},
-                                {title: "Workspaces", keys: ["Super", "O"], command: "shale overview"},
-                                {title: "Activity", keys: ["Super", "Shift", "A"], command: "shale activity"},
-                                {title: "System monitor", keys: ["Ctrl", "Shift", "Esc"], command: "shale system"},
-                                {title: "Wallpapers (opt-in shortcut)", keys: ["Super", "Shift", "W"], command: "shale wallpaper"},
-                                {title: "Settings", keys: ["Super", ","], command: "shale settings"},
-                                {title: "Region screenshot", keys: ["Print"], command: "shale screenshot region"},
-                                {title: "Display screenshot", keys: ["Shift", "Print"], command: "shale screenshot output"},
-                                {title: "Capture", keys: ["Super", "Print"], command: "shale capture"},
-                                {title: "Session", keys: ["Super", "M"], command: "shale power"},
-                                {title: "Lock screen", keys: ["Super", "L"], command: "shale lock"},
-                                {title: "Close panel", keys: ["Esc"], command: "shale close"}
-                            ]
-                            RowLayout {
-                                id: shortcut
-                                required property var modelData
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Math.max(40, Theme.body + 26)
-                                spacing: Theme.gapXs + 2
-                                C.Label {
-                                    text: shortcut.modelData.title
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: Theme.gapM - 2
-                                }
-                                Repeater {
-                                    model: shortcut.modelData.keys
-                                    Rectangle {
-                                        required property string modelData
-                                        implicitWidth: Math.max(26, keyLabel.implicitWidth + 14)
-                                        implicitHeight: Math.max(24, Theme.caption + 12)
-                                        radius: Theme.radiusSmall - 2
-                                        color: Theme.raised
-                                        C.Label {
-                                            id: keyLabel
-                                            anchors.centerIn: parent
-                                            text: parent.modelData
-                                            font.family: Theme.mono
-                                            font.pixelSize: Theme.caption
-                                        }
-                                    }
-                                }
-                                C.Button {
-                                    glyph: "copy"
-                                    hint: "Copy command " + shortcut.modelData.command
-                                    flat: true
-                                    implicitWidth: 32
-                                    implicitHeight: 32
-                                    onClicked: ShellState.run("clipboard.write", {text: shortcut.modelData.command}, () => ShellState.message("Copied · " + shortcut.modelData.command, "success"))
-                                }
-                            }
-                        }
-                    }
                 }
                 ColumnLayout {
                     visible: root.category === "Diagnostics"

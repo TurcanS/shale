@@ -611,6 +611,11 @@ QtObject {
                 root.locked = false;
             }
         }
+        function dnd(state: string): void {
+            const on = state === "toggle" ? !root.setting("dnd", false) : state === "on";
+            root.setSetting("dnd", on);
+            root.osd(on ? "Do not disturb on" : "Do not disturb off", -1, on ? "bell-off" : "bell");
+        }
         function page(name: string): void {
             if (["wifi", "bluetooth", "audio", "power", "media", "tray"].indexOf(name) < 0)
                 return;

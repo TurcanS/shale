@@ -34,23 +34,11 @@ BLOCKS = ((MARKER, 'shale.lua'), (WALLPAPER_MARKER, 'shale-wallpaper.lua'))
 OWN = ('shale.lua', 'shale-wallpaper.lua')
 # What runs as root is named by absolute path: pkexec, used when there's no sudo, starts it with a clean environment.
 SUDO, PKEXEC, PACMAN, SYSTEMCTL = '/usr/bin/sudo', '/usr/bin/pkexec', '/usr/bin/pacman', '/usr/bin/systemctl'
-# (keys as written in shale.lua, `shale` subcommand, what it opens)
-SHORTCUTS = [
-    ('SUPER + SPACE', 'launcher', 'Shale launcher'),
-    ('SUPER + V', 'clipboard', 'Shale clipboard'),
-    ('SUPER + A', 'control', 'Shale control center'),
-    ('SUPER + N', 'notifications', 'Shale notifications'),
-    ('SUPER + O', 'overview', 'Shale workspace overview'),
-    ('SUPER + COMMA', 'settings', 'Shale settings'),
-    ('SUPER + SHIFT + A', 'activity', 'Shale activity'),
-    ('CTRL + SHIFT + Escape', 'system', 'Shale system monitor'),
-    ('SUPER + M', 'power', 'Shale session menu'),
-    ('Print', 'screenshot region', 'Shale region screenshot'),
-    ('SUPER + L', 'lock', 'Shale lock screen'),
-    ('SHIFT + Print', 'screenshot output', 'Shale output screenshot'),
-    ('SUPER + Print', 'capture', 'Shale capture'),
-]
-WALLPAPER = ('SUPER + SHIFT + W', 'wallpaper', 'Shale wallpapers')
+# (keys as written in shale.lua, `shale` subcommand, what it opens), from the catalog Settings also shows.
+CATALOG = json.loads((ROOT / 'helpers/shortcuts.json').read_text())
+SHORTCUTS = [(item['keys'], item['action'], 'Shale ' + item['title'][0].lower() + item['title'][1:])
+             for item in CATALOG if item['keys'] and not item.get('optIn')]
+WALLPAPER = next((item['keys'], item['action'], 'Shale ' + item['title'].lower()) for item in CATALOG if item.get('optIn'))
 # Arch packages. Required ones stop an --apply unless --force; optional ones only enable features.
 REQUIRED = {'quickshell': 'quickshell', 'hyprctl': 'hyprland', 'wl-copy': 'wl-clipboard', 'python:dbus_next': 'python-dbus-next'}
 OPTIONAL = {'hypridle': 'hypridle', 'hyprlock': 'hyprlock', 'cliphist': 'cliphist', 'grim': 'grim', 'slurp': 'slurp',
@@ -606,7 +594,10 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
         targets[shell / 'COMMIT'] = ((commit + '\n').encode(), 0o644)
     targets[home / '.local/bin/shale'] = ((ROOT / 'scripts/shale').read_bytes(), 0o755)
     wanted = ([] if shell_only else SHORTCUTS) + ([WALLPAPER] if wallpaper_shortcut else [])
-    if not wanted:
+    # Shortcuts changed in Settings are bound by shale.lua from shortcuts.lua; their default keys may be yours again.
+    moved = changed_shortcuts(home)
+    wanted = [spec for spec in wanted if spec[1] not in moved]
+    if shell_only and not wallpaper_shortcut:
         return targets
     config = hyprland_config(home)
     files = config_files(config, home, report)
@@ -616,7 +607,7 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
     earlier = [spec for spec in skipped if normalize(spec[0]) in kept]
     for keys, action, shale in skipped:
         if (keys, action, shale) not in earlier:
-            report(f'Kept your {label(keys)} binding. {shale} has no shortcut; bind `~/.local/bin/shale {action}` to a key you like.')
+            report(f'Kept your {label(keys)} binding. {shale} has no shortcut; give it other keys in Settings → Shortcuts.')
     if earlier:
         report(f'Kept your {", ".join(label(keys) for keys, *_ in earlier)} binding{"s" if len(earlier) > 1 else ""}, as you '
                'chose before; add --ask-again to be asked again.')
@@ -642,6 +633,15 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
     if unchecked:
         report('luac (from the lua package) is not installed, so the edited Hyprland config was not syntax-checked.')
     return targets
+
+
+def changed_shortcuts(home):
+    """Actions whose keys were changed in Settings (the `shortcuts` setting)."""
+    try:
+        value = json.loads((home / '.config/shale/config.json').read_text()).get('shortcuts', {})
+    except (OSError, ValueError, AttributeError):
+        return set()
+    return set(value) if isinstance(value, dict) else set()
 
 
 def real(path, home):

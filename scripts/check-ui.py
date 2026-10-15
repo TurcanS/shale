@@ -6,12 +6,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 from harness import harness
+from install import SHORTCUTS, shale_lua
 
 PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
 SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail in ["wifi", "bluetooth", "audio", "power", "media", "tray"]]
 # Machines without a backlight, Wi-Fi, lid or capture tools.
 SCENARIOS += [("control", "wifi-vpn"), ("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
-SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Diagnostics"]]
+SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Shortcuts-old", "Diagnostics"]]
 SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units", "run", "timer", "focus", "actions"]]
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]
 SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "apps", "app", "optin", "off"]]
@@ -45,12 +46,18 @@ if args.output_dir:
 failed = False
 with tempfile.TemporaryDirectory(prefix="shale-ui-") as directory:
     preview = str(harness("preview.qml", directory))
+    # A home with Shale's Hyprland fragment as this checkout installs it, and one with a fragment from before
+    # shortcuts could change in Settings.
+    for name, fragment in (("home", shale_lua(SHORTCUTS)), ("home-old", 'local shortcuts = {\n    ["SUPER + V"] = "clipboard",\n}\n')):
+        (Path(directory) / name / ".config/hypr").mkdir(parents=True)
+        (Path(directory) / name / ".config/hypr/shale.lua").write_text(fragment)
     for panel, detail in SCENARIOS:
         label = panel + ("-" + detail if detail else "")
         screenshot = (args.output_dir or Path(directory)) / (label + ".png")
         env = dict(os.environ, XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, XDG_STATE_HOME=directory, XDG_CACHE_HOME=directory,
                    QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software", SHALE_PREVIEW=panel, SHALE_DETAIL=detail,
-                   SHALE_SCREENSHOT=str(screenshot), SHALE_CATEGORY=("Appearance" if detail.startswith("color-") else detail) if panel == "settings" else "",
+                   SHALE_SCREENSHOT=str(screenshot), SHALE_CATEGORY=("Appearance" if detail.startswith("color-") else detail.split("-")[0]) if panel == "settings" else "",
+                   HOME=str(Path(directory) / ("home-old" if detail.endswith("-old") else "home")),
                    SHALE_ACCENT="#a5c8ef" if detail == "color-frost" else "#e0c283" if detail == "color-warm" else args.accent,
                    SHALE_TONE="midnight" if detail == "color-frost" else "warm" if detail == "color-warm" else args.tone,
                    SHALE_QUERY={"calculator": "12345 * 6789", "emoji": ":heart", "files": "/quickshell", "web": "?quickshell.org", "units": "10 km to mi",

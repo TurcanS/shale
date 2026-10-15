@@ -31,6 +31,7 @@ import clipboard_watch
 import equalizer
 import weather
 import units
+import shortcuts
 
 def user_dir(name, fallback, home=None):
     """An XDG user directory such as PICTURES from user-dirs.dirs (localized, e.g. ~/Bilder), as ~/path."""
@@ -60,7 +61,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
-            "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto",
+            "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto", "shortcuts": {},
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -68,6 +69,9 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) /
 RUNTIME = runtime_base() / "shale"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shale"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "shale"
+# Where the installer puts shale.lua, and the command its shortcuts run.
+HYPR = Path.home() / ".config/hypr"
+SHALE_COMMAND = str(Path.home() / ".local/bin/shale")
 
 BUILTIN_PANEL = re.compile(r"(eDP|LVDS|DSI)-[A-Za-z0-9-]+")
 SEARCH_ENGINES = ("duckduckgo", "google", "brave")
@@ -282,6 +286,8 @@ def check_setting(key, value):
             weather.validate_location(value)
         if key == "eqBands":
             equalizer.validate(value)
+        if key == "shortcuts":
+            shortcuts.check(value)
     except ValueError as error:
         raise BackendError("invalid", str(error)) from None
 
@@ -326,7 +332,7 @@ def save_settings(changes):
 
 def reset_settings(keys):
     """Puts `keys` back to their defaults; returns every setting."""
-    if not isinstance(keys, list) or not all(isinstance(key, str) and key in DEFAULTS and key != "version" for key in keys):
+    if not isinstance(keys, list) or not all(isinstance(key, str) and key in DEFAULTS and key not in ("version", "shortcuts") for key in keys):
         raise BackendError("invalid", "Choose settings to reset.")
     return save_settings({key: DEFAULTS[key] for key in keys})
 
@@ -353,7 +359,8 @@ def export_settings(value):
     return {"path": str(path), "count": len(data) - 2}
 
 def import_settings(value):
-    """Applies every usable setting in an exported file; returns {settings, applied, skipped}."""
+    """Applies every usable setting in an exported file except shortcuts, which need the compositor; returns
+    {settings, applied, skipped, shortcuts (the file's, unchecked)}."""
     path = export_path(value)
     try:
         data = json.loads(path.read_text())
@@ -365,7 +372,7 @@ def import_settings(value):
         raise BackendError("invalid", "That file isn't a Shale settings export.")
     usable, skipped = {}, []
     for key, item in data.items():
-        if key in ("version", "exported"):
+        if key in ("version", "exported", "shortcuts"):
             continue
         try:
             if key not in DEFAULTS or key in PRIVATE_KEYS:
@@ -374,7 +381,7 @@ def import_settings(value):
             usable[key] = item
         except BackendError:
             skipped.append(key)
-    return {"settings": save_settings(usable), "applied": sorted(usable), "skipped": sorted(skipped)}
+    return {"settings": save_settings(usable), "applied": sorted(usable), "skipped": sorted(skipped), "shortcuts": data.get("shortcuts")}
 
 def migrated_settings():
     """settings(), after upgrades that depend on more than the file. History recorded before
@@ -671,6 +678,9 @@ class Backend:
         self.eq_requests = 0
         self.weather_lock = asyncio.Lock()
         self.lock_hint_lock = asyncio.Lock()
+        self.shortcut_lock = asyncio.Lock()
+        # Leaves the key-recording submap if Settings never says it's done.
+        self.record_timeout = None
 
     async def interface(self, name, path, interface, timeout=25):
         """A system bus interface whose method calls time out after `timeout` seconds (None: never)."""
@@ -780,6 +790,117 @@ class Backend:
                 "terminal": self.terminal(),
                 "terminals": [prefix[0] for prefix in self.TERMINALS if shutil.which(prefix[0])],
                 "builtinPanel": builtin_panel, "version": 1}
+
+    async def hypr_eval(self, code):
+        """Runs Lua in Hyprland; False when it reports an error."""
+        try:
+            return (await run("hyprctl", "eval", code)).decode().strip() == "ok"
+        except BackendError:
+            return False
+
+    async def live_binds(self):
+        try:
+            return json.loads(await run("hyprctl", "binds", "-j"))
+        except (BackendError, ValueError):
+            return []
+
+    async def save_shortcuts(self, changed, moves):
+        """Saves the `shortcuts` setting, writes shortcuts.lua for later config loads and moves the binds now.
+        `moves` is {action: (old keys, new keys)}; a reload applies them if moving one fails."""
+        save_settings({"shortcuts": changed})
+        target = CONFIG.parent / "shortcuts.lua"
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, name = tempfile.mkstemp(prefix=".shale-", dir=target.parent)
+        try:
+            with os.fdopen(fd, "w") as stream:
+                stream.write(shortcuts.overrides_lua(changed))
+            os.replace(name, target)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+        moved = True
+        for action, (old, new) in moves.items():
+            if old != new:
+                moved = await self.hypr_eval(shortcuts.rebind_lua(action, [old], new, SHALE_COMMAND)) and moved
+        if not moved:
+            await run("hyprctl", "reload")
+
+    async def shortcuts(self, action, p):
+        bound, ready = shortcuts.installed(HYPR)
+        changed = dict(settings()["shortcuts"])
+        if action == "list":
+            return shortcuts.listing(bound, changed, ready)
+        if action == "record":
+            return await self.record_keys(p.get("active") is True and ready)
+        if not ready:
+            raise BackendError("unavailable", "Update Shale with ./install.sh --update to change shortcuts here.")
+        name = p.get("action")
+        if action not in ("set", "reset") or (name is not None and name not in shortcuts.ACTIONS) or (action == "set" and name is None):
+            raise BackendError("invalid", "Unknown shortcut.")
+        current = shortcuts.effective(bound, changed)
+        names = [name] if name else list(changed)
+        if action == "set":
+            try:
+                keys = shortcuts.canonical(p.get("keys")) if p.get("keys") else ""
+            except ValueError as error:
+                raise BackendError("invalid", str(error)) from None
+            wanted = {name: keys}
+        else:
+            # Back to what the installer bound; an action it left alone gets its usual keys.
+            wanted = {n: bound.get(n) or shortcuts.ACTIONS[n]["keys"] for n in names}
+        binds = await self.live_binds()
+        for n, keys in wanted.items():
+            if keys and (reason := shortcuts.clash(keys, n, current, binds, {**current, **wanted})):
+                raise BackendError("clash", reason)
+        for n, keys in wanted.items():
+            if keys == bound.get(n, ""):
+                changed.pop(n, None)
+            else:
+                changed[n] = keys
+        await self.save_shortcuts(changed, {n: (current[n], keys) for n, keys in wanted.items()})
+        return shortcuts.listing(bound, changed, ready)
+
+    async def import_shortcuts(self, wanted):
+        """Applies imported shortcuts when all of them fit this computer; True if they did."""
+        bound, ready = shortcuts.installed(HYPR)
+        try:
+            shortcuts.check(wanted)
+        except ValueError:
+            return False
+        current = shortcuts.effective(bound, settings()["shortcuts"])
+        after = shortcuts.effective(bound, wanted)
+        binds = await self.live_binds()
+        if not ready or any(keys and shortcuts.clash(keys, n, current, binds, after) for n, keys in after.items() if keys != current[n]):
+            return False
+        await self.save_shortcuts({n: keys for n, keys in wanted.items() if keys != bound.get(n, "")},
+                                  {n: (current[n], after[n]) for n in after})
+        return True
+
+    async def record_keys(self, active):
+        """Enters or leaves the empty submap shale.lua defines, so pressing keys that are already bound reaches the
+        recorder in Settings instead of acting. It is left after 15 seconds whatever happens."""
+        if self.record_timeout:
+            self.record_timeout.cancel()
+            self.record_timeout = None
+        if active:
+            if not await self.hypr_eval(f'hl.dispatch(hl.dsp.submap("{shortcuts.RECORD_SUBMAP}"))'):
+                return {"active": False}
+            async def later():
+                await asyncio.sleep(15)
+                self.record_timeout = None
+                await self.leave_recording()
+            self.record_timeout = asyncio.create_task(later())
+            return {"active": True}
+        await self.leave_recording()
+        return {"active": False}
+
+    async def leave_recording(self):
+        try:
+            current = json.loads(await run("hyprctl", "-j", "submap"))
+        except (BackendError, ValueError):
+            return
+        if current == shortcuts.RECORD_SUBMAP:
+            await self.hypr_eval('hl.dispatch(hl.dsp.submap("reset"))')
 
     async def compositor_saver(self, saver, refresh):
         """Turn off blur and shadows and drop built-in panels to their lowest refresh rate in power
@@ -1171,7 +1292,8 @@ class Backend:
             changes = p.get("settings", p)
             if not isinstance(changes, dict):
                 raise BackendError("invalid", "Settings must be an object.")
-            current = save_settings(changes)
+            # The shell echoes every setting back; shortcuts change only through shortcuts.set, which binds them.
+            current = save_settings({key: value for key, value in changes.items() if key != "shortcuts"})
             if current["activityTracking"] != "on":
                 self.close_activity()
             return current
@@ -1180,7 +1302,17 @@ class Backend:
         if method == "settings.export":
             return export_settings(p.get("path"))
         if method == "settings.import":
-            return import_settings(p.get("path"))
+            result = import_settings(p.get("path"))
+            wanted = result.pop("shortcuts")
+            if wanted is not None:
+                async with self.shortcut_lock:
+                    applied = await self.import_shortcuts(wanted)
+                (result["applied"] if applied else result["skipped"]).append("shortcuts")
+                result["settings"] = settings()
+            return result
+        if method.startswith("shortcuts."):
+            async with self.shortcut_lock:
+                return await self.shortcuts(method.removeprefix("shortcuts."), p)
         if method == "wallpaperscom.search":
             try:
                 return await asyncio.to_thread(wallpaperscom.search, p.get("query", ""), p.get("page", 1), settings()["wallpaperDirectory"])
@@ -1866,9 +1998,20 @@ async def main():
 
     clipboard = clipboard_watch.ClipboardWatcher()
 
+    def leave_recording():
+        """A shell that stops while Settings records a shortcut must not leave every binding off."""
+        if backend.record_timeout:
+            backend.record_timeout.cancel()
+            try:
+                subprocess.run(["hyprctl", "eval", 'if hl.get_current_submap() == "' + shortcuts.RECORD_SUBMAP
+                                + '" then hl.dispatch(hl.dsp.submap("reset")) end'], capture_output=True, timeout=2)
+            except (OSError, subprocess.SubprocessError):
+                pass
+
     def terminate():
         # The filter is a separate PipeWire client; do not leave it running without the shell.
         backend.equalizer.stop()
+        leave_recording()
         clipboard.stop()
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         os.kill(os.getpid(), signal.SIGTERM)
@@ -1906,6 +2049,7 @@ async def main():
         equalizer_keeper.cancel()
         backend.equalizer.stop()
         clipboard.stop()
+        leave_recording()
         transport.close()
     if backend.bus:
         backend.bus.disconnect()
