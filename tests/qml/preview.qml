@@ -69,7 +69,7 @@ ShellRoot {
             ShellState.panel = content.panel;
             // "bare" / "<page>-bare": a desktop PC with no backlight, Wi-Fi, lid or capture tools.
             // "wifi-vpn": the Wi-Fi page with sample VPN profiles.
-            ShellState.detail = (Quickshell.env("SHALE_DETAIL") || "").replace(/-?bare$/, "").replace(/-vpn$/, "");
+            ShellState.detail = (Quickshell.env("SHALE_DETAIL") || "").replace(/-?bare$/, "").replace(/-vpn$/, "").replace(/-?custom$/, "");
             window.applyVpn();
             if (content.panel === "launcher" && content.pageItem && Quickshell.env("SHALE_QUERY"))
                 content.pageItem.query = Quickshell.env("SHALE_QUERY");

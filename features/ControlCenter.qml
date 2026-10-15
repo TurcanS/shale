@@ -6,6 +6,7 @@ import Quickshell.Bluetooth
 import Quickshell.Io
 import "../core"
 import "../core/paths.js" as Paths
+import "../core/controlItems.js" as ControlItems
 import "../services"
 import "../components" as C
 
@@ -13,6 +14,48 @@ FocusScope {
     id: root
     readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray"})[ShellState.detail] || "Control center"
     readonly property bool canGoBack: ShellState.detail !== ""
+    // Settings → Control center orders the tiles and buttons and turns parts off.
+    readonly property var arrangement: ControlItems.layout(ShellState.setting("controlLayout", {}))
+    readonly property var shownTiles: arrangement.tiles.filter(tile => tile.shown && (tile.id !== "wifi" || ShellState.wifiAvailable)
+                                                                        && (tile.id !== "lid" || Backend.capabilities.lid !== false)).map(tile => tile.id)
+    // What a tile shows. Wi-Fi and Bluetooth also open their page; the others are plain switches.
+    function tile(id) {
+        if (id === "wifi") {
+            const current = (ShellState.wifi.networks || []).find(n => n.connected);
+            return {text: "Wi-Fi", glyph: ShellState.wifi.powered ? "wifi" : "wifi-off", selected: ShellState.wifi.state === "connected",
+                    subtitle: root.pendingMethod === "wifi.power" ? "Updating…" : current ? current.name : ShellState.wifi.powered ? "Not connected" : "Off",
+                    hint: ShellState.wifi.powered ? "Turn Wi-Fi off" : "Turn Wi-Fi on", detail: "wifi", detailHint: "Wi-Fi networks", enabled: !root.acting};
+        }
+        if (id === "bluetooth") {
+            const count = Services.bluetoothDevices.filter(d => d.connected).length;
+            return {text: "Bluetooth", glyph: "bluetooth", selected: Services.bluetoothEnabled,
+                    subtitle: !Services.bluetoothAvailable ? "Unavailable" : count ? count + " connected" : Services.bluetoothEnabled ? "On" : "Off",
+                    hint: Services.bluetoothEnabled ? "Turn Bluetooth off" : "Turn Bluetooth on", detail: "bluetooth", detailHint: "Bluetooth devices",
+                    enabled: Services.bluetoothAvailable};
+        }
+        const toggle = ({
+                dnd: {text: "Do not disturb", glyph: "bell-off", on: ShellState.setting("dnd", false), subtitle: "Popups hidden", busy: false},
+                awake: {text: "Stay awake", glyph: "moon", on: ShellState.presentation, subtitle: "Screen stays on", busy: false},
+                grayscale: {text: "Grayscale", glyph: "palette", on: ShellState.grayscale, subtitle: "Colors off", busy: ShellState.grayscaleBusy},
+                lid: {text: "Lid closed", glyph: "laptop", on: ShellState.lidAwake, subtitle: "Stays awake", busy: ShellState.lidBusy}
+            })[id];
+        return {text: toggle.text, glyph: toggle.glyph, selected: toggle.on, subtitle: toggle.on ? toggle.subtitle : "Off", hint: "",
+                detail: "", detailHint: "", enabled: !toggle.busy, switch: true};
+    }
+    function activateTile(id) {
+        if (id === "wifi")
+            root.perform("wifi.power", {powered: !ShellState.wifi.powered}, () => ShellState.refreshWifi());
+        else if (id === "bluetooth")
+            Services.bluetoothPower(!Services.bluetoothEnabled);
+        else if (id === "dnd")
+            ShellState.setSetting("dnd", !ShellState.setting("dnd", false));
+        else if (id === "awake")
+            ShellState.presentation = !ShellState.presentation;
+        else if (id === "grayscale")
+            ShellState.toggleGrayscale();
+        else if (id === "lid")
+            ShellState.toggleLidAwake();
+    }
     function back() {
         ShellState.detail = "";
     }
@@ -227,78 +270,34 @@ FocusScope {
                         columns: 2
                         rowSpacing: Theme.gapS
                         columnSpacing: Theme.gapS
-                        C.QuickTile {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            Layout.preferredHeight: Math.max(66, Theme.body * 4.6)
-                            visible: ShellState.wifiAvailable
-                            text: "Wi-Fi"
-                            glyph: ShellState.wifi.powered ? "wifi" : "wifi-off"
-                            selected: ShellState.wifi.state === "connected"
-                            subtitle: {
-                                const current = (ShellState.wifi.networks || []).find(n => n.connected);
-                                return root.pendingMethod === "wifi.power" ? "Updating…" : current ? current.name : ShellState.wifi.powered ? "Not connected" : "Off";
-                            }
-                            hint: ShellState.wifi.powered ? "Turn Wi-Fi off" : "Turn Wi-Fi on"
-                            detailHint: "Wi-Fi networks"
-                            enabled: !root.acting
-                            onClicked: root.perform("wifi.power", {
-                                powered: !ShellState.wifi.powered
-                            }, () => ShellState.refreshWifi())
-                            onDetailRequested: ShellState.detail = "wifi"
-                        }
-                        C.QuickTile {
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            Layout.preferredHeight: Math.max(66, Theme.body * 4.6)
-                            text: "Bluetooth"
-                            glyph: "bluetooth"
-                            selected: Services.bluetoothEnabled
-                            subtitle: {
-                                const count = Services.bluetoothDevices.filter(d => d.connected).length;
-                                return !Services.bluetoothAvailable ? "Unavailable" : count ? count + " connected" : Services.bluetoothEnabled ? "On" : "Off";
-                            }
-                            hint: Services.bluetoothEnabled ? "Turn Bluetooth off" : "Turn Bluetooth on"
-                            detailHint: "Bluetooth devices"
-                            enabled: Services.bluetoothAvailable
-                            onClicked: Services.bluetoothPower(!Services.bluetoothEnabled)
-                            onDetailRequested: ShellState.detail = "bluetooth"
-                        }
                         Repeater {
-                            model: [
-                                {key: "dnd", text: "Do not disturb", glyph: "bell-off", on: ShellState.setting("dnd", false), subtitle: "Popups hidden", busy: false},
-                                {key: "awake", text: "Stay awake", glyph: "moon", on: ShellState.presentation, subtitle: "Screen stays on", busy: false},
-                                {key: "grayscale", text: "Grayscale", glyph: "palette", on: ShellState.grayscale, subtitle: "Colors off", busy: ShellState.grayscaleBusy},
-                                {key: "lid", text: "Lid closed", glyph: "laptop", on: ShellState.lidAwake, subtitle: "Stays awake", busy: ShellState.lidBusy}
-                            ].filter(tile => tile.key !== "lid" || Backend.capabilities.lid !== false)
+                            model: root.shownTiles
                             C.QuickTile {
-                                required property var modelData
+                                id: quickTile
+                                required property string modelData
+                                readonly property var info: root.tile(modelData)
                                 Layout.fillWidth: true
+                                Layout.fillHeight: true
                                 Layout.preferredWidth: 1
-                                Layout.preferredHeight: Math.max(58, Theme.body * 4)
-                                text: modelData.text
-                                glyph: modelData.glyph
-                                selected: modelData.on
-                                subtitle: modelData.on ? modelData.subtitle : "Off"
-                                enabled: !modelData.busy
-                                Accessible.role: Accessible.CheckBox
-                                Accessible.checkable: true
-                                Accessible.checked: selected
-                                onClicked: {
-                                    if (modelData.key === "dnd")
-                                        ShellState.setSetting("dnd", !ShellState.setting("dnd", false));
-                                    else if (modelData.key === "awake")
-                                        ShellState.presentation = !ShellState.presentation;
-                                    else if (modelData.key === "grayscale")
-                                        ShellState.toggleGrayscale();
-                                    else
-                                        ShellState.toggleLidAwake();
-                                }
+                                Layout.preferredHeight: info.switch ? Math.max(58, Theme.body * 4) : Math.max(66, Theme.body * 4.6)
+                                text: info.text
+                                glyph: info.glyph
+                                selected: info.selected
+                                subtitle: info.subtitle
+                                hint: info.hint
+                                detailHint: info.detailHint
+                                enabled: info.enabled
+                                Accessible.role: info.switch ? Accessible.CheckBox : Accessible.Button
+                                Accessible.checkable: !!info.switch
+                                Accessible.checked: !!info.switch && selected
+                                onClicked: root.activateTile(modelData)
+                                onDetailRequested: ShellState.detail = quickTile.info.detail
                             }
                         }
                     }
                     // A focus session: popups held, a ring in the bar, then one digest of what came in.
                     C.ListRow {
+                        visible: root.arrangement.sections.focus
                         Layout.fillWidth: true
                         text: "Focus"
                         glyph: "focus"
@@ -328,6 +327,7 @@ FocusScope {
                         ]
                     }
                     C.Card {
+                        visible: root.arrangement.sections.levels
                         Layout.fillWidth: true
                         implicitHeight: levels.implicitHeight + 2 * Theme.gapM
                         ColumnLayout {
@@ -363,6 +363,7 @@ FocusScope {
                         }
                     }
                     C.ListRow {
+                        visible: root.arrangement.sections.media
                         Layout.fillWidth: true
                         text: Services.player ? (Services.player.trackTitle || "Now playing") : "Nothing playing"
                         subtitle: Services.player ? (Services.player.trackArtist || Services.player.identity) : "Media"
@@ -998,12 +999,12 @@ FocusScope {
                 Layout.fillWidth: true
                 spacing: Theme.gapS
                 Repeater {
-                    model: [
-                        { title: "Capture", glyph: "camera", action: "capture" },
-                        { title: "Settings", glyph: "settings", action: "settings" },
-                        { title: "Lock", glyph: "lock", action: "lock" },
-                        { title: "Session", glyph: "power", action: "power" }
-                    ]
+                    model: root.arrangement.footer.filter(item => item.shown).map(item => ({
+                            capture: { title: "Capture", glyph: "camera", action: "capture" },
+                            settings: { title: "Settings", glyph: "settings", action: "settings" },
+                            lock: { title: "Lock", glyph: "lock", action: "lock" },
+                            session: { title: "Session", glyph: "power", action: "power" }
+                        })[item.id])
                     C.Button {
                         required property var modelData
                         Layout.fillWidth: true

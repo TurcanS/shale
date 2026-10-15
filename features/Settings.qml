@@ -105,6 +105,7 @@ FocusScope {
         {name: "Appearance", icon: "palette", description: "Shape the way your desktop feels."},
         {name: "Motion", icon: "bolt", description: "Choose a pace that feels right."},
         {name: "Bar", icon: "window", description: "Keep the essentials where you need them."},
+        {name: "Control center", icon: "settings", description: "The switches and buttons you reach for most."},
         {name: "Notifications", icon: "bell", description: "Decide what needs your attention."},
         {name: "Audio", icon: "volume", description: "Set the limits for your listening."},
         {name: "Capture", icon: "camera", description: "A home for screenshots and recordings."},
@@ -375,6 +376,10 @@ FocusScope {
                         Layout.fillWidth: true
                     }
                     C.Button { text: "Open activity"; glyph: "activity"; Layout.fillWidth: true; onClicked: ShellState.open("activity") }
+                }
+                ControlSettings {
+                    visible: root.category === "Control center"
+                    Layout.fillWidth: true
                 }
                 ShortcutSettings {
                     visible: root.category === "Shortcuts"
