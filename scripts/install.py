@@ -656,7 +656,9 @@ def stale(home, targets, record):
     """Files Shale installed in its shell folder that this version no longer ships. Other files there stay."""
     shell = real(home / '.config/quickshell/shale', home)
     shipped = {real(path, home) for path in targets}
-    return sorted(path for path in map(Path, record) if path.is_relative_to(shell) and path not in shipped and path.is_file())
+    # Only canonical paths: a record naming "shale/../x" or a path through a symlink can't reach outside.
+    return sorted(path for path in map(Path, record)
+                  if path.is_absolute() and path.resolve() == path and path.is_relative_to(shell) and path not in shipped and path.is_file())
 
 
 def shown(path, home):
@@ -791,7 +793,7 @@ def originals(home):
     for where, entry in sources:
         if entry['path'] not in found:
             try:
-                found[entry['path']] = (None if entry['backup'] is None else (where / entry['backup']).read_bytes(), entry['mode'])
+                found[entry['path']] = (None if entry['backup'] is None else member(where, entry['backup']).read_bytes(), entry['mode'])
             except OSError:
                 continue
     return found
@@ -820,7 +822,7 @@ def keep_originals(home, paths):
     for state, entry in sources:
         if entry['path'] not in known:
             try:
-                keep(entry['path'], None if entry['backup'] is None else (state / entry['backup']).read_bytes(), entry['mode'])
+                keep(entry['path'], None if entry['backup'] is None else member(state, entry['backup']).read_bytes(), entry['mode'])
             except OSError:
                 continue
     for path in paths:
@@ -944,6 +946,15 @@ def install(home, apply=False, shell_only=False, wallpaper_shortcut=False, yes=F
     return bool(state)
 
 
+def member(folder, name):
+    """A saved file in a backup folder, by the name the installer gave it: its number in the manifest. Any other
+    name (a path, "..", a symlink) means the manifest wasn't written by Shale, and nothing is read or removed."""
+    path = folder / name if isinstance(name, str) and re.fullmatch(r'[0-9]+', name) else None
+    if path is None or path.is_symlink():
+        raise ValueError(f'Not a Shale backup: unexpected file {name!r} in {folder}')
+    return path
+
+
 def atomic_write(path, data, mode=0o644):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.shale-')
@@ -988,7 +999,7 @@ def rollback(home, state, apply=False):
         path = Path(entry['path'])
         if real(path, home) != path:
             raise ValueError(f'Unsafe restore path: {path}')
-        before = None if entry['backup'] is None else (state / entry['backup']).read_bytes()
+        before = None if entry['backup'] is None else member(state, entry['backup']).read_bytes()
         if entry.get('removed'):
             if path.exists():
                 print(f'SKIP exists again: {path}')
@@ -1065,7 +1076,7 @@ def drop_originals(home, paths):
     atomic_write(folder / 'manifest.json', json.dumps(manifest, indent=2).encode(), 0o600)
     for entry in dropped:
         if entry['backup'] is not None:
-            (folder / entry['backup']).unlink(missing_ok=True)
+            member(folder, entry['backup']).unlink(missing_ok=True)
 
 
 def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=input, run=subprocess.run, verbose=False):
@@ -1238,7 +1249,15 @@ def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=
         if (state_folder / 'originals/manifest.json').is_file():
             drop_originals(home, handled)
     for folder, _ in purged:
-        shutil.rmtree(folder) if folder.is_dir() and not folder.is_symlink() else folder.unlink()
+        if folder.is_symlink():
+            folder.unlink()
+        elif not folder.resolve().is_relative_to(home.resolve()):
+            # A symlinked parent (say ~/.cache) leads outside the home: its contents aren't Shale's to delete.
+            print(f'SKIP outside your home directory: {folder} -> {folder.resolve()}')
+        elif folder.is_dir():
+            shutil.rmtree(folder)
+        elif folder.exists():
+            folder.unlink()
     print('\nUninstalled Shale.' + (f' Backup of everything it changed or removed: {shown(state, home)}' if state else ''))
     if session and os.environ.get('HYPRLAND_INSTANCE_SIGNATURE'):
         print("Reload Hyprland to drop Shale's shortcuts: hyprctl reload")

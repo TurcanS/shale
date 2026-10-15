@@ -95,7 +95,7 @@ PopupWindow {
                 C.CoverArt {
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 56
-                    source: root.player ? root.player.trackArtUrl || "" : ""
+                    source: NowPlaying.artFile
                 }
                 ColumnLayout {
                     Layout.fillWidth: true

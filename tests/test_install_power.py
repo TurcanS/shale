@@ -33,6 +33,34 @@ class InstallPowerTests(unittest.TestCase):
             self.assertEqual((etc / 'ppd.conf').read_text(), '[profiles]\nbalanced=balanced\n')
             self.assertFalse((etc / 'profiles/shale-balanced').exists())
 
+    def test_symlinks_never_lead_root_elsewhere(self):
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as other, patch.object(power.os, 'geteuid', return_value=0), \
+                patch.object(power, 'restart', return_value=[]), patch('builtins.print'):
+            etc, secret, victim = Path(temp), Path(other) / 'secret', Path(other) / 'victim'
+            secret.write_text('root only')
+            victim.write_text('keep')
+            (etc / 'ppd.conf').write_text('[profiles]\nbalanced=balanced\n')
+            driver = etc / 'scaling_driver'
+            driver.write_text('intel_pstate\n')
+            (etc / 'profiles/shale-balanced').mkdir(parents=True)
+            (etc / 'profiles/shale-balanced/tuned.conf').symlink_to(victim)
+            power.install(etc, apply=True, driver=driver)
+            # The symlink is replaced by the profile; what it pointed at is untouched.
+            self.assertEqual(victim.read_text(), 'keep')
+            self.assertFalse((etc / 'profiles/shale-balanced/tuned.conf').is_symlink())
+            (etc / 'ppd.conf.shale-evil').symlink_to(secret)
+            with self.assertRaises(ValueError):
+                power.restore(etc, etc / 'ppd.conf.shale-evil', apply=True)
+            self.assertNotIn('root only', (etc / 'ppd.conf').read_text())
+
+    def test_apply_as_root_only_targets_the_real_tuned_folder(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(sys, 'argv', ['install-power.py', '--apply', '--etc', temp]), \
+                patch.object(power.os, 'geteuid', return_value=0), patch.object(power, 'install') as install, \
+                patch('sys.stderr', io.StringIO()) as error, self.assertRaises(SystemExit):
+            power.main()
+        install.assert_not_called()
+        self.assertIn('only into /etc/tuned', error.getvalue())
+
     def test_refuses_cpu_drivers_where_powersave_means_minimum_clock(self):
         with tempfile.TemporaryDirectory() as temp:
             etc = Path(temp)

@@ -15,6 +15,7 @@ ROOT = SCRIPT.parents[1]
 SUDO, PKEXEC, PYTHON, SYSTEMCTL = '/usr/bin/sudo', '/usr/bin/pkexec', '/usr/bin/python3', '/usr/bin/systemctl'
 AS_ROOT = f'sudo python3 {SCRIPT}'
 SOURCE = ROOT / 'integration/tuned'
+ETC = Path('/etc/tuned')
 PROFILES = ('shale-powersave', 'shale-balanced', 'shale-balanced-battery', 'shale-performance')
 SERVICES = ('tuned.service', 'tuned-ppd.service')
 # The profiles use governor=powersave with EPP hints. On these drivers that is a dynamic governor;
@@ -53,6 +54,9 @@ def ours(path):
     return '=shale-' in path.read_text()
 
 def atomic_copy(source, target):
+    """Replaces `target` (a symlink there is replaced, never followed) with `source`, which must be a regular file."""
+    if source.is_symlink() or not source.is_file():
+        raise ValueError(f'Not a regular file: {source}')
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix='.shale-')
     try:
         with os.fdopen(fd, 'wb') as stream:
@@ -90,15 +94,18 @@ def install(etc, apply=False, driver=DRIVER):
         raise ValueError(f'Installing system profiles needs root: {AS_ROOT} --apply')
     for name in PROFILES:
         target = etc / 'profiles' / name
+        if (etc / 'profiles').is_symlink() or target.is_symlink():
+            raise ValueError(f'Not a profile folder (a symlink): {target}')
         target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SOURCE / name / 'tuned.conf', target / 'tuned.conf')
+        atomic_copy(SOURCE / name / 'tuned.conf', target / 'tuned.conf')
     if not reinstall:
         shutil.copy2(etc / 'ppd.conf', backup)
     atomic_copy(SOURCE / 'ppd.conf', etc / 'ppd.conf')
     report(restart(True), 'Installed.' + (f' Restore: {AS_ROOT} --restore {backup.absolute()} --apply' if backup else ''))
 
 def restore(etc, backup, apply=False):
-    if not backup.is_file() or backup.parent.resolve() != etc.resolve():
+    # A symlink could name any file root can read and publish it as ppd.conf.
+    if backup.is_symlink() or not backup.is_file() or backup.parent.resolve() != etc.resolve():
         raise ValueError(f'Not a ppd.conf backup in {etc}: {backup}')
     print(f'RESTORE {etc / "ppd.conf"} <- {backup}')
     for name in PROFILES:
@@ -112,7 +119,9 @@ def restore(etc, backup, apply=False):
     atomic_copy(backup, etc / 'ppd.conf')
     stopped = restart(True)
     for name in PROFILES:
-        shutil.rmtree(etc / 'profiles' / name, ignore_errors=True)
+        target = etc / 'profiles' / name
+        if not (etc / 'profiles').is_symlink() and not target.is_symlink():
+            shutil.rmtree(target, ignore_errors=True)
     report(stopped, 'Restored.')
 
 def elevated(args):
@@ -138,6 +147,10 @@ def main():
             print('sudo is not installed, so this uses pkexec.')
         sys.stdout.flush()
         os.execv(command[0], command)
+    # As root only the real TuneD folder: another one could be laid out (symlinks) to make root write or read
+    # elsewhere. Other folders work without --apply, for a preview.
+    if args.apply and os.geteuid() == 0 and args.etc.resolve() != ETC:
+        parser.exit(1, f'Error: --apply as root installs only into {ETC}.\n')
     try:
         restore(args.etc, args.restore, args.apply) if args.restore else install(args.etc, args.apply)
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:

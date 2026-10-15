@@ -171,7 +171,6 @@ Scope {
         id: trackWindow
         property string title: ""
         property string artist: ""
-        property string art: ""
         property bool shown: false
         readonly property var workspace: Services.workspaces.find(w => w.monitor && w.monitor.name === root.screen.name && w.active)
         readonly property bool allowed: root.target && !ShellState.locked && ShellState.setting("trackChangeCard", true) && !Focus.digest
@@ -186,7 +185,6 @@ Scope {
                     return;
                 trackWindow.title = player.trackTitle || "";
                 trackWindow.artist = player.trackArtist || player.identity || "";
-                trackWindow.art = player.trackArtUrl || "";
                 trackWindow.shown = true;
                 if (!trackHover.hovered)
                     trackTimer.restart();
@@ -241,7 +239,7 @@ Scope {
                     Layout.preferredWidth: 44
                     Layout.preferredHeight: 44
                     radius: Theme.radiusSmall + 2
-                    source: trackWindow.art
+                    source: NowPlaying.artFile
                 }
                 ColumnLayout {
                     Layout.fillWidth: true

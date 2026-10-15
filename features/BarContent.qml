@@ -302,7 +302,7 @@ Item {
                     Layout.preferredHeight: 18
                     radius: 5
                     glyphSize: 11
-                    source: NowPlaying.artUrl
+                    source: NowPlaying.artFile
                 }
                 C.Label {
                     visible: mediaButton.wide

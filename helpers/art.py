@@ -9,12 +9,15 @@ import os
 from pathlib import Path
 import socket
 import tempfile
+import time
 from urllib.parse import unquote, unquote_to_bytes, urlsplit
 from urllib.request import (HTTPHandler, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener, getproxies,
                             proxy_bypass)
 
 MAX_BYTES = 5 * 1024 * 1024
 KEEP = 20
+# However slowly a server sends a cover, the download ends by then: it holds a worker thread meanwhile.
+DEADLINE = 20
 
 
 def public(url, resolve=socket.getaddrinfo):
@@ -71,8 +74,10 @@ class _CheckedRedirects(HTTPRedirectHandler):
 
 
 def _proxied(url, proxies, bypass):
+    # The host as urllib's ProxyHandler checks it (with any port), so a NO_PROXY entry can't make it connect
+    # directly through handlers that don't check the address.
     parts = urlsplit(url)
-    return bool(proxies.get(parts.scheme)) and not bypass(parts.hostname or '')
+    return bool(proxies.get(parts.scheme)) and not bypass(parts.netloc.rpartition('@')[2])
 
 
 def _opener(url, proxies=None, bypass=proxy_bypass):
@@ -99,7 +104,16 @@ def _fetch(url):
         with _opener(url).open(request, timeout=5) as response:
             if not response.headers.get_content_type().startswith('image/'):
                 raise ValueError('The cover is not an image.')
-            return response.read(MAX_BYTES + 1)
+            deadline, data = time.monotonic() + DEADLINE, bytearray()
+            while len(data) <= MAX_BYTES:
+                if time.monotonic() > deadline:
+                    raise OSError('The cover took too long to download.')
+                # read1 returns what one read brings, so a server sending a byte at a time can't stretch one call.
+                chunk = response.read1(64 * 1024)
+                if not chunk:
+                    break
+                data += chunk
+            return bytes(data)
     except http.client.HTTPException as error:
         # A dropped or garbled response (IncompleteRead, BadStatusLine…) is a failed download like any other.
         raise OSError(str(error)) from None

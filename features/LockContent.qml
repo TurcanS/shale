@@ -363,7 +363,7 @@ Item {
                     Layout.preferredWidth: 44
                     Layout.preferredHeight: 44
                     radius: 11
-                    source: root.player ? root.player.trackArtUrl || "" : ""
+                    source: NowPlaying.artFile
                 }
                 ColumnLayout {
                     Layout.fillWidth: true

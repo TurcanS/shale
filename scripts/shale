@@ -17,11 +17,12 @@ case "$1" in
     systemctl --user daemon-reload
     # Apps need a polkit agent to ask for passwords; start Hyprland's if no other agent runs.
     if systemctl --user cat hyprpolkitagent.service >/dev/null 2>&1 \
-        && ! pgrep -f 'polkit-(gnome|kde|mate)|hyprpolkitagent|lxpolkit|polkit-agent' >/dev/null; then
+        && ! pgrep -u "$(id -u)" -f 'polkit-(gnome|kde|mate)|hyprpolkitagent|lxpolkit|polkit-agent' >/dev/null; then
       systemctl --user start hyprpolkitagent.service || true
     fi
-    # Keep an existing idle policy, whether it runs as a process or as a (not yet started) service.
-    if command -v hypridle >/dev/null && ! pgrep -x hypridle >/dev/null \
+    # Keep an existing idle policy, whether it runs as a process or as a (not yet started) service. Only this user's
+    # processes count: another account's hypridle (or a process it names so) must not stop the screen from locking.
+    if command -v hypridle >/dev/null && ! pgrep -u "$(id -u)" -x hypridle >/dev/null \
         && ! systemctl --user is-active --quiet hypridle.service && ! systemctl --user is-enabled --quiet hypridle.service 2>/dev/null; then
       hypridle --config "$HOME/.config/hypr/shale-hypridle.conf" >/dev/null 2>&1 &
     fi

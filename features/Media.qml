@@ -44,7 +44,7 @@ ColumnLayout {
         Image {
             id: artwork
             anchors.fill: parent
-            source: root.player ? root.player.trackArtUrl : ""
+            source: NowPlaying.artFile
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             sourceSize.width: 700

@@ -812,6 +812,35 @@ class UninstallTests(unittest.TestCase):
         self.assertIn('Deleted for good (--purge): ~/.local/state/shale', output)
         self.assertFalse((self.home / '.local/state/shale').exists())
 
+    def test_purge_never_follows_a_symlinked_parent_out_of_home(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (Path(outside.name) / 'shale').mkdir()
+        (Path(outside.name) / 'shale/keep').write_text('not Shale\'s')
+        (self.home / '.cache').symlink_to(outside.name)
+        self.install()
+        _, output = self.uninstall(purge=True)
+        self.assertTrue((Path(outside.name) / 'shale/keep').is_file())
+        self.assertIn('SKIP outside your home directory', output)
+
+    def test_backup_files_are_only_numbered_members_of_their_folder(self):
+        folder = self.home / 'backup'
+        folder.mkdir()
+        (folder / '0').write_text('saved')
+        self.assertEqual(installer.member(folder, '0').read_text(), 'saved')
+        (folder / '1').symlink_to(self.home / '.bashrc')
+        for name in ('../../.ssh/id_ed25519', '/etc/shadow', '1', None, '0x'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'Not a Shale backup'):
+                installer.member(folder, name)
+
+    def test_a_record_naming_a_path_outside_the_shell_is_not_stale(self):
+        victim = self.home / 'victim.txt'
+        victim.write_text('mine')
+        installer.save_record(self.home, {str(self.shell / '..' / '..' / '..' / 'victim.txt'): installer.digest(b'mine')})
+        with patch('builtins.print'):
+            installer.install(self.home, True, shell_only=True, checks=NO_CHECKS)
+        self.assertEqual(victim.read_text(), 'mine')
+
     def test_configs_an_older_install_edited_without_a_record_lose_shales_lines(self):
         keys = self.config.parent / 'keys.lua'
         keys.write_text('-- Shale replaced: hl.bind("SUPER + V", x)\n')

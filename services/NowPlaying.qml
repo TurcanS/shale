@@ -40,7 +40,8 @@ Singleton {
     // Two tones from the cover: its most vivid colour and a contrasting one.
     // Greyscale covers get soft white; no cover falls back to the accent.
     // The quantizer only reads files, so the helper saves https:// and data: covers first. It exists only while
-    // there is a file: an empty source makes it try to open "".
+    // there is a file: an empty source makes it try to open "". Every cover shown uses this file too, never the
+    // player's address: the helper fetches only from public addresses, and the display must not bypass that.
     property string artFile: ""
     property int artRequest: 0
     onArtUrlChanged: resolveArt()

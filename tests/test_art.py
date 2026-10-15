@@ -119,6 +119,34 @@ class ArtTests(unittest.TestCase):
         finally:
             art._opener, art.public = original_opener, original_public
 
+    def test_the_proxy_bypass_sees_the_port_as_urllib_does(self):
+        # NO_PROXY=cdn.example:8080 makes urllib connect directly, so the direct, checked handlers must be used.
+        handlers = lambda opener: {type(handler).__name__ for handler in opener.handlers}
+        bypass = lambda host: host == "cdn.example:8080"
+        opener = art._opener("http://user@cdn.example:8080/a", {"http": "http://127.0.0.1:3128"}, bypass=bypass)
+        self.assertIn("_PublicHTTP", handlers(opener))
+        self.assertNotIn("_PublicHTTP", handlers(art._opener("http://cdn.example/a", {"http": "http://127.0.0.1:3128"}, bypass=bypass)))
+
+    def test_a_slow_cover_stops_at_the_deadline(self):
+        class Slow:
+            headers = art.http.client.HTTPMessage()
+            def __init__(self):
+                self.headers["Content-Type"] = "image/png"
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                return False
+            def read1(self, size):
+                return b"x"
+        clock = iter(range(0, 1000, 3))
+        original = art._opener, art.public, art.time.monotonic
+        art._opener, art.public, art.time.monotonic = (lambda url: type("O", (), {"open": lambda self, r, timeout: Slow()})()), (lambda url: None), (lambda: next(clock))
+        try:
+            with self.assertRaisesRegex(OSError, "too long"):
+                art._fetch("https://i.scdn.co/a")
+        finally:
+            art._opener, art.public, art.time.monotonic = original
+
     def test_a_cover_pruned_meanwhile_is_fetched_again(self):
         path = Path(art.local("https://example.com/a", self.folder, self.fetch))
         path.unlink()
