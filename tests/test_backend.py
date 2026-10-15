@@ -335,6 +335,7 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_settings_export_and_import_leave_out_history(self):
         await self.backend.dispatch("settings.set", {"fontSize": 18, "barStyle": "edge", "pinnedApps": ["firefox"], "runHistory": ["ls"],
+                                                     "recordingDirectory": "~/Clips",
                                                      "weatherLocation": {"name": "Paris", "region": "", "latitude": 48.85, "longitude": 2.35}})
         target = self.path / "backup.json"
         exported = await self.backend.dispatch("settings.export", {"path": str(target)})
@@ -342,10 +343,12 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         data = json.loads(target.read_text())
         self.assertEqual({key: data[key] for key in data if key != "exported"}, {"version": 1, "fontSize": 18, "barStyle": "edge"})
         b.CONFIG.unlink()
-        data.update({"surfaceTone": "oled", "futureKey": 1, "runHistory": ["rm -rf ~"], "dnd": True})
+        data.update({"surfaceTone": "oled", "futureKey": 1, "runHistory": ["rm -rf ~"], "dnd": True, "screenshotDirectory": "/srv/share"})
         target.write_text(json.dumps(data))
         imported = await self.backend.dispatch("settings.import", {"path": str(target)})
-        self.assertEqual((imported["applied"], imported["skipped"]), (["barStyle", "dnd", "fontSize"], ["futureKey", "runHistory", "surfaceTone"]))
+        self.assertEqual((imported["applied"], imported["skipped"]),
+                         (["barStyle", "dnd", "fontSize"], ["futureKey", "runHistory", "screenshotDirectory", "surfaceTone"]))
+        self.assertNotEqual(b.settings()["screenshotDirectory"], "/srv/share")
         self.assertEqual((imported["settings"]["fontSize"], imported["settings"]["runHistory"]), (18, []))
         self.assertEqual(b.settings()["barStyle"], "edge")
         target.write_text('{"version": 2}')

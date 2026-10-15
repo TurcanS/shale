@@ -84,8 +84,10 @@ BAR_REQUIRED = ("recording", "privacy", "control")
 CONTROL_TILES = ("wifi", "bluetooth", "dnd", "awake", "grayscale", "lid")
 CONTROL_SECTIONS = ("focus", "levels", "media")
 CONTROL_FOOTER = ("capture", "settings", "lock", "session")
-# Personal history and state; a settings export leaves them out and an import ignores them.
-PRIVATE_KEYS = ("appUsage", "emojiUsage", "runHistory", "pinnedApps", "focusSession", "timers", "weatherLocation")
+# Personal history and state, and this computer's folders; a settings export leaves them out and an import
+# ignores them, so a file from elsewhere can't redirect where screenshots, recordings or downloads are saved.
+PRIVATE_KEYS = ("appUsage", "emojiUsage", "runHistory", "pinnedApps", "focusSession", "timers", "weatherLocation",
+                "screenshotDirectory", "recordingDirectory", "wallpaperDirectory")
 ACTIVITY_TRACKING = ("ask", "on", "off")
 
 def keyboard_state(devices):
