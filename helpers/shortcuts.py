@@ -128,8 +128,10 @@ def clash(keys, action, current, binds, planned=None):
 
 
 def lua_string(text):
-    """A Lua string literal; every byte outside a safe set is a decimal escape."""
-    return '"' + "".join(chr(byte) if chr(byte).isalnum() or chr(byte) in " +_-./:" else f"\\{byte:03d}" for byte in text.encode()) + '"'
+    """A Lua string literal; every byte outside a safe ASCII set (so every byte of a non-ASCII character too) is a
+    decimal escape."""
+    return '"' + "".join(chr(byte) if byte < 128 and (chr(byte).isalnum() or chr(byte) in " +_-./:") else f"\\{byte:03d}"
+                         for byte in text.encode()) + '"'
 
 
 def overrides_lua(changed):

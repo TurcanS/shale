@@ -26,8 +26,13 @@ ShellRoot {
             if (!ShellState.setting("persistNotifications", false))
                 return;
             root.historyRestored = true;
-            const restored = r.entries.map((n, i) => Object.assign({}, n, {
-                    id: -1 - i,
+            // Turning history off and on again quickly can bring back entries that are still listed. They are
+            // matched by content: ids start over with each session. Restored ids stay below every id in use.
+            const key = n => n.timestamp + "\n" + n.appName + "\n" + n.summary;
+            const listed = new Set(Services.notifications.map(key));
+            const lowest = Math.min(0, ...Services.notifications.map(n => n.id));
+            const restored = r.entries.filter(n => !listed.has(key(n))).map((n, i) => Object.assign({}, n, {
+                    id: lowest - 1 - i,
                     original: null,
                     actions: [],
                     image: "",

@@ -91,10 +91,6 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(dict(zip(urls, results)), urls)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class LauncherCommandTests(unittest.TestCase):
     def js(self, expression):
@@ -123,3 +119,7 @@ class LauncherCommandTests(unittest.TestCase):
     def test_windows_match_their_app_or_a_word_of_the_title(self):
         self.assertEqual(self.js('[scoreWindow("Inbox - Mail", "org.mozilla.Thunderbird", "thunder") > 0, scoreWindow("README.md - Code", "code-oss", "readme") > 0, scoreWindow("README.md - Code", "code-oss", "eadme"), scoreWindow("x", "firefox", "")]'),
                          [True, True, 0, 0])
+
+
+if __name__ == "__main__":
+    unittest.main()

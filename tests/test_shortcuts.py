@@ -143,6 +143,8 @@ class FragmentTests(unittest.TestCase):
     def test_lua_strings_escape_everything_unusual(self):
         self.assertEqual(s.lua_string('a"b\\c\n'), '"a\\034b\\092c\\010"')
         self.assertEqual(s.lua_string("SUPER + K"), '"SUPER + K"')
+        # Every byte of a non-ASCII character is escaped, so the path reaches Lua byte for byte.
+        self.assertEqual(s.lua_string("/home/josé"), '"/home/jos\\195\\169"')
         self.assertIn('shale launcher"', s.rebind_lua("launcher", ["SUPER + SPACE"], "SUPER + D", "/h/.local/bin/shale"))
         self.assertTrue(s.rebind_lua("launcher", ["SUPER + SPACE"], "", "/h").startswith('pcall(hl.unbind, "SUPER + SPACE")'))
         if shutil.which("luac"):

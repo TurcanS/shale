@@ -16,6 +16,8 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 STOCK = Path('/usr/share/hypr/hyprland.lua')
+# install.sh stops before running the Python installer as root or without pacman (off Arch).
+INSTALL_SH_RUNS = shutil.which('pacman') is not None and os.getuid() != 0
 NO_CHECKS = lambda: ([], [], [])
 
 
@@ -358,8 +360,9 @@ class VersionTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(script), '--version'], capture_output=True, text=True,
                                     env={**os.environ, **env})
             self.assertEqual(result.stdout, f'Shale {installer.version()}\n')
-        result = subprocess.run(['bash', str(installer.ROOT / 'install.sh'), '--version'], capture_output=True, text=True)
-        self.assertEqual(result.stdout, f'Shale {installer.version()}\n')
+        if INSTALL_SH_RUNS:
+            result = subprocess.run(['bash', str(installer.ROOT / 'install.sh'), '--version'], capture_output=True, text=True)
+            self.assertEqual(result.stdout, f'Shale {installer.version()}\n')
 
 
 class InstallTests(unittest.TestCase):
@@ -1084,6 +1087,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit.exception.code, 1)
         self.assertIn('1 file left alone (skip above)', error.getvalue())
 
+    @unittest.skipUnless(INSTALL_SH_RUNS, 'install.sh needs pacman and a user other than root')
     def test_install_sh_uninstall_does_no_package_setup(self):
         with tempfile.TemporaryDirectory() as home:
             result = subprocess.run(['bash', str(installer.ROOT / 'install.sh'), '--uninstall', '--home', home],
