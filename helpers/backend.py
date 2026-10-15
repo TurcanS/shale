@@ -75,6 +75,19 @@ RECORD_AUDIO = {"none": None, "system": "@DEFAULT_MONITOR@", "microphone": "@DEF
 # "ask" until the user chooses in the Activity panel; nothing is recorded until "on".
 ACTIVITY_TRACKING = ("ask", "on", "off")
 
+def keyboard_state(devices):
+    """The layouts of the main keyboard from `hyprctl devices -j`: {layouts: [{code, variant}], index, name}."""
+    keyboards = [k for k in devices.get("keyboards", []) if isinstance(k, dict)] if isinstance(devices, dict) else []
+    keyboard = next((k for k in keyboards if k.get("main")), keyboards[0] if keyboards else None)
+    if keyboard is None:
+        return {"layouts": [], "index": 0, "name": ""}
+    codes = [code.strip() for code in str(keyboard.get("layout", "")).split(",")]
+    variants = str(keyboard.get("variant", "")).split(",")
+    layouts = [{"code": code, "variant": variants[i].strip() if i < len(variants) else ""} for i, code in enumerate(codes) if code]
+    index = keyboard.get("active_layout_index", 0)
+    return {"layouts": layouts, "index": index if type(index) is int and 0 <= index < len(layouts) else 0,
+            "name": str(keyboard.get("active_keymap", ""))}
+
 def file_search_args(query, home):
     """fd arguments for a launcher file search: every word must appear in the name, in order, ignoring case."""
     words = query.split() if isinstance(query, str) else []
@@ -1210,6 +1223,11 @@ class Backend:
                 actual = json.loads(await run("hyprctl", "getoption", "decoration:screen_shader", "-j"))["str"]
                 enabled = actual == shader
             return {"enabled": enabled}
+        if method in ("keyboard.get", "keyboard.next"):
+            if method == "keyboard.next":
+                # Every keyboard, so an external one and the laptop's never disagree.
+                await run("hyprctl", "switchxkblayout", "all", "next")
+            return keyboard_state(json.loads(await run("hyprctl", "devices", "-j")))
         if method == "brightness.get":
             return self.brightness()
         if method == "brightness.set":

@@ -306,6 +306,18 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(changes=changes), self.assertRaises(b.BackendError):
                 await self.backend.dispatch("settings.set", changes)
 
+    def test_keyboard_state_reads_the_main_keyboard(self):
+        devices = {"keyboards": [{"name": "video-bus", "layout": "us", "variant": "", "active_layout_index": 0, "main": False},
+                                 {"name": "at-kbd", "layout": "us,ru, de", "variant": "intl,,", "active_layout_index": 1,
+                                  "active_keymap": "Russian", "main": True}]}
+        self.assertEqual(b.keyboard_state(devices), {"layouts": [{"code": "us", "variant": "intl"}, {"code": "ru", "variant": ""}, {"code": "de", "variant": ""}],
+                                                     "index": 1, "name": "Russian"})
+        devices["keyboards"][1]["active_layout_index"] = 7
+        self.assertEqual(b.keyboard_state(devices)["index"], 0)
+        self.assertEqual(b.keyboard_state({"keyboards": [{"layout": "fr"}]})["layouts"], [{"code": "fr", "variant": ""}])
+        for broken in ({}, {"keyboards": []}, [], {"keyboards": ["x"]}):
+            self.assertEqual(b.keyboard_state(broken), {"layouts": [], "index": 0, "name": ""})
+
     async def test_focus_and_timer_settings_are_validated(self):
         session = {"started": 1760000000000, "ends": 1760001500000}
         timers = [{"label": "Tea", "ends": 1760000300000, "seconds": 300}]

@@ -464,6 +464,18 @@ PanelWindow {
             onClicked: ShellState.presentation = false
         }
         BarButton {
+            id: layoutButton
+            readonly property var layouts: ShellState.keyboard.layouts || []
+            readonly property var current: layouts[ShellState.keyboard.index] || null
+            visible: layouts.length > 1
+            flat: true
+            text: current ? current.code.toUpperCase().slice(0, 3) : ""
+            hint: (ShellState.keyboard.name || "Keyboard layout") + "\n" + layouts.map((l, i) => (i === ShellState.keyboard.index ? "● " : "○ ") + l.code + (l.variant ? " (" + l.variant + ")" : "")).join("\n") + "\nClick for the next layout"
+            tooltip: barTooltip
+            Accessible.name: "Keyboard layout, " + (ShellState.keyboard.name || text)
+            onClicked: ShellState.nextKeyboardLayout()
+        }
+        BarButton {
             visible: bar.width >= 560 && ShellState.wifiAvailable
             glyph: "wifi"
             flat: true

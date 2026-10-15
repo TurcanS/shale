@@ -281,6 +281,22 @@ QtObject {
                 profiles = r;
         });
     }
+    // {layouts: [{code, variant}], index, name} of the main keyboard; the bar shows it only with two or more layouts.
+    property var keyboard: ({layouts: [], index: 0, name: ""})
+    function refreshKeyboard() {
+        Backend.request("keyboard.get", {}, (r, e) => {
+            if (!e)
+                root.keyboard = r;
+        });
+    }
+    function nextKeyboardLayout() {
+        run("keyboard.next", {}, r => root.keyboard = r);
+    }
+    // One layout switch reports once per keyboard; read the result once.
+    property Timer keyboardRefresh: Timer {
+        interval: 150
+        onTriggered: root.refreshKeyboard()
+    }
     function refreshRecording() {
         Backend.request("capture.record.status", {}, (r, e) => {
             if (!e)
@@ -478,6 +494,7 @@ QtObject {
             root.refreshRecording();
             root.refreshWifi();
             root.refreshProfiles();
+            root.refreshKeyboard();
             root.refreshActiveWallpapers();
             wallpaperRestore.attempts = 0;
             wallpaperRestore.restart();
@@ -502,6 +519,7 @@ QtObject {
         root.refreshRecording();
         root.refreshWifi();
         root.refreshProfiles();
+        root.refreshKeyboard();
         root.refreshActiveWallpapers();
     }
     // A Hyprland config reload restores blur, shadows and refresh rate; reapply power saver over it.
@@ -510,6 +528,9 @@ QtObject {
         function onRawEvent(event) {
             if (event.name === "configreloaded" && root.powerSaver)
                 root.powerModeApply.restart();
+            // A reload may change the layouts.
+            if (event.name === "activelayout" || event.name === "configreloaded")
+                root.keyboardRefresh.restart();
         }
     }
     // Keeps the bar's Wi-Fi state honest without the full-rate polling of the Wi-Fi page.
