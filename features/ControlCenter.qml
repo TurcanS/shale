@@ -37,6 +37,8 @@ FocusScope {
     property bool busy: false
     // Busy with something the user asked for; background list refreshes don't dim the page.
     readonly property bool acting: busy && ["wifi.list", "power.profiles"].indexOf(pendingMethod) < 0
+    // The VPN profile being connected or disconnected, while that request runs.
+    property string pendingVpn: ""
     property string pendingMethod: ""
     property int requestGeneration: 0
     property bool alive: true
@@ -114,8 +116,10 @@ FocusScope {
     function refresh() {
         if (busy)
             return;
-        if (ShellState.detail === "wifi")
+        if (ShellState.detail === "wifi") {
             perform("wifi.list", {}, r => ShellState.wifi = r);
+            ShellState.refreshVpn();
+        }
         if (ShellState.detail === "power")
             perform("power.profiles", {}, r => ShellState.profiles = r);
     }
@@ -300,7 +304,7 @@ FocusScope {
                         glyph: "focus"
                         selected: Focus.active
                         checkmark: false
-                        subtitle: Focus.active ? Focus.minutesText(Focus.remainingSeconds) + " left · Notifications held" : "Holds notifications, then sums them up"
+                        subtitle: Focus.active ? Focus.minutesText(Focus.remainingSeconds) + " left · Notifications held" : "Holds notifications"
                         hint: Focus.active ? "End focus" : "Focus for " + Focus.lastMinutes + " minutes"
                         Accessible.role: Accessible.CheckBox
                         Accessible.checkable: true
@@ -645,6 +649,32 @@ FocusScope {
                         font.pixelSize: Theme.small
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
+                    }
+                    // NetworkManager's VPN and WireGuard profiles; new ones are made in nm-connection-editor or nmcli.
+                    C.SectionHeader {
+                        visible: (ShellState.vpn.connections || []).length > 0
+                        text: "VPN"
+                        Layout.topMargin: Theme.gapXs
+                    }
+                    Repeater {
+                        model: ShellState.vpn.connections || []
+                        C.Toggle {
+                            required property var modelData
+                            readonly property bool pending: root.busy && root.pendingVpn === modelData.path
+                            Layout.fillWidth: true
+                            text: modelData.name
+                            glyph: "shield"
+                            description: (pending ? (modelData.state === "on" ? "Disconnecting…" : "Connecting… Enter any password NetworkManager asks for")
+                                          : ({on: "Connected", connecting: "Connecting…", disconnecting: "Disconnecting…"})[modelData.state] || "Off")
+                                         + (modelData.kind ? " · " + (modelData.kind === "wireguard" ? "WireGuard" : modelData.kind === "openvpn" ? "OpenVPN" : modelData.kind) : "")
+                            selected: modelData.state !== "off"
+                            positive: modelData.state === "on"
+                            enabled: !root.acting
+                            onClicked: {
+                                root.pendingVpn = modelData.path;
+                                root.perform(modelData.state === "off" ? "vpn.connect" : "vpn.disconnect", {path: modelData.path}, () => ShellState.refreshVpn());
+                            }
+                        }
                     }
                 }
                 ColumnLayout {

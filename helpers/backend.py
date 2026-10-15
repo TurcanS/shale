@@ -552,6 +552,7 @@ class Backend:
         self.session_bus = None
         self.bus_lock = asyncio.Lock()
         self.wifi_lock = asyncio.Lock()
+        self.vpn_lock = asyncio.Lock()
         self.wallpaper_lock = asyncio.Lock()
         self.daemon_lock = asyncio.Lock()
         self.wallhaven_lock = asyncio.Lock()
@@ -744,6 +745,68 @@ class Backend:
     async def objects(self, name):
         manager = await self.interface(name, "/", "org.freedesktop.DBus.ObjectManager")
         return await manager.call_get_managed_objects()
+
+    async def vpn(self, action, p):
+        """NetworkManager's VPN and WireGuard profiles. Secrets (passwords, one-time codes) are asked for by
+        NetworkManager's own secret agent, as they would be from any other client."""
+        name = "org.freedesktop.NetworkManager"
+        from dbus_next import Variant  # importable once interface() has found dbus-next
+        manager = await self.interface(name, "/org/freedesktop/NetworkManager", name)
+        manager_props = await self.interface(name, "/org/freedesktop/NetworkManager", "org.freedesktop.DBus.Properties")
+        settings = await self.interface(name, "/org/freedesktop/NetworkManager/Settings", name + ".Settings")
+        profiles = {}
+        for path in await settings.call_list_connections():
+            connection = await self.interface(name, path, name + ".Settings.Connection")
+            try:
+                config = await connection.call_get_settings()
+            except Exception:
+                continue  # A system profile may be private to another user.
+            section = config.get("connection", {})
+            kind = section.get("type", Variant("s", "")).value
+            if kind not in ("vpn", "wireguard"):
+                continue
+            # "org.freedesktop.NetworkManager.openvpn" → "OpenVPN"-ish short names for the subtitle.
+            service = config.get("vpn", {}).get("service-type", Variant("s", "")).value if kind == "vpn" else "wireguard"
+            profiles[path] = {"path": path, "name": section.get("id", Variant("s", "VPN")).value,
+                              "kind": service.rsplit(".", 1)[-1] or kind, "state": "off", "active": ""}
+        for active in (await manager_props.call_get(name, "ActiveConnections")).value:
+            props = await self.interface(name, active, "org.freedesktop.DBus.Properties")
+            try:
+                connection = (await props.call_get(name + ".Connection.Active", "Connection")).value
+                state = (await props.call_get(name + ".Connection.Active", "State")).value
+            except Exception:
+                continue  # it went away while being read
+            if connection in profiles:
+                profiles[connection].update(active=active, state={1: "connecting", 2: "on", 3: "disconnecting"}.get(state, "off"))
+        if action == "list":
+            return {"connections": [{key: value for key, value in profile.items() if key != "active"}
+                                    for profile in sorted(profiles.values(), key=lambda profile: profile["name"].lower())]}
+        profile = profiles.get(p.get("path"))
+        if profile is None:
+            raise BackendError("invalid", "Choose a VPN connection.")
+        if action == "disconnect":
+            if profile["active"]:
+                await manager.call_deactivate_connection(profile["active"])
+            return {"done": True}
+        if action != "connect":
+            raise BackendError("invalid", "Unknown VPN operation.")
+        if profile["state"] == "on":
+            return {"done": True}
+        active_path = profile["active"] or await manager.call_activate_connection(profile["path"], "/", "/")
+        active_props = await self.interface(name, active_path, "org.freedesktop.DBus.Properties")
+        # Long enough to type a password or a one-time code into NetworkManager's prompt.
+        for _ in range(180):
+            try:
+                state = (await active_props.call_get(name + ".Connection.Active", "State")).value
+            except Exception:
+                state = 4  # the active connection object is gone: it failed
+            if state == 2:
+                return {"done": True}
+            if state == 4:
+                raise BackendError("failed", f"Could not connect to {profile['name']}. A VPN that needs a password also needs a "
+                                             "NetworkManager secret agent, such as nm-applet.")
+            await asyncio.sleep(0.5)
+        raise BackendError("timeout", f"Connecting to {profile['name']} timed out.")
 
     async def wifi(self, action, p):
         name = "org.freedesktop.NetworkManager"
@@ -1174,6 +1237,22 @@ class Backend:
                     reason = "NetworkManager is not running."
                 return {"available": False, "reason": reason, "networks": [], "state": "unavailable", "powered": False}
             return await self.wifi(action, p)
+        if method.startswith("vpn."):
+            action = method.split(".")[1]
+            if action == "list":
+                try:
+                    return {"available": True, **await self.vpn(action, p)}
+                except BackendError as error:
+                    if error.code != "unavailable":
+                        raise
+                except Exception as error:
+                    if getattr(error, "type", "") not in ("org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner"):
+                        raise
+                return {"available": False, "connections": []}
+            if self.vpn_lock.locked():
+                raise BackendError("busy", "A VPN change is already in progress.")
+            async with self.vpn_lock:
+                return await self.vpn(action, p)
         if method == "tray.quit":
             if not isinstance(p.get("id"), str) or not p["id"] or not isinstance(p.get("title", ""), str):
                 raise BackendError("invalid", "Choose a tray app.")

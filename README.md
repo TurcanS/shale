@@ -12,9 +12,9 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 
 ## Features
 
-- **Bar**: workspaces, window title, clock, media with a visualizer (optional `cava`), mic and screen-sharing indicator, tray, audio, Wi-Fi, battery and notifications. Tooltips on hover; can be hidden per output and over fullscreen apps.
+- **Bar**: workspaces, window title, clock, media with a visualizer (optional `cava`), mic and screen-sharing indicator, tray, keyboard layout (with two or more), VPN, audio, Wi-Fi, battery and notifications. Tooltips on hover; can be hidden per output and over fullscreen apps.
 - **Launcher**: apps with pins, open windows, actions (lock, restart, Wi-Fi, settings…), arithmetic (`6 * 7`), unit conversion (`10 km to mi`), `timer 10m tea`, `focus 40`, `:` emoji, `/` files, `?` web search, `>` run a command.
-- **Control center**: Wi-Fi, Bluetooth, per-app volume, microphone, brightness, power profiles, do not disturb, stay awake, media with an equalizer.
+- **Control center**: Wi-Fi and NetworkManager VPN/WireGuard connections, Bluetooth, per-app volume, microphone, brightness, power profiles, do not disturb, stay awake, media with an equalizer.
 - **Notifications** with grouped history, actions and optional persistence.
 - **Calendar** with weather from Open-Meteo (no API key).
 - **Clipboard history** with image previews, color swatches and one-click opening of links and paths (cliphist).

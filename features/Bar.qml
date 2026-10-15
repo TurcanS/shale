@@ -476,6 +476,15 @@ PanelWindow {
             onClicked: ShellState.nextKeyboardLayout()
         }
         BarButton {
+            visible: !!ShellState.activeVpn
+            glyph: "shield"
+            flat: true
+            hint: ShellState.activeVpn ? "VPN · " + ShellState.activeVpn.name : ""
+            tooltip: barTooltip
+            selected: bar.controlActive("wifi")
+            onClicked: bar.toggleControl("wifi")
+        }
+        BarButton {
             visible: bar.width >= 560 && ShellState.wifiAvailable
             glyph: "wifi"
             flat: true

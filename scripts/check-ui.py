@@ -10,7 +10,7 @@ from harness import harness
 PANELS = ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
 SCENARIOS = [(panel, "") for panel in PANELS] + [("control", detail) for detail in ["wifi", "bluetooth", "audio", "power", "media", "tray"]]
 # Machines without a backlight, Wi-Fi, lid or capture tools.
-SCENARIOS += [("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
+SCENARIOS += [("control", "wifi-vpn"), ("control", "bare"), ("control", "wifi-bare"), ("control", "power-bare"), ("capture", "bare")]
 SCENARIOS += [("settings", category) for category in ["Motion", "Bar", "Notifications", "Audio", "Capture", "Activity", "Shortcuts", "Diagnostics"]]
 SCENARIOS += [("launcher", detail) for detail in ["emoji", "files", "web", "units", "run", "timer", "focus", "actions"]]
 SCENARIOS += [("launcher", "calculator"), ("notifications", "populated"), ("capture", "recording")]

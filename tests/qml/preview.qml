@@ -51,7 +51,9 @@ ShellRoot {
         Component.onCompleted: {
             ShellState.panel = content.panel;
             // "bare" / "<page>-bare": a desktop PC with no backlight, Wi-Fi, lid or capture tools.
-            ShellState.detail = (Quickshell.env("SHALE_DETAIL") || "").replace(/-?bare$/, "");
+            // "wifi-vpn": the Wi-Fi page with sample VPN profiles.
+            ShellState.detail = (Quickshell.env("SHALE_DETAIL") || "").replace(/-?bare$/, "").replace(/-vpn$/, "");
+            window.applyVpn();
             if (content.panel === "launcher" && content.pageItem && Quickshell.env("SHALE_QUERY"))
                 content.pageItem.query = Quickshell.env("SHALE_QUERY");
             if (content.panel === "settings" && content.pageItem && Quickshell.env("SHALE_CATEGORY"))
@@ -73,6 +75,18 @@ ShellRoot {
                     surfaceTone: Quickshell.env("SHALE_TONE") || "charcoal"
                 });
             window.applyActivity();
+        }
+        readonly property var sampleVpn: ({available: true, connections: [{path: "/s/2", name: "home-wg", kind: "wireguard", state: "on"},
+                                                                         {path: "/s/1", name: "Office", kind: "openvpn", state: "off"}]})
+        function applyVpn() {
+            if (/-vpn$/.test(Quickshell.env("SHALE_DETAIL") || "") && ShellState.vpn !== sampleVpn)
+                ShellState.vpn = sampleVpn;
+        }
+        Connections {
+            target: ShellState
+            function onVpnChanged() {
+                window.applyVpn();
+            }
         }
         // "ask", "on" or "off": the Activity panel's tracking state, kept over the helper's settings.
         function applyActivity() {

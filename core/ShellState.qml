@@ -274,6 +274,16 @@ QtObject {
             if (!e)
                 wifi = r;
         });
+        refreshVpn();
+    }
+    // NetworkManager's VPN and WireGuard profiles: [{path, name, kind, state: off | connecting | on | disconnecting}].
+    property var vpn: ({available: false, connections: []})
+    readonly property var activeVpn: (vpn.connections || []).find(connection => connection.state === "on") || null
+    function refreshVpn() {
+        Backend.request("vpn.list", {}, (r, e) => {
+            if (!e)
+                vpn = r;
+        });
     }
     function refreshProfiles() {
         Backend.request("power.profiles", {}, (r, e) => {

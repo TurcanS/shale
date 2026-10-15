@@ -701,6 +701,76 @@ class SystemServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await self.backend.dispatch("wifi.connect", {"path": "/ap/1", "password": "secret"}), {"done": True})
                 self.assertEqual(added[-1]["802-11-wireless-security"]["key-mgmt"].value, expected)
 
+    def fake_vpn_manager(self, active_states):
+        """A NetworkManager with a WireGuard profile, an OpenVPN profile and a Wi-Fi one. `active_states` lists the
+        State values the OpenVPN connection reports once activated, one per read."""
+        from dbus_next import Variant
+        nm = "org.freedesktop.NetworkManager"
+        calls = []
+        configs = {
+            "/s/1": {"connection": {"id": Variant("s", "Office"), "type": Variant("s", "vpn")},
+                     "vpn": {"service-type": Variant("s", "org.freedesktop.NetworkManager.openvpn")}},
+            "/s/2": {"connection": {"id": Variant("s", "home-wg"), "type": Variant("s", "wireguard")}},
+            "/s/3": {"connection": {"id": Variant("s", "Cafe"), "type": Variant("s", "802-11-wireless")}},
+        }
+        active = {"/a/wg": ("/s/2", 2), "/a/wifi": ("/s/3", 2)}
+        states = list(active_states)
+
+        async def activate(connection, device, specific):
+            calls.append(("activate", connection, device, specific))
+            active["/a/new"] = (connection, None)
+            return "/a/new"
+
+        async def deactivate(path):
+            calls.append(("deactivate", path))
+        manager = SimpleNamespace(call_activate_connection=activate, call_deactivate_connection=deactivate)
+        settings = SimpleNamespace(call_list_connections=AsyncMock(return_value=list(configs)))
+
+        def properties(path):
+            async def get(interface, prop):
+                if path == "/org/freedesktop/NetworkManager":
+                    return SimpleNamespace(value=list(active))
+                connection, state = active[path]
+                if prop == "Connection":
+                    return SimpleNamespace(value=connection)
+                return SimpleNamespace(value=state if state is not None else states.pop(0))
+            return SimpleNamespace(call_get=get)
+
+        async def interface(name, path, kind, **_):
+            if kind == "org.freedesktop.DBus.Properties":
+                return properties(path)
+            if kind == nm + ".Settings":
+                return settings
+            if kind == nm + ".Settings.Connection":
+                return SimpleNamespace(call_get_settings=AsyncMock(return_value=configs[path]))
+            return manager
+        return interface, calls
+
+    async def test_vpn_lists_vpn_and_wireguard_profiles_and_connects(self):
+        interface, calls = self.fake_vpn_manager([1, 2])
+        with patch.object(self.backend, "interface", interface), patch("asyncio.sleep", AsyncMock()):
+            listed = await self.backend.dispatch("vpn.list", {})
+            self.assertEqual(listed, {"available": True, "connections": [
+                {"path": "/s/2", "name": "home-wg", "kind": "wireguard", "state": "on"},
+                {"path": "/s/1", "name": "Office", "kind": "openvpn", "state": "off"}]})
+            self.assertEqual(await self.backend.dispatch("vpn.connect", {"path": "/s/1"}), {"done": True})
+            self.assertEqual(calls[-1], ("activate", "/s/1", "/", "/"))
+            self.assertEqual(await self.backend.dispatch("vpn.disconnect", {"path": "/s/2"}), {"done": True})
+            self.assertEqual(calls[-1], ("deactivate", "/a/wg"))
+            for params in ({"path": "/s/3"}, {"path": "/nope"}, {}):
+                with self.subTest(params=params), self.assertRaises(b.BackendError):
+                    await self.backend.dispatch("vpn.connect", params)
+
+    async def test_a_failed_vpn_says_why(self):
+        interface, _ = self.fake_vpn_manager([1, 4])
+        with patch.object(self.backend, "interface", interface), patch("asyncio.sleep", AsyncMock()), \
+                self.assertRaisesRegex(b.BackendError, "secret agent"):
+            await self.backend.dispatch("vpn.connect", {"path": "/s/1"})
+
+    async def test_no_network_manager_means_no_vpn(self):
+        with patch.object(self.backend, "vpn", AsyncMock(side_effect=b.BackendError("unavailable", "x"))):
+            self.assertEqual(await self.backend.dispatch("vpn.list", {}), {"available": False, "connections": []})
+
     def enable_equalizer(self, bands=None):
         b.CONFIG.write_text(json.dumps({"version": 1, "eqEnabled": True, "eqBands": bands or [2] + [0] * 9}))
 
