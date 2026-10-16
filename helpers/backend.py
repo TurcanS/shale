@@ -57,7 +57,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "hideFullscreen": True, "hiddenOutputs": [], "pinnedApps": [], "appUsage": {}, "captureDelay": 0,
             "accentColor": "#9ad6c6", "surfaceTone": "charcoal", "accentFromWallpaper": False, "accentManual": "#9ad6c6",
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
-            "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin",
+            "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles",
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
@@ -229,6 +229,8 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose a supported equalizer preset.")
     if key == "lockScreen" and value not in ("builtin", "hyprlock"):
         raise BackendError("invalid", "Choose the built-in lock screen or hyprlock.")
+    if key == "lockStyle" and value not in ("particles", "classic"):
+        raise BackendError("invalid", "Choose the particle or classic lock screen.")
     if key == "searchEngine" and value not in SEARCH_ENGINES:
         raise BackendError("invalid", "Choose a supported search engine.")
     if key == "weatherUnits" and value not in weather.UNITS:

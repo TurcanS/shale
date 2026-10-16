@@ -20,7 +20,7 @@ A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshel
 - **Clipboard history** with image previews, color swatches and one-click opening of links and paths (cliphist).
 - **Workspace overview** with window snapshots.
 - **Wallpapers** from local folders, Wallhaven and Wallpapers.com, through hyprpaper, awww or swww. Accent color can follow the wallpaper.
-- **Lock screen** with PAM (ext-session-lock); hyprlock as an alternative.
+- **Lock screen** with PAM (ext-session-lock): the time drawn in particles of light that gather, shift each minute and burst apart as you unlock, or a classic clock; hyprlock as an alternative.
 - **Capture**: screenshots, screen recording with system audio or microphone, color picker.
 - **Focus**: a timed session (25, 50 or 90 min, or `shale focus 40`) holds notifications and shows a countdown ring in the bar. When it ends, one card sums up what came in, grouped by app. Countdown timers too (`shale timer 10m Tea`).
 - **Activity**: opt-in, local-only app usage history with a yearly heatmap.

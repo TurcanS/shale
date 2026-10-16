@@ -121,7 +121,7 @@ FocusScope {
     ]
     // The settings each page owns, for its reset button.
     readonly property var resetKeys: ({
-            Appearance: ["fontSize", "accentColor", "accentManual", "accentFromWallpaper", "surfaceTone", "visualizer", "wallpaperDirectory", "lockScreen"],
+            Appearance: ["fontSize", "accentColor", "accentManual", "accentFromWallpaper", "surfaceTone", "visualizer", "wallpaperDirectory", "lockScreen", "lockStyle"],
             Bar: ["hideFullscreen", "barMedia", "trackChangeCard", "hiddenOutputs", "barLayout", "barStyle", "clockFormat", "clockSeconds",
                   "workspaceStyle", "workspaceSlots", "trayIcons", "batteryPercent"],
             "Control center": ["controlLayout"],
@@ -366,6 +366,14 @@ FocusScope {
                         description: !hyprlock ? "Install hyprlock to use it instead." : builtin ? "Blurred wallpaper, clock and media controls. hyprlock takes over if the shell stops." : "hyprlock locks the screen."
                         selected: builtin
                         onClicked: ShellState.setSetting("lockScreen", builtin ? "hyprlock" : "builtin")
+                    }
+                    C.ChoiceRow {
+                        visible: ShellState.setting("lockScreen", "builtin") === "builtin" || !Backend.has("hyprlock", true)
+                        label: "Style"
+                        description: ShellState.setting("lockStyle", "particles") === "classic" ? "A large clock over your wallpaper" : "The time drawn in points of light that gather, shift and burst"
+                        model: [{key: "particles", text: "Particles"}, {key: "classic", text: "Classic"}]
+                        current: ShellState.setting("lockStyle", "particles")
+                        onActivated: key => ShellState.setSetting("lockStyle", key)
                     }
                 }
                 BarSettings {

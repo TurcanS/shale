@@ -17,7 +17,7 @@ ShellRoot {
         QtObject {
             id: lockPreview
             property string password: Quickshell.env("SHALE_DETAIL") === "error" ? "" : "secret"
-            property bool busy: false
+            property bool busy: Quickshell.env("SHALE_DETAIL") === "busy"
             property string status: Quickshell.env("SHALE_DETAIL") === "error" ? "Wrong password" : ""
             property bool unlocking: false
             property bool capsLock: Quickshell.env("SHALE_DETAIL") === "caps"

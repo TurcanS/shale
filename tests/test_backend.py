@@ -311,15 +311,15 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         control = {"tiles": ["dnd", "wifi"], "hiddenTiles": ["lid"], "sections": {"media": False}, "hiddenFooter": ["lock"]}
         changed = await self.backend.dispatch("settings.set", {"barLayout": layout, "controlLayout": control, "clockFormat": "date-time",
                                                                "clockSeconds": True, "workspaceStyle": "dots", "workspaceSlots": 5,
-                                                               "trayIcons": 0, "batteryPercent": "never", "barStyle": "edge", "weekStart": "monday"})
-        self.assertEqual((changed["barLayout"], changed["controlLayout"], changed["workspaceSlots"]), (layout, control, 5))
+                                                               "trayIcons": 0, "batteryPercent": "never", "barStyle": "edge", "weekStart": "monday", "lockStyle": "classic"})
+        self.assertEqual((changed["barLayout"], changed["controlLayout"], changed["workspaceSlots"], changed["lockStyle"]), (layout, control, 5, "classic"))
         for changes in [{"barLayout": {"left": ["clock", "clock"]}}, {"barLayout": {"left": ["clock"], "right": ["clock"]}},
                         {"barLayout": {"hidden": ["recording"]}}, {"barLayout": {"hidden": ["control"]}}, {"barLayout": {"left": ["nope"]}},
                         {"barLayout": {"top": []}}, {"barLayout": {"left": "clock"}}, {"controlLayout": {"tiles": ["wifi"], "hiddenTiles": ["wifi"]}},
                         {"controlLayout": {"sections": {"focus": "no"}}}, {"controlLayout": {"sections": {"weather": True}}},
                         {"controlLayout": {"hiddenFooter": ["settings"]}}, {"controlLayout": {"extra": []}}, {"clockFormat": "iso"},
                         {"workspaceSlots": 7}, {"trayIcons": 6}, {"trayIcons": -2}, {"batteryPercent": "sometimes"}, {"barStyle": "glass"},
-                        {"weekStart": "friday"}, {"terminal": "xterm"}]:
+                        {"weekStart": "friday"}, {"terminal": "xterm"}, {"lockStyle": "dial"}]:
             with self.subTest(changes=changes), self.assertRaises(b.BackendError):
                 await self.backend.dispatch("settings.set", changes)
         self.assertEqual((await self.backend.dispatch("settings.set", {"terminal": "kitty"}))["terminal"], "kitty")

@@ -20,10 +20,11 @@ SCENARIOS += [("activity", detail) for detail in ["overview", "day", "week", "ap
 SCENARIOS += [("settings", detail) for detail in ["color-frost", "color-warm"]]
 SCENARIOS += [("system", detail) for detail in ["memory", "disk", "network", "gpu", "gpu-asleep", "bare"]]
 SCENARIOS += [("calendar", detail) for detail in ["weather-forecast", "weather-search"]]
-SCENARIOS += [("lock", detail) for detail in ["", "error", "caps"]]
+SCENARIOS += [("lock", detail) for detail in ["", "error", "caps", "busy", "classic"]]
 SCENARIOS += [("bar", detail) for detail in ["default", "custom", "narrow"]]
 # Settings each preview keeps over the helper's.
 PREVIEW_SETTINGS = {
+    ("lock", "classic"): {"lockStyle": "classic"},
     ("bar", "custom"): {"barLayout": {"left": ["clock", "workspaces"], "center": ["media", "launcher"], "hidden": ["windowTitle", "notifications"]},
                         "clockFormat": "date-time", "clockSeconds": True, "workspaceStyle": "dots", "workspaceSlots": 5, "barStyle": "edge",
                         "batteryPercent": "always"},

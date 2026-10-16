@@ -93,9 +93,10 @@ Scope {
         status = attemptMessage || "Wrong password";
         failed();
     }
+    // Long enough for the style's unlock animation: the particles burst apart, the classic screen fades.
     Timer {
         id: unlockDelay
-        interval: Theme.reduced ? 0 : 180
+        interval: Theme.reduced ? 0 : ShellState.setting("lockStyle", "particles") === "classic" ? 180 : Theme.lowPower ? 600 : 1000
         onTriggered: {
             ShellState.unlockShell();
             root.unlocking = false;
