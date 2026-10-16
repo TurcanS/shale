@@ -539,19 +539,28 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
         raise ValueError('nothing was installed. Run ./install.sh --no-packages to install only the shell files.')
     root = privileged() if needs['packages'] or needs['services'] or boot else []
     sys.stdout.flush()  # keep this output ahead of pacman's when piped
+
+    def step(command):
+        """Run one pacman or systemctl step. Ctrl+C there can leave part of it done, so it isn't reported as
+        "nothing was written"."""
+        try:
+            return run(command).returncode == 0
+        except KeyboardInterrupt:
+            raise ValueError(f'cancelled while {os.path.basename(command[len(root)])} was running, so part of this step '
+                             'may be done. Run ./install.sh again to finish.') from None
     if needs['packages']:
         command = root + [PACMAN, '-S', '--needed'] + (['--noconfirm'] if yes and not conflicts else []) + [name for name, _ in needs['packages']]
-        if run(command).returncode != 0:
+        if not step(command):
             raise ValueError('pacman did not finish; nothing else was changed. If it could not download a package, '
                              'your package lists are out of date: run sudo pacman -Syu, then ./install.sh again.')
         remember_system(home, packages=[name for name, _ in needs['packages']])
     if needs['services']:
-        if run(root + [SYSTEMCTL, 'enable', '--now'] + [unit + '.service' for unit in needs['services']]).returncode != 0:
+        if not step(root + [SYSTEMCTL, 'enable', '--now'] + [unit + '.service' for unit in needs['services']]):
             raise ValueError('could not enable ' + ', '.join(needs['services']) + '.')
         remember_system(home, services=needs['services'])
     if boot:
         # Not started now: a login screen would take over this console in the middle of the install.
-        if run(root + [SYSTEMCTL, 'enable'] + [unit + '.service' for unit in boot]).returncode != 0:
+        if not step(root + [SYSTEMCTL, 'enable'] + [unit + '.service' for unit in boot]):
             raise ValueError('could not enable ' + ', '.join(boot) + '.')
         remember_system(home, boot=boot)
     if needs['config']:
