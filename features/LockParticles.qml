@@ -58,8 +58,14 @@ Item {
     }
     // Always seven characters, hours and minutes then seconds; a 12-hour time before ten leaves the first one blank.
     readonly property string time: (" " + Qt.formatDateTime(clock.date, clock24h ? "HH:mm" : "h:mm")).slice(-5) + Qt.formatDateTime(clock.date, "ss")
-    onTimeChanged: if (started && !frozen)
-        arrange(reduced ? "instant" : "morph")
+    // After sleep the clock jumps ahead: show the new time at once instead of animating the catch-up.
+    property double lastTick: Date.now()
+    onTimeChanged: {
+        const now = Date.now(), woke = now - lastTick > 2500;
+        lastTick = now;
+        if (started && !frozen)
+            arrange(reduced || woke ? "instant" : "morph");
+    }
     // A screen's size can still change just after the lock surface appears: the intro waits until it holds, and
     // later changes glide the particles to their new places rather than snapping them.
     onWidthChanged: resized()
@@ -138,22 +144,35 @@ Item {
             const sampled = {};
             let left = across, right = 0, top = down, bottom = 0;
             for (let digit = 0; digit < 10; digit++) {
-                const cells = [];
+                const rowsLit = [];
                 for (let r = 0; r < down; r++) {
+                    const row = [];
                     for (let c = 0; c < across; c++) {
-                        // Sixteen points a cell; lit when at least six fall inside the glyph.
+                        // Sixteen points a cell; lit when at least three fall inside the glyph, so thin joins hold.
                         let inside = 0;
                         for (let i = 0; i < 4; i++)
                             for (let j = 0; j < 4; j++)
                                 if (data[((r * cell + 1 + 2 * j) * width + digit * across * cell + c * cell + 1 + 2 * i) * 4 + 3] > 128)
                                     inside++;
-                        if (inside >= 6) {
-                            cells.push([c, r]);
-                            left = Math.min(left, c);
-                            right = Math.max(right, c);
-                            top = Math.min(top, r);
-                            bottom = Math.max(bottom, r);
-                        }
+                        if (inside >= 3)
+                            row.push(c);
+                    }
+                    if (row.length)
+                        rowsLit.push([r, row]);
+                }
+                // A round digit's overshoot past the baseline or cap height leaves a stray pair of dots; drop it.
+                while (rowsLit.length > 2 && rowsLit[0][1].length <= 2)
+                    rowsLit.shift();
+                while (rowsLit.length > 2 && rowsLit[rowsLit.length - 1][1].length <= 2)
+                    rowsLit.pop();
+                const cells = [];
+                for (const [r, row] of rowsLit) {
+                    for (const c of row) {
+                        cells.push([c, r]);
+                        left = Math.min(left, c);
+                        right = Math.max(right, c);
+                        top = Math.min(top, r);
+                        bottom = Math.max(bottom, r);
                     }
                 }
                 sampled[String(digit)] = cells;
