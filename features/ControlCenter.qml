@@ -104,8 +104,54 @@ FocusScope {
     }
     readonly property int hiddenDevices: sortedDevices.filter(device => !device.paired && !device.connected && unnamed(device)).length
     readonly property var shownDevices: showAllDevices ? sortedDevices : sortedDevices.filter(device => device.paired || device.connected || !unnamed(device))
+    readonly property var pairedDevices: sortedDevices.filter(device => device.paired)
+    readonly property var nearbyDevices: shownDevices.filter(device => !device.paired)
+    readonly property var autoConnectList: ShellState.setting("bluetoothAutoConnect", [])
     property var pairing: null
+    // The Wi-Fi network waiting for a confirmation to be forgotten.
     property string forgetPath: ""
+    // The device whose options are open, and the connects and disconnects the shell has under way.
+    property string expandedDevice: ""
+    property var bluetoothWork: ({})
+    function setWork(path, kind) {
+        const next = Object.assign({}, bluetoothWork);
+        if (kind)
+            next[path] = kind;
+        else
+            delete next[path];
+        bluetoothWork = next;
+    }
+    // Tapping a device: connect or disconnect it through the helper (so auto-connect knows), or pair a new one.
+    function bluetoothActivate(device) {
+        const path = device.dbusPath;
+        if (bluetoothWork[path] || !Services.bluetoothEnabled)
+            return;
+        if (!device.paired) {
+            Services.bluetoothScan(false);
+            perform("bluetooth.pair", {path: path}, () => {});
+            return;
+        }
+        const kind = device.connected ? "disconnect" : "connect";
+        setWork(path, kind);
+        error = "";
+        Backend.request("bluetooth." + kind, {path: path}, (r, e) => {
+            if (!root.alive)
+                return;
+            root.setWork(path, "");
+            if (e && e.code !== "cancelled")
+                root.error = e.message;
+        });
+    }
+    function toggleAutoConnect(device) {
+        const address = String(device.address).toUpperCase();
+        const list = autoConnectList.slice();
+        const at = list.indexOf(address);
+        if (at >= 0)
+            list.splice(at, 1);
+        else
+            list.push(address);
+        ShellState.setSetting("bluetoothAutoConnect", list);
+    }
     property real pageProgress: 1
     NumberAnimation {
         id: pageEntrance
@@ -192,6 +238,7 @@ FocusScope {
             root.error = "";
             root.selectedNetwork = null;
             root.forgetPath = "";
+            root.expandedDevice = "";
             root.passwordDraft = "";
             root.passwordVisible = false;
             root.showAllDevices = false;
@@ -744,9 +791,35 @@ FocusScope {
                             }
                         }
                     }
+                    // Paired devices, connected first.
+                    C.SectionHeader {
+                        visible: Services.bluetoothEnabled && root.pairedDevices.length > 0
+                        text: "My devices"
+                        Layout.topMargin: Theme.gapXs
+                    }
+                    Repeater {
+                        model: Services.bluetoothEnabled ? root.pairedDevices : []
+                        BluetoothDeviceRow {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            device: modelData
+                            working: root.bluetoothWork[modelData.dbusPath] || ""
+                            autoConnect: root.autoConnectList.indexOf(String(modelData.address).toUpperCase()) >= 0
+                            expanded: root.expandedDevice === modelData.dbusPath
+                            locked: root.acting
+                            onActivated: root.bluetoothActivate(modelData)
+                            onOptionsRequested: root.expandedDevice = expanded ? "" : modelData.dbusPath
+                            onAutoConnectToggled: root.toggleAutoConnect(modelData)
+                            onForgetRequested: {
+                                root.expandedDevice = "";
+                                modelData.forget();
+                            }
+                        }
+                    }
+                    // Devices found nearby, to pair.
                     C.SectionHeader {
                         visible: Services.bluetoothEnabled
-                        text: Services.bluetoothScanning ? "Searching for devices…" : "Devices"
+                        text: Services.bluetoothScanning ? "Nearby · searching…" : "Nearby"
                         Layout.topMargin: Theme.gapXs
                         C.Button {
                             text: Services.bluetoothScanning ? "Stop" : "Scan"
@@ -756,98 +829,28 @@ FocusScope {
                         }
                     }
                     C.EmptyState {
-                        visible: Services.bluetoothEnabled && Services.bluetoothDevices.length === 0
+                        visible: Services.bluetoothEnabled && root.nearbyDevices.length === 0 && root.pairedDevices.length === 0
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.gapL
                         Layout.bottomMargin: Theme.gapL
                         glyph: "bluetooth"
                         title: Services.bluetoothScanning ? "Looking for devices…" : "No devices yet"
-                        description: Services.bluetoothScanning ? "Discovering nearby accessories" : "Scan to find nearby devices"
+                        description: Services.bluetoothScanning ? "Put your device in pairing mode" : "Scan to find nearby devices"
+                    }
+                    C.Caption {
+                        visible: Services.bluetoothEnabled && root.nearbyDevices.length === 0 && root.pairedDevices.length > 0
+                        text: Services.bluetoothScanning ? "Looking for devices in pairing mode…" : "Scan to add a new device"
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.gapXs
                     }
                     Repeater {
-                        model: Services.bluetoothEnabled ? root.shownDevices : []
-                        C.ListRow {
-                            id: bluetoothDeviceRow
+                        model: Services.bluetoothEnabled ? root.nearbyDevices : []
+                        BluetoothDeviceRow {
                             required property var modelData
-                            readonly property bool pending: modelData.pairing || modelData.state === BluetoothDeviceState.Connecting || modelData.state === BluetoothDeviceState.Disconnecting
                             Layout.fillWidth: true
-                            interactive: false
-                            checkmark: false
-                            selected: modelData.connected
-                            positive: modelData.connected
-                            glyph: /head(phone|set)|earbud|airpods|buds/i.test(modelData.name || "") ? "headphones" : "bluetooth"
-                            text: root.unnamed(modelData) ? "Unnamed device" : modelData.name
-                            subtitle: (pending ? "Updating…" : modelData.connected ? "Connected" : modelData.paired ? "Paired" : root.unnamed(modelData) ? modelData.address : "Available")
-                                + (modelData.batteryAvailable ? " · " + Math.round(modelData.battery * 100) + "% battery" : "")
-                            trailing: C.Button {
-                                text: bluetoothDeviceRow.modelData.state === BluetoothDeviceState.Connecting ? "Connecting…" : bluetoothDeviceRow.modelData.state === BluetoothDeviceState.Disconnecting ? "Disconnecting…" : bluetoothDeviceRow.modelData.pairing ? "Pairing…" : bluetoothDeviceRow.modelData.connected ? "Disconnect" : bluetoothDeviceRow.modelData.paired ? "Connect" : "Pair"
-                                implicitHeight: 32
-                                accent: !bluetoothDeviceRow.modelData.connected && !bluetoothDeviceRow.pending && bluetoothDeviceRow.modelData.paired
-                                enabled: !root.acting && !bluetoothDeviceRow.pending && Services.bluetoothEnabled
-                                onClicked: {
-                                    const device = bluetoothDeviceRow.modelData;
-                                    if (root.acting || bluetoothDeviceRow.pending || !Services.bluetoothEnabled)
-                                        return;
-                                    if (device.connected)
-                                        device.disconnect();
-                                    else if (device.paired)
-                                        device.connect();
-                                    else
-                                        root.perform("bluetooth.pair", {
-                                            path: device.dbusPath
-                                        }, () => {});
-                                }
-                            }
-                            RowLayout {
-                                visible: bluetoothDeviceRow.modelData.paired && root.forgetPath !== bluetoothDeviceRow.modelData.dbusPath
-                                Layout.fillWidth: true
-                                Layout.leftMargin: 44
-                                spacing: Theme.gapXs
-                                C.Button {
-                                    text: bluetoothDeviceRow.modelData.trusted ? "Trusted" : "Trust"
-                                    glyph: bluetoothDeviceRow.modelData.trusted ? "check" : ""
-                                    flat: true
-                                    implicitHeight: Theme.controlSmall + 2
-                                    enabled: !bluetoothDeviceRow.pending
-                                    selected: bluetoothDeviceRow.modelData.trusted
-                                    Accessible.role: Accessible.CheckBox
-                                    Accessible.checkable: true
-                                    Accessible.checked: bluetoothDeviceRow.modelData.trusted
-                                    onClicked: bluetoothDeviceRow.modelData.trusted = !bluetoothDeviceRow.modelData.trusted
-                                }
-                                Item { Layout.fillWidth: true }
-                                C.Button {
-                                    text: "Forget"
-                                    glyph: "trash"
-                                    flat: true
-                                    implicitHeight: Theme.controlSmall + 2
-                                    enabled: !root.acting && !bluetoothDeviceRow.pending
-                                    onClicked: root.forgetPath = bluetoothDeviceRow.modelData.dbusPath
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.gapS
-                                visible: root.forgetPath === bluetoothDeviceRow.modelData.dbusPath
-                                C.Label {
-                                    text: "Forget this device?"
-                                    wrapMode: Text.WordWrap
-                                    Layout.fillWidth: true
-                                }
-                                C.Button {
-                                    text: "Cancel"
-                                    onClicked: root.forgetPath = ""
-                                }
-                                C.Button {
-                                    text: "Forget"
-                                    enabled: !root.acting && !bluetoothDeviceRow.pending
-                                    danger: true
-                                    onClicked: {
-                                        bluetoothDeviceRow.modelData.forget();
-                                        root.forgetPath = "";
-                                    }
-                                }
-                            }
+                            device: modelData
+                            locked: root.acting
+                            onActivated: root.bluetoothActivate(modelData)
                         }
                     }
                     C.Button {

@@ -311,7 +311,8 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
         control = {"tiles": ["dnd", "wifi"], "hiddenTiles": ["lid"], "sections": {"media": False}, "hiddenFooter": ["lock"]}
         changed = await self.backend.dispatch("settings.set", {"barLayout": layout, "controlLayout": control, "clockFormat": "date-time",
                                                                "clockSeconds": True, "workspaceStyle": "dots", "workspaceSlots": 5,
-                                                               "trayIcons": 0, "batteryPercent": "never", "barStyle": "edge", "weekStart": "monday", "lockStyle": "classic"})
+                                                               "trayIcons": 0, "batteryPercent": "never", "barStyle": "edge", "weekStart": "monday", "lockStyle": "classic",
+                                                               "bluetoothAutoConnect": ["A8:E6:E8:5A:B4:71"]})
         self.assertEqual((changed["barLayout"], changed["controlLayout"], changed["workspaceSlots"], changed["lockStyle"]), (layout, control, 5, "classic"))
         for changes in [{"barLayout": {"left": ["clock", "clock"]}}, {"barLayout": {"left": ["clock"], "right": ["clock"]}},
                         {"barLayout": {"hidden": ["recording"]}}, {"barLayout": {"hidden": ["control"]}}, {"barLayout": {"left": ["nope"]}},
@@ -319,10 +320,15 @@ class BackendTests(unittest.IsolatedAsyncioTestCase):
                         {"controlLayout": {"sections": {"focus": "no"}}}, {"controlLayout": {"sections": {"weather": True}}},
                         {"controlLayout": {"hiddenFooter": ["settings"]}}, {"controlLayout": {"extra": []}}, {"clockFormat": "iso"},
                         {"workspaceSlots": 7}, {"trayIcons": 6}, {"trayIcons": -2}, {"batteryPercent": "sometimes"}, {"barStyle": "glass"},
-                        {"weekStart": "friday"}, {"terminal": "xterm"}, {"lockStyle": "dial"}]:
+                        {"weekStart": "friday"}, {"terminal": "xterm"}, {"lockStyle": "dial"},
+                        {"bluetoothAutoConnect": ["headphones"]}, {"bluetoothAutoConnect": ["A8:E6:E8:5A:B4:71", "A8:E6:E8:5A:B4:71"]},
+                        {"bluetoothAutoConnect": "A8:E6:E8:5A:B4:71"}]:
             with self.subTest(changes=changes), self.assertRaises(b.BackendError):
                 await self.backend.dispatch("settings.set", changes)
         self.assertEqual((await self.backend.dispatch("settings.set", {"terminal": "kitty"}))["terminal"], "kitty")
+        for path in ("/org/bluez/hci0", "/org/bluez/hci0/dev_A8_E6_E8_5A_B4_71/../../x", "dev_A8_E6_E8_5A_B4_71", 7):
+            with self.subTest(path=path), self.assertRaises(b.BackendError):
+                await self.backend.dispatch("bluetooth.disconnect", {"path": path})
 
     async def test_settings_reset_puts_back_defaults(self):
         await self.backend.dispatch("settings.set", {"fontSize": 18, "barStyle": "edge", "dnd": True})

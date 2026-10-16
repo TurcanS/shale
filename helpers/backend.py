@@ -27,6 +27,7 @@ import activity
 import art
 import sysmon
 from runtime import runtime_base
+import bluetooth_keep
 import clipboard_watch
 import equalizer
 import weather
@@ -57,7 +58,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "hideFullscreen": True, "hiddenOutputs": [], "pinnedApps": [], "appUsage": {}, "captureDelay": 0,
             "accentColor": "#9ad6c6", "surfaceTone": "charcoal", "accentFromWallpaper": False, "accentManual": "#9ad6c6",
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
-            "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles",
+            "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles", "bluetoothAutoConnect": [],
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
@@ -91,7 +92,7 @@ CONTROL_FOOTER = ("capture", "settings", "lock", "session")
 # Personal history and state, and this computer's folders; a settings export leaves them out and an import
 # ignores them, so a file from elsewhere can't redirect where screenshots, recordings or downloads are saved.
 PRIVATE_KEYS = ("appUsage", "emojiUsage", "runHistory", "pinnedApps", "focusSession", "timers", "weatherLocation",
-                "screenshotDirectory", "recordingDirectory", "wallpaperDirectory")
+                "screenshotDirectory", "recordingDirectory", "wallpaperDirectory", "bluetoothAutoConnect")
 ACTIVITY_TRACKING = ("ask", "on", "off")
 
 def keyboard_state(devices):
@@ -231,6 +232,9 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose the built-in lock screen or hyprlock.")
     if key == "lockStyle" and value not in ("particles", "classic"):
         raise BackendError("invalid", "Choose the particle or classic lock screen.")
+    if key == "bluetoothAutoConnect" and (len(value) > 32 or not all(isinstance(a, str) and bluetooth_keep.ADDRESS.match(a) for a in value)
+                                          or len(set(value)) != len(value)):
+        raise BackendError("invalid", "Choose Bluetooth devices by their address.")
     if key == "searchEngine" and value not in SEARCH_ENGINES:
         raise BackendError("invalid", "Choose a supported search engine.")
     if key == "weatherUnits" and value not in weather.UNITS:
@@ -688,6 +692,8 @@ class Backend:
         self.clipboard_wipes = 0
         # Leaves the key-recording submap if Settings never says it's done.
         self.record_timeout = None
+        # Closes links left open after a device switched off and runs auto-connect; set up by watch_bluetooth.
+        self.bluetooth = None
 
     async def interface(self, name, path, interface, timeout=25):
         """A system bus interface whose method calls time out after `timeout` seconds (None: never)."""
@@ -1014,6 +1020,61 @@ class Backend:
             raise BackendError("unavailable", "No logind session was found.")
         return path
 
+    async def bluetooth_call(self, path, member, timeout=25):
+        """Device1.Connect or Disconnect on one device, without introspecting it."""
+        from dbus_next import Message, MessageType
+        await self.interface("org.bluez", "/", "org.freedesktop.DBus.ObjectManager")  # connects the bus, checks BlueZ is there
+        reply = await asyncio.wait_for(self.bus.call(Message(destination="org.bluez", path=path, interface="org.bluez.Device1", member=member)), timeout)
+        if reply.message_type == MessageType.ERROR:
+            if reply.error_name in ("org.bluez.Error.AlreadyConnected", "org.bluez.Error.NotConnected"):
+                return  # it got there by itself
+            if reply.error_name in SERVICE_MISSING or reply.error_name == "org.freedesktop.DBus.Error.UnknownObject":
+                raise BackendError("unavailable", "That device is no longer available.")
+            raise BackendError("failed", reply.error_name)
+
+    async def watch_bluetooth(self):
+        """Follows BlueZ's objects and properties for bluetooth_keep, from login until the helper stops."""
+        from dbus_next import Message, MessageType
+        manager = await self.interface("org.bluez", "/", "org.freedesktop.DBus.ObjectManager")
+        if self.bluetooth is None:
+            self.bluetooth = bluetooth_keep.Keeper(lambda path: self.bluetooth_call(path, "Connect"),
+                                                   lambda path: self.bluetooth_call(path, "Disconnect"),
+                                                   lambda: settings()["bluetoothAutoConnect"])
+        keeper = self.bluetooth
+        keeper.load(await manager.call_get_managed_objects())
+        for rule in ("type='signal',sender='org.bluez',interface='org.freedesktop.DBus.ObjectManager'",
+                     "type='signal',sender='org.bluez',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
+                     "type='signal',sender='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.bluez'"):
+            await self.bus.call(Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus", interface="org.freedesktop.DBus",
+                                        member="AddMatch", signature="s", body=[rule]))
+
+        async def reload():
+            # bluetoothd restarted: its objects are new.
+            try:
+                keeper.load(await (await self.interface("org.bluez", "/", "org.freedesktop.DBus.ObjectManager")).call_get_managed_objects())
+                keeper.trigger("Bluetooth service started", fresh=True)
+            except Exception as error:
+                log_unexpected(error, "Bluetooth watch")
+
+        def on_message(message):
+            if message.message_type != MessageType.SIGNAL:
+                return
+            try:
+                if message.member == "NameOwnerChanged" and message.body[0] == "org.bluez" and message.body[2]:
+                    asyncio.ensure_future(reload())
+                elif not (message.path or "").startswith("/org/bluez") and message.path != "/":
+                    return
+                elif message.member == "InterfacesAdded":
+                    keeper.added(message.body[0], message.body[1])
+                elif message.member == "InterfacesRemoved":
+                    keeper.removed(message.body[0], message.body[1])
+                elif message.member == "PropertiesChanged" and message.interface == "org.freedesktop.DBus.Properties":
+                    keeper.changed(message.path, message.body[0], message.body[1])
+            except Exception as error:
+                log_unexpected(error, "Bluetooth watch")
+        self.bus.add_message_handler(on_message)
+        keeper.trigger("login", fresh=True)
+
     async def objects(self, name):
         manager = await self.interface(name, "/", "org.freedesktop.DBus.ObjectManager")
         return await manager.call_get_managed_objects()
@@ -1332,7 +1393,13 @@ class Backend:
             if not isinstance(changes, dict):
                 raise BackendError("invalid", "Settings must be an object.")
             # The shell echoes every setting back; shortcuts change only through shortcuts.set, which binds them.
+            before = settings()["bluetoothAutoConnect"]
             current = save_settings({key: value for key, value in changes.items() if key != "shortcuts"})
+            added = [address for address in current["bluetoothAutoConnect"] if address not in before]
+            if added and self.bluetooth:
+                # A device just marked for auto-connect is tried straight away, even one disconnected by hand.
+                self.bluetooth.release(added)
+                self.bluetooth.trigger("auto-connect turned on")
             if current["activityTracking"] != "on":
                 self.close_activity()
             return current
@@ -1543,6 +1610,21 @@ class Backend:
             return await quit_process(pid)
         if method == "bluetooth.pair":
             return await self.bluetooth_pair(p)
+        if method in ("bluetooth.connect", "bluetooth.disconnect"):
+            path = p.get("path")
+            if not isinstance(path, str) or not re.fullmatch(r"/org/bluez/hci\d+/dev(_[0-9A-F]{2}){6}", path):
+                raise BackendError("invalid", "Select a Bluetooth device.")
+            address = path.rsplit("/dev_", 1)[1].replace("_", ":")
+            if self.bluetooth:
+                # A device disconnected by hand stays off until the next wake, login or Bluetooth start.
+                self.bluetooth.hold(address) if method == "bluetooth.disconnect" else self.bluetooth.release([address])
+            try:
+                await self.bluetooth_call(path, "Connect" if method == "bluetooth.connect" else "Disconnect")
+            except BackendError as error:
+                if method == "bluetooth.connect" and error.code != "unavailable":
+                    raise BackendError("failed", "Couldn't connect. Make sure the device is on and nearby.") from None
+                raise
+            return {"done": True}
         if method == "bluetooth.reply":
             if self.pairing_reply and not self.pairing_reply.done():
                 self.pairing_reply.set_result(p)
@@ -1987,11 +2069,16 @@ async def main():
                 backend.activity.ingest({**snap, "unlocked": bool(snap.get("unlocked")) and not backend.activity_locked and not backend.activity_sleeping})
         def on_properties(interface, changed, _invalidated):
             if interface == "org.freedesktop.login1.Session" and "LockedHint" in changed:
+                was_locked = backend.activity_locked
                 backend.activity_locked = bool(changed["LockedHint"].value)
                 resample()
+                if was_locked and not backend.activity_locked and backend.bluetooth:
+                    backend.bluetooth.trigger("unlocked")
         def on_sleep(sleeping):
             backend.activity_sleeping = bool(sleeping)
             resample()
+            if not sleeping and backend.bluetooth:
+                backend.bluetooth.trigger("woke from sleep", fresh=True)
         props.on_properties_changed(on_properties)
         manager.on_prepare_for_sleep(on_sleep)
     async def watch_power():
@@ -2068,6 +2155,7 @@ async def main():
     equalizer_keeper = asyncio.create_task(keep_equalizer())
     session_watcher = asyncio.create_task(watch_with_retries("Session watch", watch_session))
     power_watcher = asyncio.create_task(watch_with_retries("Power profile watch", watch_power))
+    bluetooth_watcher = asyncio.create_task(watch_with_retries("Bluetooth watch", backend.watch_bluetooth))
     clipboard_keeper = asyncio.create_task(keep_clipboard_history(clipboard))
     system_keeper = asyncio.create_task(keep_system_history(backend))
     reader = asyncio.StreamReader(limit=1024 * 1024 + 1)
@@ -2091,6 +2179,9 @@ async def main():
         watcher.cancel()
         session_watcher.cancel()
         power_watcher.cancel()
+        bluetooth_watcher.cancel()
+        if backend.bluetooth:
+            backend.bluetooth.stop()
         clipboard_keeper.cancel()
         system_keeper.cancel()
         equalizer_keeper.cancel()
