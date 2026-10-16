@@ -5,9 +5,10 @@ import Quickshell
 import "../core"
 import "../components" as C
 
-// The particle lock screen: the time is drawn in points of light. Locking draws them in from every side of the
-// screen to settle into the digits; each minute the digits that change come apart and re-form; typing sends a pulse
-// through them; unlocking bursts them outward while the blur clears to the desktop's own wallpaper.
+// The particle lock screen: the time is drawn in points of light that never sit still. Locking draws them in from
+// every side of the screen to settle into the digits; the seconds re-form every second; each minute the digits that
+// change come apart in a different way (a swirl, rain, a burst, a wave); typing sends a pulse through them; unlocking
+// bursts them outward while the blur clears to the desktop's own wallpaper.
 // Motion runs on Qt's render thread (animators), so busy script never makes it stutter.
 Item {
     id: root
@@ -24,16 +25,23 @@ Item {
     property bool started: false
     property bool settled: reduced
     property bool frozen: false
+    // The particles drift about their places all the time, except in power saver and with reduced motion.
+    readonly property bool living: started && !frozen && !reduced && !calm
 
-    // The clock is a grid of cells about 21 rows tall, fitted to the font's digits; each lit cell holds one particle.
-    property int rows: 21
-    property int cols: 13
-    readonly property real digitHeight: Math.round(Math.min(height * 0.26, width * 0.15))
+    // The clock is a grid of cells about 16 rows tall, fitted to the font's digits; each lit cell holds one particle.
+    // The seconds use the same grid at a smaller step, sitting on the minutes' baseline.
+    property int rows: 16
+    property int cols: 10
+    readonly property real digitHeight: Math.round(Math.min(height * 0.25, width * 0.13))
     readonly property real step: digitHeight / rows
-    readonly property real dot: step * 0.64
+    readonly property real dot: step * 0.66
     readonly property real digitWidth: cols * step
     readonly property real colonWidth: 4 * step
-    readonly property real clockWidth: 4 * digitWidth + 2 * step + colonWidth
+    readonly property real secStep: step * 0.42
+    readonly property real secDot: secStep * 0.72
+    readonly property real secWidth: cols * secStep
+    readonly property real secGap: 1.6 * step
+    readonly property real clockWidth: 4 * digitWidth + 2 * step + colonWidth + secGap + 2 * secWidth + secStep
     readonly property real clockCx: width / 2
     readonly property real clockCy: height * 0.4
     readonly property real clockY: clockCy - digitHeight / 2
@@ -46,10 +54,10 @@ Item {
     readonly property bool clock24h: ShellState.setting("clock24h", true)
     SystemClock {
         id: clock
-        precision: SystemClock.Minutes
+        precision: SystemClock.Seconds
     }
-    // Always five characters; a 12-hour time before ten leaves the first one blank.
-    readonly property string time: (" " + Qt.formatDateTime(clock.date, clock24h ? "HH:mm" : "h:mm")).slice(-5)
+    // Always seven characters, hours and minutes then seconds; a 12-hour time before ten leaves the first one blank.
+    readonly property string time: (" " + Qt.formatDateTime(clock.date, clock24h ? "HH:mm" : "h:mm")).slice(-5) + Qt.formatDateTime(clock.date, "ss")
     onTimeChanged: if (started && !frozen)
         arrange(reduced ? "instant" : "morph")
     // A screen's size can still change just after the lock surface appears: the intro waits until it holds, and
@@ -68,39 +76,78 @@ Item {
         onTriggered: root.begin()
     }
 
-    // Each digit's lit cells, read from the interface font once at start.
+    // Each digit's lit cells, read from the interface font once at start: the digits are drawn as Text, captured,
+    // and each cell counts as lit when the glyph covers enough of it. (Canvas text would punch holes where a variable
+    // font's strokes overlap, as in a 4.) All of it sits under the backdrop, so it is never seen.
     property var glyphs: null
     readonly property int perDigit: glyphs ? Math.max(...Object.keys(glyphs).map(key => glyphs[key].length)) : 0
-    readonly property int poolSize: glyphs ? 4 * perDigit + colonCells.length : 0
+    readonly property int poolSize: glyphs ? 6 * perDigit + colonCells.length : 0
+    readonly property int sampleCell: 8
+    property var specimenShot: null
+    Row {
+        id: specimen
+        visible: !root.glyphs
+        Repeater {
+            model: 10
+            Text {
+                required property int index
+                width: 24 * root.sampleCell
+                height: 32 * root.sampleCell
+                text: String(index)
+                color: "white"
+                font.family: Theme.font
+                font.weight: Font.Bold
+                // Digits stand about 0.72 em, so this makes them about 16 cells tall.
+                font.pixelSize: Math.round(16 * root.sampleCell / 0.72)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+    }
+    Timer {
+        id: capture
+        interval: 30
+        running: true
+        onTriggered: {
+            if (!specimen.grabToImage(result => root.specimenShot = result, Qt.size(specimen.width, specimen.height)))
+                restart();
+        }
+    }
+    Image {
+        id: specimenImage
+        visible: false
+        source: root.specimenShot ? root.specimenShot.url : ""
+        onStatusChanged: if (status === Image.Ready)
+            sampler.requestPaint()
+    }
     Canvas {
         id: sampler
-        // Eight pixels a cell, with room around the digits so none is cut; drawn under the backdrop, so never seen.
-        readonly property int cell: 8
-        width: 24 * cell
-        height: 32 * cell
+        width: specimen.width
+        height: specimen.height
+        visible: !root.glyphs
         renderTarget: Canvas.Image
         renderStrategy: Canvas.Immediate
-        // Its work is done once the digits are read.
-        visible: !root.glyphs
         onPaint: {
+            if (specimenImage.status !== Image.Ready || root.glyphs)
+                return;
             const ctx = getContext("2d");
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(specimenImage, 0, 0);
+            const data = ctx.getImageData(0, 0, width, height).data;
+            const cell = root.sampleCell, across = 24, down = 32;
             const sampled = {};
-            const across = width / cell, down = height / cell;
             let left = across, right = 0, top = down, bottom = 0;
-            for (const digit of "0123456789") {
-                ctx.clearRect(0, 0, width, height);
-                ctx.fillStyle = "#ffffff";
-                // Digits stand about 0.72 em, so this makes them about 21 cells tall.
-                ctx.font = "700 " + Math.round(21 * cell / 0.72) + "px \"" + Theme.font + "\"";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(digit, width / 2, height / 2);
-                const data = ctx.getImageData(0, 0, width, height).data;
+            for (let digit = 0; digit < 10; digit++) {
                 const cells = [];
                 for (let r = 0; r < down; r++) {
                     for (let c = 0; c < across; c++) {
-                        const x = c * cell + cell / 2, y = r * cell + cell / 2;
-                        if (data[(y * width + x) * 4 + 3] > 110) {
+                        // Sixteen points a cell; lit when at least six fall inside the glyph.
+                        let inside = 0;
+                        for (let i = 0; i < 4; i++)
+                            for (let j = 0; j < 4; j++)
+                                if (data[((r * cell + 1 + 2 * j) * width + digit * across * cell + c * cell + 1 + 2 * i) * 4 + 3] > 128)
+                                    inside++;
+                        if (inside >= 6) {
                             cells.push([c, r]);
                             left = Math.min(left, c);
                             right = Math.max(right, c);
@@ -109,7 +156,7 @@ Item {
                         }
                     }
                 }
-                sampled[digit] = cells;
+                sampled[String(digit)] = cells;
             }
             if (right < left)
                 return;
@@ -119,6 +166,7 @@ Item {
             root.cols = right - left + 1;
             root.rows = bottom - top + 1;
             root.glyphs = sampled;
+            root.specimenShot = null;
             settle.restart();
         }
     }
@@ -220,56 +268,116 @@ Item {
         }
     }
 
-    // Sends every particle to its place for the current time. "intro" draws them in from far off, "morph" moves
-    // only the digits that changed, "glide" moves everything after a resize, "instant" puts them straight there.
+    // Sends every particle to its place for the current time. "intro" draws them in from far off, "morph" moves only
+    // the digits that changed, "glide" moves everything after a resize, "instant" puts them straight there.
+    // Hours and minutes change with one of several transitions, never the same twice running; seconds flip quickly.
+    readonly property var transitions: ["swirl", "rain", "burst", "wave", "arc"]
+    property string lastTransition: ""
     property string shown: ""
     property real shownOffset: 0
     function arrange(mode) {
-        const text = time;
-        // A blank first digit centres the remaining three.
-        const offset = text.charAt(0) === " " ? -(digitWidth + step) / 2 : 0;
-        const left = clockCx - clockWidth / 2 + offset;
-        const slotX = [left, left + digitWidth + step, left + 2 * digitWidth + step, left + 2 * digitWidth + step + colonWidth,
-                       left + 3 * digitWidth + 2 * step + colonWidth];
-        const slotStart = [0, perDigit, 2 * perDigit, 2 * perDigit + colonCells.length, 3 * perDigit + colonCells.length];
-        const slotSize = [perDigit, perDigit, colonCells.length, perDigit, perDigit];
-        const moved = mode !== "morph" || offset !== shownOffset;
         if (mode === "glide" && frozen)
             return;
-        const inset = (step - dot) / 2;
-        for (let slot = 0; slot < 5; slot++) {
+        const text = time;
+        // A blank first digit centres the rest.
+        const offset = text.charAt(0) === " " ? -(digitWidth + step) / 2 : 0;
+        const left = clockCx - clockWidth / 2 + offset;
+        const minutesEnd = left + 4 * digitWidth + 2 * step + colonWidth;
+        const slotX = [left, left + digitWidth + step, left + 2 * digitWidth + step, left + 2 * digitWidth + step + colonWidth,
+                       left + 3 * digitWidth + 2 * step + colonWidth, minutesEnd + secGap, minutesEnd + secGap + secWidth + secStep];
+        const slotSize = [perDigit, perDigit, colonCells.length, perDigit, perDigit, perDigit, perDigit];
+        const slotStart = [];
+        slotSize.reduce((sum, size) => (slotStart.push(sum), sum + size), 0);
+        const moved = mode !== "morph" || offset !== shownOffset;
+        // One transition for every hour and minute digit that changes this time.
+        let style = "arc";
+        if (mode === "morph") {
+            const choices = transitions.filter(name => name !== lastTransition);
+            style = choices[Math.floor(Math.random() * choices.length)];
+        }
+        let styled = false;
+        for (let slot = 0; slot < 7; slot++) {
             const ch = text.charAt(slot);
             if (!moved && ch === shown.charAt(slot))
                 continue;
+            const seconds = slot >= 5;
+            const cellStep = seconds ? secStep : step, size = seconds ? secDot : dot;
+            const top = seconds ? clockY + digitHeight - rows * secStep : clockY;
             const cells = ch === ":" ? colonCells : glyphs[ch] || [];
-            const width = ch === ":" ? colonWidth : digitWidth;
+            const width = ch === ":" ? colonWidth : seconds ? secWidth : digitWidth;
+            const centreX = slotX[slot] + width / 2, centreY = top + rows * cellStep / 2;
+            const inset = (cellStep - size) / 2;
+            styled = styled || (mode === "morph" && !seconds);
             for (let j = 0; j < slotSize[slot]; j++) {
                 const p = particles.itemAt(slotStart[slot] + j);
                 if (!p)
                     continue;
                 // Spare particles share a lit cell, hidden, ready for a digit with more cells.
-                const cell = cells.length ? cells[j % cells.length] : [(width / step - 1) / 2, root.rows / 2];
-                const tx = slotX[slot] + cell[0] * step + inset, ty = clockY + cell[1] * step + inset;
-                const visible = j < cells.length;
+                const cell = cells.length ? cells[j % cells.length] : [(width / cellStep - 1) / 2, rows / 2];
+                const tx = slotX[slot] + cell[0] * cellStep + inset, ty = top + cell[1] * cellStep + inset;
+                const lit = j < cells.length, alpha = lit ? 1 : 0;
+                const wasLit = p.lit;
+                p.size = size;
+                p.lit = lit;
                 p.nx = (tx - left) / clockWidth;
                 p.ny = (ty - clockY) / digitHeight;
-                if (mode === "instant") {
-                    p.place(tx, ty, visible ? 1 : 0);
+                if (mode === "instant" || (seconds && mode === "morph" && calm)) {
+                    p.place(tx, ty, alpha);
                 } else if (mode === "intro") {
                     // From a wide circle around the clock, rushing in out of the screen.
                     const angle = p.seed * 2 * Math.PI, reach = (0.55 + 0.6 * p.seed2) * Math.max(root.width, root.height);
                     p.place(clockCx + Math.cos(angle) * reach, clockCy + Math.sin(angle) * reach, 0, 2.6);
-                    p.travel(tx, ty, visible ? 1 : 0, 1, (1050 + 550 * p.seed2) * tempo, (60 + 480 * p.seed) * tempo, Easing.OutCubic, Easing.OutQuart);
-                } else if (mode === "glide") {
-                    p.travel(tx, ty, visible ? 1 : 0, 1, 450 * tempo, 0, Easing.InOutCubic, Easing.InOutCubic);
+                    p.travel(tx, ty, alpha, 1, (950 + 450 * p.seed2) * tempo, (40 + 380 * p.seed) * tempo, Easing.OutCubic, Easing.OutQuart);
+                } else if (mode === "glide" || (!wasLit && !lit)) {
+                    p.travel(tx, ty, alpha, 1, 450 * tempo, 0, Easing.InOutCubic, Easing.InOutCubic);
+                } else if (seconds) {
+                    // A quick hop over to the new digit, done well before the next second.
+                    p.travel(tx, ty, alpha, 1, 380 + 160 * p.seed2, 110 * p.seed, Easing.InOutQuad, Easing.OutBack);
                 } else {
-                    // Arcing paths: the two axes ease differently.
-                    p.travel(tx, ty, visible ? 1 : 0, 1, (680 + 420 * p.seed2) * tempo, 220 * p.seed * tempo, Easing.InOutCubic, Easing.OutBack);
+                    transition(p, style, tx, ty, alpha, centreX, centreY, (tx - slotX[slot]) / width);
                 }
             }
         }
+        if (styled)
+            lastTransition = style;
         shown = text;
         shownOffset = offset;
+    }
+    // One particle's way from its old digit to its new place. `column` is 0–1 across the digit.
+    function transition(p, style, tx, ty, alpha, centreX, centreY, column) {
+        const t = tempo;
+        if (style === "swirl") {
+            // Pulled into a whirl at the digit's centre, then flung out to its new place.
+            const dx = p.x - centreX, dy = p.y - centreY;
+            const angle = Math.atan2(dy, dx) + 2.2, reach = (0.15 + 0.2 * p.seed) * digitHeight;
+            p.route({x: centreX + Math.cos(angle) * reach, y: centreY + Math.sin(angle) * reach, opacity: 1, scale: 0.7, duration: 460 * t,
+                     easeX: Easing.InCubic, easeY: Easing.InOutSine},
+                    {x: tx, y: ty, opacity: alpha, scale: 1, duration: (560 + 240 * p.seed2) * t, easeX: Easing.OutCubic, easeY: Easing.OutBack},
+                    120 * p.seed * t);
+        } else if (style === "rain") {
+            // The old digit falls away and the new one drops in from above, column by column.
+            p.route({x: p.x + (p.seed - 0.5) * 2 * step, y: p.y + (0.8 + 0.6 * p.seed) * digitHeight, opacity: 0, scale: 0.8,
+                     duration: 420 * t, easeX: Easing.Linear, easeY: Easing.InQuad},
+                    {fromX: tx, fromY: ty - (0.7 + 0.6 * p.seed2) * digitHeight, x: tx, y: ty, opacity: alpha, scale: 1,
+                     duration: (520 + 200 * p.seed2) * t, easeX: Easing.Linear, easeY: Easing.OutBounce},
+                    (column * 260 + 60 * p.seed) * t);
+        } else if (style === "burst") {
+            // Blown apart from the centre, then drawn back together.
+            const dx = p.x - centreX, dy = p.y - centreY, length = Math.max(1, Math.hypot(dx, dy));
+            const reach = (0.2 + 0.3 * p.seed) * digitHeight;
+            p.route({x: p.x + dx / length * reach, y: p.y + dy / length * reach, opacity: 1, scale: 1.6, duration: 380 * t,
+                     easeX: Easing.OutCubic, easeY: Easing.OutCubic},
+                    {x: tx, y: ty, opacity: alpha, scale: 1, duration: (620 + 200 * p.seed2) * t, easeX: Easing.InOutCubic, easeY: Easing.InOutCubic},
+                    60 * p.seed * t);
+        } else if (style === "wave") {
+            // A hop up that runs across the digit like a wave, landing with a bounce.
+            p.route({x: p.x, y: p.y - (2.5 + 2 * p.seed) * step, opacity: 1, scale: 1.2, duration: 260 * t, easeX: Easing.Linear, easeY: Easing.OutQuad},
+                    {x: tx, y: ty, opacity: alpha, scale: 1, duration: 560 * t, easeX: Easing.InOutQuad, easeY: Easing.OutBounce},
+                    (column * 320 + 40 * p.seed) * t);
+        } else {
+            // Arcing paths: the two axes ease differently.
+            p.travel(tx, ty, alpha, 1, (680 + 420 * p.seed2) * t, 220 * p.seed * t, Easing.InOutCubic, Easing.OutBack);
+        }
     }
     function unlock() {
         if (intro.running)
@@ -286,7 +394,7 @@ Item {
             const p = particles.itemAt(i);
             if (!p)
                 continue;
-            const fromX = p.x + dot / 2 - clockCx, fromY = p.y + dot / 2 - clockCy;
+            const fromX = p.x + p.size / 2 - clockCx, fromY = p.y + p.size / 2 - clockCy;
             const length = Math.max(1, Math.hypot(fromX, fromY));
             const angle = Math.atan2(fromY / length, fromX / length) + (p.seed - 0.5) * 0.7;
             const reach = (260 + 640 * p.seed2) * digitHeight / 240;
@@ -510,48 +618,88 @@ Item {
                 // Where it sits in the clock (0–1 each way), for the passing light.
                 property real nx: 0
                 property real ny: 0
-                width: root.dot
-                height: root.dot
-                x: -root.dot
-                y: -root.dot
+                property real size: root.dot
+                // Showing part of a digit, rather than a spare waiting hidden.
+                property bool lit: false
+                width: size
+                height: size
+                x: -size
+                y: -size
                 opacity: 0
-                function place(px, py, alpha, size) {
+                function place(px, py, alpha, scaled) {
                     motion.stop();
                     x = px;
                     y = py;
                     opacity = alpha;
-                    scale = size || 1;
+                    scale = scaled || 1;
                 }
-                function travel(px, py, alpha, size, duration, delay, easeX, easeY) {
+                function travel(px, py, alpha, scaled, duration, delay, easeX, easeY) {
+                    route({x: px, y: py, opacity: alpha, scale: scaled, duration: duration, easeX: easeX, easeY: easeY}, null, delay);
+                }
+                // Up to two legs, each {x, y, opacity, scale, duration, easeX, easeY}; the second may start from
+                // somewhere else (fromX, fromY), out of sight.
+                function route(first, second, delay) {
                     motion.stop();
+                    const last = second || first;
                     if (root.reduced) {
-                        place(px, py, alpha, size);
+                        place(last.x, last.y, last.opacity, last.scale);
                         return;
                     }
                     wait.duration = delay;
-                    moveX.to = px;
-                    moveX.duration = duration;
-                    moveX.easing.type = easeX;
-                    moveY.to = py;
-                    moveY.duration = duration;
-                    moveY.easing.type = easeY;
-                    fade.to = alpha;
-                    fade.duration = alpha > 0 ? duration * 0.6 : duration;
-                    grow.to = size;
-                    grow.duration = duration;
+                    const legs = [[x1, y1, o1, s1, first], [x2, y2, o2, s2, second || {x: first.x, y: first.y, opacity: first.opacity, scale: first.scale, duration: 0}]];
+                    for (const [ax, ay, ao, scaler, leg] of legs) {
+                        ax.to = leg.x;
+                        ay.to = leg.y;
+                        ao.to = leg.opacity;
+                        scaler.to = leg.scale;
+                        ax.duration = ay.duration = scaler.duration = leg.duration;
+                        ao.duration = leg.opacity > 0 ? leg.duration * 0.6 : leg.duration;
+                        ax.easing.type = leg.easeX || Easing.Linear;
+                        ay.easing.type = leg.easeY || Easing.Linear;
+                    }
+                    // The second leg starts where the first ended unless it says otherwise.
+                    x2.from = second && second.fromX !== undefined ? second.fromX : first.x;
+                    y2.from = second && second.fromY !== undefined ? second.fromY : first.y;
+                    o2.from = first.opacity;
+                    s2.from = first.scale;
                     motion.start();
                 }
                 SequentialAnimation {
                     id: motion
                     PauseAnimation { id: wait }
                     ParallelAnimation {
-                        XAnimator { id: moveX; target: particle }
-                        YAnimator { id: moveY; target: particle }
-                        OpacityAnimator { id: fade; target: particle; easing.type: Easing.OutCubic }
-                        ScaleAnimator { id: grow; target: particle; easing.type: Easing.OutCubic }
+                        XAnimator { id: x1; target: particle }
+                        YAnimator { id: y1; target: particle }
+                        OpacityAnimator { id: o1; target: particle; easing.type: Easing.OutCubic }
+                        ScaleAnimator { id: s1; target: particle; easing.type: Easing.OutCubic }
+                    }
+                    ParallelAnimation {
+                        XAnimator { id: x2; target: particle }
+                        YAnimator { id: y2; target: particle }
+                        OpacityAnimator { id: o2; target: particle; easing.type: Easing.OutCubic }
+                        ScaleAnimator { id: s2; target: particle; easing.type: Easing.OutCubic }
+                    }
+                }
+                // Always alive: each particle wanders a little around its place, out of step with the rest.
+                readonly property real wander: size * 0.24
+                SequentialAnimation {
+                    loops: Animation.Infinite
+                    running: root.living && particle.lit
+                    ParallelAnimation {
+                        XAnimator { target: core; to: (Math.random() - 0.5) * 2 * particle.wander; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
+                        YAnimator { target: core; to: (Math.random() - 0.5) * 2 * particle.wander; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
+                    }
+                    ParallelAnimation {
+                        XAnimator { target: core; to: (Math.random() - 0.5) * 2 * particle.wander; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
+                        YAnimator { target: core; to: (Math.random() - 0.5) * 2 * particle.wander; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
+                    }
+                    ParallelAnimation {
+                        XAnimator { target: core; to: 0; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
+                        YAnimator { target: core; to: 0; duration: 1400 + Math.random() * 1600; easing.type: Easing.InOutSine }
                     }
                 }
                 Rectangle {
+                    id: core
                     // How much the passing light lifts this particle.
                     readonly property real lift: {
                         if (root.waveLevel <= 0)
@@ -560,7 +708,8 @@ Item {
                                                   : particle.nx * 0.85 + particle.ny * 0.15;
                         return root.waveLevel * Math.max(0, 1 - Math.abs(d - root.wave) / 0.16);
                     }
-                    anchors.fill: parent
+                    width: particle.width
+                    height: particle.height
                     radius: width / 2
                     antialiasing: true
                     color: Theme.mix(Theme.mix(Theme.text, Theme.accent, 0.3 + 0.5 * lift), Theme.danger, root.danger)
