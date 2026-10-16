@@ -652,7 +652,7 @@ QtObject {
             root.openSettings(name);
         }
         function page(name: string): void {
-            if (["wifi", "bluetooth", "audio", "power", "media", "tray"].indexOf(name) < 0)
+            if (["wifi", "bluetooth", "audio", "power", "media", "tray", "update"].indexOf(name) < 0)
                 return;
             root.open("control");
             root.detail = name;

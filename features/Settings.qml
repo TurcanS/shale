@@ -85,7 +85,8 @@ FocusScope {
                 {label: "Music visualizer", key: "visualizer", defaultValue: true, description: "In the bar and on the media page"}
             ],
             General: [
-                {label: "24-hour clock", key: "clock24h", defaultValue: true}
+                {label: "24-hour clock", key: "clock24h", defaultValue: true},
+                {label: "Check for updates", key: "updateCheck", defaultValue: true, description: "Asks GitHub every 12 hours. The control center shows what a new version changes."}
             ],
             Motion: [
                 {label: "Reduced motion", key: "reducedMotion", description: "Panels and controls change without animating"},
@@ -110,7 +111,7 @@ FocusScope {
         {name: "Bar", icon: "window", description: "Keep the essentials where you need them."},
         {name: "Control center", icon: "settings", description: "The switches and buttons you reach for most."},
         {name: "Shortcuts", icon: "grid", description: "Keyboard shortcuts and the commands behind them."},
-        {name: "General", icon: "calendar", description: "Time, units, search and the terminal."},
+        {name: "General", icon: "calendar", description: "Time, units, search, the terminal and updates."},
         {name: "Motion", icon: "bolt", description: "Choose a pace that feels right."},
         {name: "Notifications", icon: "bell", description: "Decide what needs your attention."},
         {name: "Audio", icon: "volume", description: "Set the limits for your listening."},
@@ -125,7 +126,7 @@ FocusScope {
             Bar: ["hideFullscreen", "barMedia", "trackChangeCard", "hiddenOutputs", "barLayout", "barStyle", "clockFormat", "clockSeconds",
                   "workspaceStyle", "workspaceSlots", "trayIcons", "batteryPercent"],
             "Control center": ["controlLayout"],
-            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal"],
+            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck"],
             Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
             Notifications: ["persistNotifications", "focusMinutes"],
             Audio: ["amplification", "mediaRemaining"],

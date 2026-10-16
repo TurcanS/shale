@@ -16,6 +16,11 @@ Button {
     property alias trailing: trailingRow.data
     default property alias details: detailColumn.data
     readonly property bool highlighted: interactive && (hovered || down || visualFocus)
+    // While the row is hidden its children count as hidden too, so the slots below only judge themselves while
+    // the row shows; otherwise a row that starts hidden would keep its slots hidden once it appears.
+    function shows(slot) {
+        return !root.visible || slot.visibleChildren.length > 0;
+    }
     hoverEnabled: interactive
     focusPolicy: interactive ? Qt.StrongFocus : Qt.NoFocus
     implicitHeight: rowContent.implicitHeight + topPadding + bottomPadding
@@ -78,13 +83,13 @@ Button {
             }
             RowLayout {
                 id: trailingRow
-                visible: visibleChildren.length > 0
+                visible: root.shows(trailingRow)
                 spacing: Theme.gapXs
             }
         }
         ColumnLayout {
             id: detailColumn
-            visible: visibleChildren.length > 0
+            visible: root.shows(detailColumn)
             Layout.fillWidth: true
             spacing: Theme.gapS
         }

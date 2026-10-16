@@ -82,8 +82,8 @@ case "$1" in
     ;;
   page)
     case "$2" in
-      wifi|bluetooth|audio|power|media|tray) exec quickshell ipc -p "$config" call shell page "$2" ;;
-      *) echo 'Usage: shale page {wifi|bluetooth|audio|power|media|tray}' >&2; exit 2 ;;
+      wifi|bluetooth|audio|power|media|tray|update) exec quickshell ipc -p "$config" call shell page "$2" ;;
+      *) echo 'Usage: shale page {wifi|bluetooth|audio|power|media|tray|update}' >&2; exit 2 ;;
     esac
     ;;
   focus)

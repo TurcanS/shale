@@ -33,6 +33,7 @@ import equalizer
 import weather
 import units
 import shortcuts
+import update
 
 def user_dir(name, fallback, home=None):
     """An XDG user directory such as PICTURES from user-dirs.dirs (localized, e.g. ~/Bilder), as ~/path."""
@@ -58,7 +59,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "hideFullscreen": True, "hiddenOutputs": [], "pinnedApps": [], "appUsage": {}, "captureDelay": 0,
             "accentColor": "#9ad6c6", "surfaceTone": "charcoal", "accentFromWallpaper": False, "accentManual": "#9ad6c6",
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
-            "weatherLocation": {}, "weatherUnits": "metric", "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles", "bluetoothAutoConnect": [],
+            "weatherLocation": {}, "weatherUnits": "metric", "updateCheck": True, "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles", "bluetoothAutoConnect": [],
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
@@ -70,6 +71,8 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) /
 RUNTIME = runtime_base() / "shale"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shale"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "shale"
+# The installed shell folder: the installer records the commit it installed (and its checkout) there.
+SHELL_FOLDER = Path(__file__).resolve().parents[1]
 # Where the installer puts shale.lua, and the command its shortcuts run.
 HYPR = Path.home() / ".config/hypr"
 SHALE_COMMAND = str(Path.home() / ".local/bin/shale")
@@ -686,6 +689,7 @@ class Backend:
         self.eq_lock = asyncio.Lock()
         self.eq_requests = 0
         self.weather_lock = asyncio.Lock()
+        self.update_lock = asyncio.Lock()
         self.lock_hint_lock = asyncio.Lock()
         self.shortcut_lock = asyncio.Lock()
         # Clipboard entries deleted, and wipes so far: a preview still being decoded for one must not be saved after.
@@ -1451,6 +1455,23 @@ class Backend:
                 raise BackendError("unavailable", str(exc)) from None
             except OSError:
                 raise BackendError("failed", "The cover could not be downloaded.") from None
+        if method == "update.status":
+            async with self.update_lock:
+                return await asyncio.to_thread(update.status, SHELL_FOLDER, CACHE / "update.json", STATE / "update.json",
+                                               settings()["updateCheck"], p.get("refresh") is True)
+        if method == "update.skip":
+            async with self.update_lock:
+                try:
+                    await asyncio.to_thread(update.skip, CACHE / "update.json", STATE / "update.json")
+                except ValueError as exc:
+                    raise BackendError("invalid", str(exc)) from None
+                return await asyncio.to_thread(update.status, SHELL_FOLDER, CACHE / "update.json", STATE / "update.json",
+                                               settings()["updateCheck"])
+        if method == "update.seen":
+            async with self.update_lock:
+                await asyncio.to_thread(update.seen, SHELL_FOLDER, STATE / "update.json")
+                return await asyncio.to_thread(update.status, SHELL_FOLDER, CACHE / "update.json", STATE / "update.json",
+                                               settings()["updateCheck"])
         if method == "weather.get":
             # The caller passes its location and units: settings are saved with a short delay.
             async with self.weather_lock:

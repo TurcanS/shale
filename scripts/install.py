@@ -604,6 +604,9 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
     commit = version()
     if commit != 'unknown':
         targets[shell / 'COMMIT'] = ((commit + '\n').encode(), 0o644)
+    # Where the control center's Update now runs ./install.sh --update; only a git checkout can update itself.
+    if (ROOT / '.git').exists():
+        targets[shell / 'SOURCE'] = ((str(ROOT) + '\n').encode(), 0o644)
     targets[home / '.local/bin/shale'] = ((ROOT / 'scripts/shale').read_bytes(), 0o755)
     wanted = ([] if shell_only else SHORTCUTS) + ([WALLPAPER] if wallpaper_shortcut else [])
     # Shortcuts changed in Settings are bound by shale.lua from shortcuts.lua; their default keys may be yours again.

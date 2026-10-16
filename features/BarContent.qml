@@ -663,9 +663,22 @@ Item {
             selected: bar.controlActive("")
             implicitHeight: 26
             flat: false
-            hint: "Control center"
+            hint: Updates.available ? "Control center · Update available" : "Control center"
             tooltip: bar.tooltip
+            Accessible.name: hint
             onClicked: bar.toggleControl("")
+            // A newer Shale is waiting; the control center's first row says what it changes.
+            Rectangle {
+                visible: Updates.available
+                anchors.right: parent.right
+                anchors.rightMargin: 3
+                anchors.top: parent.top
+                anchors.topMargin: 3
+                width: 6
+                height: 6
+                radius: 3
+                color: Theme.accent
+            }
         }
     }
 }

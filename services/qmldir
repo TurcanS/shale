@@ -3,3 +3,4 @@ ActivityTracker 1.0 ActivityTracker.qml
 WallpaperAccent 1.0 WallpaperAccent.qml
 singleton NowPlaying 1.0 NowPlaying.qml
 singleton Focus 1.0 Focus.qml
+singleton Updates 1.0 Updates.qml

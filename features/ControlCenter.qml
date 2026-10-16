@@ -12,7 +12,7 @@ import "../components" as C
 
 FocusScope {
     id: root
-    readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray"})[ShellState.detail] || "Control center"
+    readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray", update: "Update"})[ShellState.detail] || "Control center"
     readonly property bool canGoBack: ShellState.detail !== ""
     // Settings → Control center orders the tiles and buttons and turns parts off.
     readonly property var arrangement: ControlItems.layout(ShellState.setting("controlLayout", {}))
@@ -62,7 +62,7 @@ FocusScope {
     readonly property int panelWidth: 420
     // Fits the page, header and padding included, within a 620 px ceiling.
     readonly property int panelHeight: preferredContentHeight > 0 ? Math.max(200, Math.min(620, preferredContentHeight + 88)) : 620
-    readonly property Component headerTools: ["wifi", "power"].indexOf(ShellState.detail) >= 0 ? refreshTool : null
+    readonly property Component headerTools: ["wifi", "power", "update"].indexOf(ShellState.detail) >= 0 ? refreshTool : null
     Component {
         id: refreshTool
         C.Button {
@@ -71,8 +71,8 @@ FocusScope {
             hint: "Refresh"
             implicitWidth: 32
             implicitHeight: 32
-            enabled: !root.busy
-            onClicked: root.refresh()
+            enabled: !root.busy && !Updates.checking
+            onClicked: root.refresh(true)
         }
     }
     readonly property int preferredContentHeight: Math.ceil(controlContent.implicitHeight + (errorLabel.visible ? errorLabel.implicitHeight + 12 : 0) + (actionFooter.visible ? actionFooter.implicitHeight + 12 : 0))
@@ -202,7 +202,8 @@ FocusScope {
         if (busy && pendingMethod === "wifi.connect")
             perform("wifi.disconnect", {}, () => refresh());
     }
-    function refresh() {
+    // `manual`: the header's refresh button, which may also ask GitHub again (opening the Update page doesn't).
+    function refresh(manual) {
         if (busy)
             return;
         if (ShellState.detail === "wifi") {
@@ -211,6 +212,8 @@ FocusScope {
         }
         if (ShellState.detail === "power")
             perform("power.profiles", {}, r => ShellState.profiles = r);
+        if (ShellState.detail === "update")
+            Updates.refresh(manual === true);
     }
     Component.onCompleted: {
         refresh();
@@ -311,6 +314,19 @@ FocusScope {
                     visible: ShellState.detail === ""
                     Layout.fillWidth: true
                     spacing: Theme.gapS
+                    // A newer Shale, or what the last update brought: the page behind the arrow lists the changes.
+                    C.ListRow {
+                        visible: Updates.available || !!Updates.recent
+                        Layout.fillWidth: true
+                        text: Updates.available ? "Update available" : "Updated to " + Updates.installed
+                        subtitle: Updates.available ? Updates.installed + " → " + Updates.latest + " · " + Updates.changes(Updates.count) : "See what changed"
+                        glyph: "update"
+                        positive: true
+                        checkmark: false
+                        hint: "What changed"
+                        onClicked: ShellState.detail = "update"
+                        trailing: C.Icon { name: "chevron"; color: Theme.muted; Layout.rightMargin: 4 }
+                    }
                     // Every tile here is an on/off switch; pages open from chevrons and the power row below.
                     GridLayout {
                         Layout.fillWidth: true
@@ -939,6 +955,10 @@ FocusScope {
                         selected: ShellState.setting("saverRefresh", true)
                         onClicked: ShellState.setSetting("saverRefresh", !ShellState.setting("saverRefresh", true))
                     }
+                }
+                UpdatePage {
+                    visible: ShellState.detail === "update"
+                    Layout.fillWidth: true
                 }
                 Media {
                     visible: ShellState.detail === "media"
