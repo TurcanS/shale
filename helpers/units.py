@@ -100,7 +100,7 @@ for name, aliases in {"°C": ("c", "°c", "celsius", "degc"), "°F": ("f", "°f"
     for alias in aliases:
         _UNITS[alias] = ("temperature", None, name)
 
-PATTERN = re.compile(r"^\s*(-?\d+(?:[.,]\d+)?|-?[.,]\d+)\s*(.+?)\s+(?:to|in|as|->|=)\s+(.+?)\s*$", re.IGNORECASE)
+PATTERN = re.compile(r"^\s*((?:-?\d+(?:[.,]\d+)?|-?[.,]\d+)(?:e[+-]?\d+)?)\s*(.+?)\s+(?:to|in|as|->|=)\s+(.+?)\s*$", re.IGNORECASE)
 
 def _unit(text):
     text = text.strip()
@@ -138,4 +138,6 @@ def convert(query):
         value = _TEMPERATURES[target[2]][1](_TEMPERATURES[source[2]][0](amount))
     else:
         value = amount * source[1] / target[1]
+    if not math.isfinite(amount) or not math.isfinite(value):
+        raise ValueError("That number is too large to convert.")
     return {"value": value, "text": _format(value) + " " + target[2], "from": _format(amount) + " " + source[2]}

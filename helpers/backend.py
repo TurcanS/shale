@@ -451,7 +451,8 @@ def calculate(expression):
         elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
             value = visit(node.operand, depth + 1) * (-1 if isinstance(node.op, ast.USub) else 1)
         elif isinstance(node, ast.BinOp) and type(node.op) in ops:
-            left, right = visit(node.left, depth + 1), visit(node.right, depth + 1)
+            # The left side of a chain ("1+1+1…") stays at this depth: the chain is long, not nested.
+            left, right = visit(node.left, depth), visit(node.right, depth + 1)
             if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 1e12):
                 raise ValueError()
             value = ops[type(node.op)](left, right)

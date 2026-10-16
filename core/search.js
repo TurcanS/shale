@@ -102,6 +102,11 @@ const DOMAINS = ["com", "org", "net", "io", "dev", "app", "co", "gov", "edu", "i
                  "at", "be", "cz", "us", "ua", "online", "site", "tech", "blog", "cloud", "page", "wiki", "land", "social", "art",
                  "news", "shop", "store", "games", "space", "studio", "design", "one"];
 
+// A dotted IPv4 address with every part from 0 to 255.
+function isIp(host) {
+    return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) && host.split(".").every(part => Number(part) <= 255);
+}
+
 // Whether a web-mode query should open as an address rather than be searched.
 function isAddress(text) {
     return addressHost(text) !== "";
@@ -121,9 +126,9 @@ function addressHost(text) {
     if (!match)
         return "";
     const host = match[1].toLowerCase();
-    if (host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host))
+    if (host === "localhost" || isIp(host))
         return host;
-    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host))
+    if (/^[\d.]+$/.test(host) || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host))
         return "";
     if (host.startsWith("www.") || match[2] || match[3])
         return host;
@@ -137,7 +142,7 @@ function addressUrl(text) {
     if (/^https?:\/\//i.test(text))
         return text;
     const host = addressHost(text);
-    const local = host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+    const local = host === "localhost" || isIp(host);
     return (local ? "http://" : "https://") + text;
 }
 
@@ -172,8 +177,9 @@ function focusQuery(text) {
     const match = /^\s*focus\s+(.+?)\s*$/i.exec(String(text || ""));
     if (!match)
         return null;
-    const minutes = Math.round(parseDuration(match[1]) / 60);
-    return minutes >= 1 && minutes <= 240 ? minutes : null;
+    const seconds = parseDuration(match[1]);
+    const minutes = Math.round(seconds / 60);
+    return seconds >= 60 && minutes <= 240 ? minutes : null;
 }
 
 // Things the launcher can do besides opening apps. Session actions that end the session open the session
