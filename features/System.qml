@@ -29,7 +29,7 @@ FocusScope {
     property bool waiting: false
     property int generation: 0
     property string error: ""
-    // check-ui renders fixed sample data so screenshots are deterministic; --open shows the real system.
+    // Screenshot runs (SHALE_PREVIEW=system with SHALE_SCREENSHOT set) render fixed sample data so they are deterministic.
     readonly property string previewDetail: Quickshell.env("SHALE_PREVIEW") === "system" && Quickshell.env("SHALE_SCREENSHOT") !== ""
         ? (Quickshell.env("SHALE_DETAIL") || "cpu") : ""
     Component.onDestruction: alive = false
@@ -582,7 +582,7 @@ FocusScope {
         }
     }
 
-    // Fixed data for check-ui screenshots.
+    // Fixed data for screenshot runs.
     function loadPreview(detail) {
         const bare = detail === "bare", asleep = detail === "gpu-asleep";
         const make = (base, swing, phase) => Array.from({length: window + 1}, (_, i) => [i, Math.max(0, base + swing * Math.sin(i / 5 + phase) + swing / 2 * Math.sin(i / 2.3 + phase * 2))]);

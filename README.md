@@ -131,14 +131,8 @@ python3 scripts/install-power.py --apply
 Checks:
 
 ```sh
-python3 -m unittest discover -s tests
-python3 scripts/check-ui.py              # renders every panel offscreen
-python3 scripts/check-interactions.py
-python3 scripts/check-hold.py
 python3 scripts/check-live.py --installed  # against the running shell
 ```
-
-To preview one panel in a window: `python3 scripts/check-ui.py --open control` (any panel name).
 
 Spacing, sizes and colors come from `core/Theme.qml`, and shared controls (lists, segmented choices, groups) from `components/`. Icons are outline SVGs in `assets/icons`; after adding or editing one, run `python3 scripts/build-icons.py` to regenerate `core/icons.js`, which lets an icon take any color.
 

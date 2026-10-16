@@ -4,3 +4,4 @@ __pycache__/
 *.qslog
 *.png
 !docs/**/*.png
+tests/

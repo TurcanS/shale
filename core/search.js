@@ -1,6 +1,6 @@
 .pragma library
 
-// Launcher matching as plain functions, so tests can run them outside QML (tests/test_search.py).
+// Launcher matching as plain functions, so they can run outside QML.
 
 // Case- and accent-insensitive form: "Paramètres" and "parametres" compare equal.
 function fold(text) {
