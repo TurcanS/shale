@@ -12,7 +12,9 @@ import time
 SCRIPT = Path(__file__).resolve()
 ROOT = SCRIPT.parents[1]
 # What runs as root is named by absolute path: pkexec, used when there's no sudo, starts it with a clean environment.
-SUDO, PKEXEC, PYTHON, SYSTEMCTL = '/usr/bin/sudo', '/usr/bin/pkexec', '/usr/bin/python3', '/usr/bin/systemctl'
+PYTHON, SYSTEMCTL = '/usr/bin/python3', '/usr/bin/systemctl'
+# sudo, what people install instead of it, then pkexec: the order install.sh and install.py use.
+ROOT_TOOLS = ('/usr/bin/sudo', '/usr/bin/sudo-rs', '/usr/bin/doas', '/usr/bin/pkexec')
 AS_ROOT = f'sudo python3 {SCRIPT}'
 SOURCE = ROOT / 'integration/tuned'
 ETC = Path('/etc/tuned')
@@ -125,9 +127,9 @@ def restore(etc, backup, apply=False):
     report(stopped, 'Restored.')
 
 def elevated(args):
-    """This run again as root through sudo, or pkexec where there's no sudo, with every path absolute; None
-    without either."""
-    tool = next((tool for tool in (SUDO, PKEXEC) if os.path.exists(tool)), None)
+    """This run again as root through the first of ROOT_TOOLS that is installed, with every path absolute; None
+    without any."""
+    tool = next((tool for tool in ROOT_TOOLS if os.path.exists(tool)), None)
     if tool is None:
         return None
     command = [tool, PYTHON, str(SCRIPT), '--apply', '--etc', str(args.etc.absolute())]
@@ -142,9 +144,9 @@ def main():
     if args.apply and os.geteuid() != 0:
         command = elevated(args)
         if not command:
-            parser.exit(1, 'Error: --apply needs root, and neither sudo nor pkexec is installed. Run this as root.\n')
-        if command[0] == PKEXEC:
-            print('sudo is not installed, so this uses pkexec.')
+            parser.exit(1, 'Error: --apply needs root, and no sudo, doas or pkexec is installed. Run this as root.\n')
+        if command[0] != ROOT_TOOLS[0]:
+            print(f'sudo is not installed, so this uses {os.path.basename(command[0])}.')
         sys.stdout.flush()
         os.execv(command[0], command)
     # As root only the real TuneD folder: another one could be laid out (symlinks) to make root write or read

@@ -32,8 +32,11 @@ LOADER = 'do local chunk = loadfile(os.getenv("HOME") .. "/.config/hypr/{}") if 
 OLD_LOADER = 'dofile(os.getenv("HOME") .. "/.config/hypr/{}")'  # what earlier installs wrote
 BLOCKS = ((MARKER, 'shale.lua'), (WALLPAPER_MARKER, 'shale-wallpaper.lua'))
 OWN = ('shale.lua', 'shale-wallpaper.lua')
-# What runs as root is named by absolute path: pkexec, used when there's no sudo, starts it with a clean environment.
-SUDO, PKEXEC, PACMAN, SYSTEMCTL = '/usr/bin/sudo', '/usr/bin/pkexec', '/usr/bin/pacman', '/usr/bin/systemctl'
+# What runs as root is named by absolute path: pkexec starts it with a clean environment.
+PACMAN, SYSTEMCTL = '/usr/bin/pacman', '/usr/bin/systemctl'
+# How to become root, in the order install.sh tries them too: sudo, what people install instead of it, then pkexec
+# (it asks in the terminal when there is no desktop yet).
+ROOT_TOOLS = ('/usr/bin/sudo', '/usr/bin/sudo-rs', '/usr/bin/doas', '/usr/bin/pkexec')
 # (keys as written in shale.lua, `shale` subcommand, what it opens), from the catalog Settings also shows.
 CATALOG = json.loads((ROOT / 'helpers/shortcuts.json').read_text())
 SHORTCUTS = [(item['keys'], item['action'], 'Shale ' + item['title'][0].lower() + item['title'][1:])
@@ -462,13 +465,13 @@ def running_processes():
 # ---- Packages and services (./install.sh) -------------------------------------------------------
 
 def privileged(exists=os.path.exists, note=print):
-    """How to run a command as root: sudo, or pkexec (it asks in the terminal without a desktop) where there's no sudo."""
-    if exists(SUDO):
-        return [SUDO]
-    if exists(PKEXEC):
-        note('  sudo is not installed, so this step uses pkexec.')
-        return [PKEXEC]
-    raise ValueError('Neither sudo nor pkexec is installed. As root, install sudo (pacman -S sudo) and add yourself '
+    """How to run a command as root: the first of ROOT_TOOLS that is installed."""
+    for tool in ROOT_TOOLS:
+        if exists(tool):
+            if tool != ROOT_TOOLS[0]:
+                note(f'  sudo is not installed, so this step uses {os.path.basename(tool)}.')
+            return [tool]
+    raise ValueError('No sudo, doas or pkexec is installed. As root, install sudo (pacman -S sudo) and add yourself '
                      'to the wheel group, or install the packages yourself and run ./install.sh --no-packages.')
 
 
@@ -539,7 +542,8 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
     if needs['packages']:
         command = root + [PACMAN, '-S', '--needed'] + (['--noconfirm'] if yes and not conflicts else []) + [name for name, _ in needs['packages']]
         if run(command).returncode != 0:
-            raise ValueError('pacman did not finish; nothing else was changed.')
+            raise ValueError('pacman did not finish; nothing else was changed. If it could not download a package, '
+                             'your package lists are out of date: run sudo pacman -Syu, then ./install.sh again.')
         remember_system(home, packages=[name for name, _ in needs['packages']])
     if needs['services']:
         if run(root + [SYSTEMCTL, 'enable', '--now'] + [unit + '.service' for unit in needs['services']]).returncode != 0:
@@ -573,6 +577,14 @@ def hyprland_config(home):
                          'hyprland.conf. See "Requirements" in the README.')
     raise ValueError('No ~/.config/hypr/hyprland.lua yet. Start from Hyprland\'s example:\n'
                      '  mkdir -p ~/.config/hypr && cp /usr/share/hypr/hyprland.lua ~/.config/hypr/')
+
+
+def check_config_format(home, shell_only=False, wallpaper_shortcut=False):
+    """Stop before any package is installed when the install would later stop at a hyprland.conf: Shale's
+    shortcuts go into hyprland.lua. Without either file, ./install.sh copies Hyprland's example first."""
+    hypr = home / '.config/hypr'
+    if (not shell_only or wallpaper_shortcut) and not (hypr / 'hyprland.lua').exists() and (hypr / 'hyprland.conf').exists():
+        hyprland_config(home)  # raises, saying what to do
 
 
 def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all, report=print, kept=()):
@@ -1356,6 +1368,7 @@ def main():
             print('Note: --purge only applies with --uninstall; ignored.\n')
         if not args.setup and not updating and (args.no_packages or args.no_login_screen):
             print('Note: --no-packages and --no-login-screen only apply with --setup (./install.sh); ignored.\n')
+        check_config_format(home, args.shell_only, args.wallpaper_shortcut)
         if args.setup and not args.no_packages:
             needs = setup_system(home, apply=args.apply, yes=args.yes, interactive=sys.stdin.isatty(), login_screen=not args.no_login_screen)
             if not args.apply and needs['config'] and not (home / '.config/hypr/hyprland.lua').exists():
