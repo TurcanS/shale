@@ -138,7 +138,7 @@ Item {
                 return;
             const ctx = getContext("2d");
             ctx.clearRect(0, 0, width, height);
-            ctx.drawImage(specimenImage, 0, 0);
+            ctx.drawImage(specimenImage, 0, 0, width, height);
             const data = ctx.getImageData(0, 0, width, height).data;
             const cell = root.sampleCell, across = 24, down = 32;
             const sampled = {};
