@@ -530,604 +530,610 @@ FocusScope {
             transform: Translate { y: Theme.reduced ? 0 : (1 - root.contentProgress) * 6 }
 
             // Overview ---------------------------------------------------------
-            ColumnLayout {
+            Loader {
                 anchors.fill: parent
-                visible: root.mode === "overview"
-                spacing: Theme.gapS
-                RowLayout {
-                    Layout.fillWidth: true
+                active: root.mode === "overview"
+                sourceComponent: ColumnLayout {
+                    anchors.fill: parent
                     spacing: Theme.gapS
-                    C.Stat {
-                        label: "Today"
-                        value: root.formatTime(root.insights.today)
-                        note: root.insights.average7 ? root.delta(root.insights.today, root.insights.average7) + " vs 7-day average" : "Active time so far"
-                    }
-                    C.Stat {
-                        label: "This week"
-                        value: root.formatTime(root.insights.thisWeek)
-                        note: root.insights.lastWeek ? root.delta(root.insights.thisWeek, root.insights.lastWeek) + " vs last week" : "Since " + Qt.locale().dayName(root.weekStart || 7, Locale.LongFormat)
-                    }
-                    C.Stat {
-                        label: "Daily average"
-                        value: root.insights.average30 === null || root.insights.average30 === undefined ? "–" : root.formatTime(root.insights.average30)
-                        note: "Last 30 days"
-                    }
-                    C.Stat {
-                        label: "Streak"
-                        value: (root.insights.streak || 0) + ((root.insights.streak || 0) === 1 ? " day" : " days")
-                        note: "Best " + (root.insights.longestStreak || 0) + " · 15m+ a day"
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapXs
-                    C.Label { text: "Your year, in moments"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
-                    C.Caption { text: root.heatRange; color: Theme.disabled; Layout.rightMargin: 4 }
-                    C.Button { glyph: "back"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatHasEarlier; hint: "Earlier"; onClicked: root.heatPage++ }
-                    C.Button { glyph: "chevron"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatPage > 0; hint: "Later"; onClicked: root.heatPage-- }
-                }
-                C.Card {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 106
-                    border.width: heatmap.activeFocus ? 1.5 : 0
-                    border.color: Theme.accent
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
+                        Layout.fillWidth: true
                         spacing: Theme.gapS
-                        ColumnLayout {
-                            Layout.preferredWidth: 14
-                            spacing: Theme.gapXs
-                            Repeater {
-                                model: [0, 1, 2, 3, 4, 5, 6].map(row => row % 2 === 0 && row < 6 ? Qt.locale().dayName(((root.weekStart + row) % 7) || 7, Locale.NarrowFormat) : "")
-                                C.Caption { required property string modelData; text: modelData; font.family: Theme.mono; color: Theme.disabled; Layout.preferredHeight: 10; verticalAlignment: Text.AlignVCenter }
-                            }
+                        C.Stat {
+                            label: "Today"
+                            value: root.formatTime(root.insights.today)
+                            note: root.insights.average7 ? root.delta(root.insights.today, root.insights.average7) + " vs 7-day average" : "Active time so far"
                         }
-                        GridLayout {
-                            id: heatmap
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            columns: root.graphWeeks
-                            rows: 7
-                            flow: GridLayout.TopToBottom
-                            columnSpacing: Theme.gapXs
-                            rowSpacing: Theme.gapXs
-                            // One tab stop: columns are weeks, so Left and Right move a week, Up and Down a day.
-                            activeFocusOnTab: true
-                            Accessible.role: Accessible.Table
-                            Accessible.name: "Daily activity, " + Qt.formatDate(root.selected, "d MMMM yyyy") + " selected"
-                            onActiveFocusChanged: if (activeFocus) root.revealHeat()
-                            Keys.onPressed: event => {
-                                const days = root.arrowDays(event.key, 7, 1);
-                                if (days) {
-                                    root.stepDay(days, root.overview.firstDay);
-                                    root.revealHeat();
-                                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                    root.mode = "day";
-                                } else if (event.key === Qt.Key_Home) {
-                                    root.setDate(root.today());
-                                    root.heatPage = 0;
-                                } else {
-                                    return;
-                                }
-                                event.accepted = true;
-                            }
-                            Repeater {
-                                model: root.heatmapDays
-                                Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 10
-                                    radius: 2
-                                    color: modelData.future || modelData.before ? "transparent" : root.heatColor(modelData.active)
-                                    border.width: modelData.date === root.selectedDate ? 2 : 0
-                                    border.color: heatmap.activeFocus ? Theme.accent : Theme.text
-                                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        enabled: !parent.modelData.future && !parent.modelData.before
-                                        onClicked: root.setDate(parent.modelData.date)
-                                        onDoubleClicked: root.mode = "day"
-                                    }
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: modelData.date + (modelData.before ? ", before tracking began" : ", " + root.formatTime(modelData.active))
-                                }
-                            }
+                        C.Stat {
+                            label: "This week"
+                            value: root.formatTime(root.insights.thisWeek)
+                            note: root.insights.lastWeek ? root.delta(root.insights.thisWeek, root.insights.lastWeek) + " vs last week" : "Since " + Qt.locale().dayName(root.weekStart || 7, Locale.LongFormat)
+                        }
+                        C.Stat {
+                            label: "Daily average"
+                            value: root.insights.average30 === null || root.insights.average30 === undefined ? "–" : root.formatTime(root.insights.average30)
+                            note: "Last 30 days"
+                        }
+                        C.Stat {
+                            label: "Streak"
+                            value: (root.insights.streak || 0) + ((root.insights.streak || 0) === 1 ? " day" : " days")
+                            note: "Best " + (root.insights.longestStreak || 0) + " · 15m+ a day"
                         }
                     }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapXs
-                    C.Caption { text: "Less"; color: Theme.disabled }
-                    Repeater {
-                        model: [Theme.raised, Theme.activityLevel1, Theme.activityLevel2, Theme.activityLevel3, Theme.accent]
-                        Rectangle { required property color modelData; width: 10; height: 10; radius: 2; color: modelData }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapXs
+                        C.Label { text: "Your year, in moments"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
+                        C.Caption { text: root.heatRange; color: Theme.disabled; Layout.rightMargin: 4 }
+                        C.Button { glyph: "back"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatHasEarlier; hint: "Earlier"; onClicked: root.heatPage++ }
+                        C.Button { glyph: "chevron"; flat: true; implicitWidth: 28; implicitHeight: 24; enabled: root.heatPage > 0; hint: "Later"; onClicked: root.heatPage-- }
                     }
-                    C.Caption { text: "More"; color: Theme.disabled; Layout.fillWidth: true }
-                    C.Caption {
-                        readonly property var entry: root.dayMap[root.selectedDate] || ({})
-                        text: Qt.formatDate(root.selected, "ddd d MMM") + "  ·  " + root.formatTime(entry.active) + " active" + (entry.watching >= 60 ? "  ·  " + root.formatTime(entry.watching) + " watching" : "")
-                    }
-                    C.Button { text: "Open day"; flat: true; implicitHeight: 24; onClicked: root.mode = "day" }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: Theme.gapS
                     C.Card {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 3
-                        ColumnLayout {
+                        Layout.preferredHeight: 106
+                        border.width: heatmap.activeFocus ? 1.5 : 0
+                        border.color: Theme.accent
+                        RowLayout {
                             anchors.fill: parent
-                            anchors.margins: 11
-                            spacing: Theme.gapXs
-                            RowLayout {
+                            anchors.margins: 10
+                            spacing: Theme.gapS
+                            ColumnLayout {
+                                Layout.preferredWidth: 14
+                                spacing: Theme.gapXs
+                                Repeater {
+                                    model: [0, 1, 2, 3, 4, 5, 6].map(row => row % 2 === 0 && row < 6 ? Qt.locale().dayName(((root.weekStart + row) % 7) || 7, Locale.NarrowFormat) : "")
+                                    C.Caption { required property string modelData; text: modelData; font.family: Theme.mono; color: Theme.disabled; Layout.preferredHeight: 10; verticalAlignment: Text.AlignVCenter }
+                                }
+                            }
+                            GridLayout {
+                                id: heatmap
                                 Layout.fillWidth: true
-                                C.Label { text: "Top apps this week"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
-                                C.Button { text: "All apps"; flat: true; implicitHeight: 22; onClicked: { root.appsRange = "week"; root.setDate(root.today()); root.mode = "apps"; } }
-                            }
-                            Repeater {
-                                model: root.overview.topApps || []
-                                RowLayout {
-                                    id: topApp
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    spacing: Theme.gapS
-                                    AppGlyph { source: root.appIcon(topApp.modelData.app) }
-                                    C.Label { text: root.appLabel(topApp.modelData.app); Layout.preferredWidth: 120; elide: Text.ElideRight; font.pixelSize: Theme.small }
-                                    AppBar {
-                                        Layout.fillWidth: true
-                                        active: topApp.modelData.active
-                                        watching: topApp.modelData.watching
-                                        maximum: (root.overview.topApps[0] || {}).total || 1
+                                Layout.alignment: Qt.AlignVCenter
+                                columns: root.graphWeeks
+                                rows: 7
+                                flow: GridLayout.TopToBottom
+                                columnSpacing: Theme.gapXs
+                                rowSpacing: Theme.gapXs
+                                // One tab stop: columns are weeks, so Left and Right move a week, Up and Down a day.
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Table
+                                Accessible.name: "Daily activity, " + Qt.formatDate(root.selected, "d MMMM yyyy") + " selected"
+                                onActiveFocusChanged: if (activeFocus) root.revealHeat()
+                                Keys.onPressed: event => {
+                                    const days = root.arrowDays(event.key, 7, 1);
+                                    if (days) {
+                                        root.stepDay(days, root.overview.firstDay);
+                                        root.revealHeat();
+                                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                        root.mode = "day";
+                                    } else if (event.key === Qt.Key_Home) {
+                                        root.setDate(root.today());
+                                        root.heatPage = 0;
+                                    } else {
+                                        return;
                                     }
-                                    C.Caption { text: root.formatTime(topApp.modelData.total); font.family: Theme.mono; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignRight }
+                                    event.accepted = true;
+                                }
+                                Repeater {
+                                    model: root.heatmapDays
+                                    Rectangle {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 10
+                                        radius: 2
+                                        color: modelData.future || modelData.before ? "transparent" : root.heatColor(modelData.active)
+                                        border.width: modelData.date === root.selectedDate ? 2 : 0
+                                        border.color: heatmap.activeFocus ? Theme.accent : Theme.text
+                                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            enabled: !parent.modelData.future && !parent.modelData.before
+                                            onClicked: root.setDate(parent.modelData.date)
+                                            onDoubleClicked: root.mode = "day"
+                                        }
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: modelData.date + (modelData.before ? ", before tracking began" : ", " + root.formatTime(modelData.active))
+                                    }
                                 }
                             }
-                            C.Caption { visible: (root.overview.topApps || []).length === 0; text: "Apps appear here once you use them this week."; Layout.fillWidth: true; wrapMode: Text.WordWrap }
-                            Item { Layout.fillHeight: true }
                         }
                     }
-                    C.Card {
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapXs
+                        C.Caption { text: "Less"; color: Theme.disabled }
+                        Repeater {
+                            model: [Theme.raised, Theme.activityLevel1, Theme.activityLevel2, Theme.activityLevel3, Theme.accent]
+                            Rectangle { required property color modelData; width: 10; height: 10; radius: 2; color: modelData }
+                        }
+                        C.Caption { text: "More"; color: Theme.disabled; Layout.fillWidth: true }
+                        C.Caption {
+                            readonly property var entry: root.dayMap[root.selectedDate] || ({})
+                            text: Qt.formatDate(root.selected, "ddd d MMM") + "  ·  " + root.formatTime(entry.active) + " active" + (entry.watching >= 60 ? "  ·  " + root.formatTime(entry.watching) + " watching" : "")
+                        }
+                        C.Button { text: "Open day"; flat: true; implicitHeight: 24; onClicked: root.mode = "day" }
+                    }
+                    RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.preferredWidth: 2
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 11
-                            spacing: Theme.gapXs
-                            C.Label { text: "Your rhythm"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
-                            Repeater {
-                                model: [
-                                    {label: "Usually starts", value: root.minuteClock(root.insights.typicalStart)},
-                                    {label: "Usually ends", value: root.minuteClock(root.insights.typicalEnd)},
-                                    {label: "Busiest hour", value: root.insights.busiestHour === null || root.insights.busiestHour === undefined ? "–" : String(root.insights.busiestHour).padStart(2, "0") + ":00"},
-                                    {label: "Tracking since", value: root.overview.firstDay ? Qt.formatDate(new Date(root.overview.firstDay + "T12:00:00"), "d MMM yyyy") : "today"}
-                                ]
+                        spacing: Theme.gapS
+                        C.Card {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 3
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                spacing: Theme.gapXs
                                 RowLayout {
-                                    required property var modelData
                                     Layout.fillWidth: true
-                                    C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
-                                    C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
+                                    C.Label { text: "Top apps this week"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
+                                    C.Button { text: "All apps"; flat: true; implicitHeight: 22; onClicked: { root.appsRange = "week"; root.setDate(root.today()); root.mode = "apps"; } }
                                 }
+                                Repeater {
+                                    model: root.overview.topApps || []
+                                    RowLayout {
+                                        id: topApp
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        spacing: Theme.gapS
+                                        AppGlyph { source: root.appIcon(topApp.modelData.app) }
+                                        C.Label { text: root.appLabel(topApp.modelData.app); Layout.preferredWidth: 120; elide: Text.ElideRight; font.pixelSize: Theme.small }
+                                        AppBar {
+                                            Layout.fillWidth: true
+                                            active: topApp.modelData.active
+                                            watching: topApp.modelData.watching
+                                            maximum: (root.overview.topApps[0] || {}).total || 1
+                                        }
+                                        C.Caption { text: root.formatTime(topApp.modelData.total); font.family: Theme.mono; Layout.preferredWidth: 58; horizontalAlignment: Text.AlignRight }
+                                    }
+                                }
+                                C.Caption { visible: (root.overview.topApps || []).length === 0; text: "Apps appear here once you use them this week."; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                                Item { Layout.fillHeight: true }
                             }
-                            Item { Layout.fillHeight: true }
-                            C.Caption { text: "From the last 30 days"; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
+                        }
+                        C.Card {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 2
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                spacing: Theme.gapXs
+                                C.Label { text: "Your rhythm"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted; Layout.fillWidth: true }
+                                Repeater {
+                                    model: [
+                                        {label: "Usually starts", value: root.minuteClock(root.insights.typicalStart)},
+                                        {label: "Usually ends", value: root.minuteClock(root.insights.typicalEnd)},
+                                        {label: "Busiest hour", value: root.insights.busiestHour === null || root.insights.busiestHour === undefined ? "–" : String(root.insights.busiestHour).padStart(2, "0") + ":00"},
+                                        {label: "Tracking since", value: root.overview.firstDay ? Qt.formatDate(new Date(root.overview.firstDay + "T12:00:00"), "d MMM yyyy") : "today"}
+                                    ]
+                                    RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
+                                        C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
+                                    }
+                                }
+                                Item { Layout.fillHeight: true }
+                                C.Caption { text: "From the last 30 days"; color: Theme.disabled; Layout.fillWidth: true; elide: Text.ElideRight }
+                            }
                         }
                     }
                 }
             }
 
             // Day --------------------------------------------------------------
-            RowLayout {
+            Loader {
                 anchors.fill: parent
-                visible: root.mode === "day"
-                spacing: Theme.gapM
-                ColumnLayout {
-                    Layout.preferredWidth: 236
-                    Layout.maximumWidth: 236
-                    Layout.fillHeight: true
-                    spacing: Theme.gapS
-                    RowLayout {
-                        Layout.fillWidth: true
-                        C.Button { glyph: "back"; implicitWidth: 30; flat: true; hint: "Previous month"; onClicked: root.shiftMonth(-1) }
-                        C.Label { text: Qt.formatDate(root.selected, "MMMM yyyy"); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                        C.Button { glyph: "chevron"; implicitWidth: 30; flat: true; hint: "Next month"; onClicked: root.shiftMonth(1) }
-                    }
-                    C.Card {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 232
-                        border.width: monthGrid.activeFocus ? 1.5 : 0
-                        border.color: Theme.accent
-                        GridLayout {
-                            id: monthGrid
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            columns: 7
-                            rowSpacing: Theme.gapXs
-                            columnSpacing: Theme.gapXs
-                            activeFocusOnTab: true
-                            Accessible.role: Accessible.Table
-                            Accessible.name: "Calendar, " + Qt.formatDate(root.selected, "d MMMM yyyy") + " selected"
-                            Keys.onPressed: event => {
-                                const days = root.arrowDays(event.key, 1, 7);
-                                if (days)
-                                    root.stepDay(days, "");
-                                else if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)
-                                    root.shiftMonth(event.key === Qt.Key_PageUp ? -1 : 1);
-                                else
-                                    return;
-                                event.accepted = true;
-                            }
-                            Repeater {
-                                model: [0, 1, 2, 3, 4, 5, 6].map(index => Qt.locale().dayName(((root.weekStart + index) % 7) || 7, Locale.NarrowFormat))
-                                C.Caption { required property string modelData; text: modelData; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true; Layout.preferredWidth: 1; font.family: Theme.mono }
-                            }
-                            Repeater {
-                                model: root.monthCells
-                                Rectangle {
-                                    id: cell
-                                    required property var modelData
-                                    readonly property bool future: modelData.date > root.today()
-                                    readonly property real active: (root.dayMap[modelData.date] || {}).active || 0
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
-                                    Layout.fillHeight: true
-                                    radius: 6
-                                    opacity: future ? 0.25 : modelData.current ? 1 : 0.4
-                                    color: cellArea.containsMouse && !future ? Theme.hover : active >= 60 ? root.heatColor(active) : "transparent"
-                                    border.width: modelData.date === root.selectedDate ? 2 : 0
-                                    border.color: monthGrid.activeFocus ? Theme.accent : Theme.text
-                                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-                                    C.Label {
-                                        anchors.centerIn: parent
-                                        text: String(cell.modelData.number)
-                                        font.pixelSize: Theme.small
-                                        font.weight: cell.modelData.date === root.today() ? Font.Bold : Font.Normal
-                                        color: root.heatLevel(cell.active) >= 3 ? Theme.surface : Theme.text
-                                    }
-                                    MouseArea { id: cellArea; anchors.fill: parent; hoverEnabled: true; enabled: !cell.future; onClicked: root.setDate(cell.modelData.date) }
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: modelData.date + ", " + root.formatTime(active)
-                                }
-                            }
-                        }
-                    }
-                    C.Card {
-                        Layout.fillWidth: true
+                active: root.mode === "day"
+                sourceComponent: RowLayout {
+                    anchors.fill: parent
+                    spacing: Theme.gapM
+                    ColumnLayout {
+                        Layout.preferredWidth: 236
+                        Layout.maximumWidth: 236
                         Layout.fillHeight: true
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: Theme.gapS
-                            C.Label { text: root.weekly ? "Week total" : Qt.formatDate(root.selected, "dddd"); font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
-                            Repeater {
-                                model: {
-                                    const source = root.weekly ? (root.week.days || []).reduce((sum, entry) => ({active: sum.active + entry.active, watching: sum.watching + (entry.watching || 0), unlocked: sum.unlocked + entry.unlocked, focused: sum.focused + (entry.focused || 0)}), {active: 0, watching: 0, unlocked: 0, focused: 0}) : root.day;
-                                    const rows = [
-                                        {label: "Active", value: root.formatTime(source.active), color: Theme.accent},
-                                        {label: "Watching", value: root.formatTime(source.watching), color: Theme.activityWatching},
-                                        {label: "Idle", value: root.formatTime(Math.max(0, source.unlocked - source.active - (source.watching || 0))), color: Theme.activityIdle}
-                                    ];
-                                    if (source.focused >= 60) rows.push({label: "Focused", value: root.formatTime(source.focused), color: Theme.text});
-                                    if (!root.weekly && root.day.firstActive) rows.push({label: "First – last", value: root.clockTime(root.day.firstActive) + "–" + root.clockTime(root.day.lastActive), color: "transparent"});
-                                    return rows;
-                                }
-                                RowLayout {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    spacing: Theme.gapS
-                                    Swatch { color: parent.modelData.color }
-                                    C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
-                                    C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
-                                }
-                            }
-                            Item { Layout.fillHeight: true }
-                        }
-                    }
-                }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: Theme.gapS
-                    RowLayout {
-                        Layout.fillWidth: true
-                        C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: root.weekly ? "Previous week" : "Previous day"; onClicked: root.shiftDate(root.weekly ? -7 : -1) }
-                        C.Label {
-                            text: root.weekly ? "Week of " + Qt.formatDate(new Date((root.week.start || root.selectedDate) + "T12:00:00"), "d MMM") : Qt.formatDate(root.selected, "ddd, d MMMM")
+                        spacing: Theme.gapS
+                        RowLayout {
                             Layout.fillWidth: true
-                            horizontalAlignment: Text.AlignHCenter
-                            font.weight: Font.DemiBold
+                            C.Button { glyph: "back"; implicitWidth: 30; flat: true; hint: "Previous month"; onClicked: root.shiftMonth(-1) }
+                            C.Label { text: Qt.formatDate(root.selected, "MMMM yyyy"); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                            C.Button { glyph: "chevron"; implicitWidth: 30; flat: true; hint: "Next month"; onClicked: root.shiftMonth(1) }
                         }
-                        C.Button { glyph: "chevron"; flat: true; implicitWidth: 30; enabled: root.selectedDate < root.today(); hint: root.weekly ? "Next week" : "Next day"; onClicked: root.shiftDate(root.weekly ? 7 : 1) }
-                        C.Segmented {
-                            fill: false
-                            Layout.preferredWidth: 130
-                            segmentHeight: 32
-                            model: [{key: false, text: "Day"}, {key: true, text: "Week"}]
-                            current: root.weekly
-                            onActivated: key => root.weekly = key
-                        }
-                    }
-                    // Day timeline
-                    C.Card {
-                        visible: !root.weekly
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: timelineColumn.implicitHeight + 22
-                        ColumnLayout {
-                            id: timelineColumn
-                            anchors.fill: parent
-                            anchors.margins: 11
-                            spacing: Theme.gapXs
-                            Item {
-                                id: presence
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 10
-                                Rectangle { anchors.fill: parent; radius: 3; color: Theme.raised }
+                        C.Card {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 232
+                            border.width: monthGrid.activeFocus ? 1.5 : 0
+                            border.color: Theme.accent
+                            GridLayout {
+                                id: monthGrid
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                columns: 7
+                                rowSpacing: Theme.gapXs
+                                columnSpacing: Theme.gapXs
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Table
+                                Accessible.name: "Calendar, " + Qt.formatDate(root.selected, "d MMMM yyyy") + " selected"
+                                Keys.onPressed: event => {
+                                    const days = root.arrowDays(event.key, 1, 7);
+                                    if (days)
+                                        root.stepDay(days, "");
+                                    else if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown)
+                                        root.shiftMonth(event.key === Qt.Key_PageUp ? -1 : 1);
+                                    else
+                                        return;
+                                    event.accepted = true;
+                                }
                                 Repeater {
-                                    model: root.day.segments || []
+                                    model: [0, 1, 2, 3, 4, 5, 6].map(index => Qt.locale().dayName(((root.weekStart + index) % 7) || 7, Locale.NarrowFormat))
+                                    C.Caption { required property string modelData; text: modelData; horizontalAlignment: Text.AlignHCenter; Layout.fillWidth: true; Layout.preferredWidth: 1; font.family: Theme.mono }
+                                }
+                                Repeater {
+                                    model: root.monthCells
                                     Rectangle {
+                                        id: cell
                                         required property var modelData
-                                        x: root.timeX(modelData.start, presence.width)
-                                        width: Math.max(1, root.timeX(modelData.end, presence.width) - x)
-                                        height: presence.height
-                                        color: root.stateColor(modelData.state)
-                                    }
-                                }
-                                // Focus sessions underline the time they covered.
-                                Repeater {
-                                    model: root.day.focus || []
-                                    Rectangle {
-                                        required property var modelData
-                                        x: root.timeX(modelData.start, presence.width)
-                                        y: presence.height - 2
-                                        width: Math.max(2, root.timeX(modelData.end, presence.width) - x)
-                                        height: 2
-                                        color: Theme.text
-                                    }
-                                }
-                            }
-                            Item {
-                                id: strip
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 26
-                                Rectangle { anchors.fill: parent; radius: 4; color: Theme.raised; opacity: 0.6 }
-                                Repeater {
-                                    model: (root.day.segments || []).filter(segment => segment.app && segment.state !== "idle")
-                                    Rectangle {
-                                        required property var modelData
-                                        x: root.timeX(modelData.start, strip.width)
-                                        width: Math.max(2, root.timeX(modelData.end, strip.width) - x)
-                                        height: strip.height
-                                        radius: 2
-                                        color: root.appColor(modelData.app)
-                                        opacity: modelData.state === "watching" ? 0.6 : 1
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            onClicked: {
-                                                const segment = parent.modelData;
-                                                root.caption = root.appLabel(segment.app) + "  ·  " + root.clockTime(segment.start) + "–" + root.clockTime(segment.end) + "  ·  " + root.formatTime((segment.end - segment.start) / 1000) + " " + segment.state;
-                                            }
-                                        }
-                                    }
-                                }
-                                C.Caption {
-                                    anchors.centerIn: parent
-                                    visible: (root.day.segments || []).length === 0
-                                    text: root.day.legacy ? "Only the daily total was kept for this day" : "Nothing recorded"
-                                    color: Theme.disabled
-                                }
-                            }
-                            HourAxis { Layout.fillWidth: true }
-                            Flow {
-                                Layout.fillWidth: true
-                                spacing: Theme.gapM
-                                Repeater {
-                                    model: root.dayRanking.concat((root.day.apps || []).length > 6 ? ["other"] : [])
-                                    RowLayout {
-                                        required property string modelData
-                                        spacing: Theme.gapXs
-                                        Swatch { color: root.appColor(parent.modelData === "other" ? "" : parent.modelData) }
-                                        C.Caption { text: parent.modelData === "other" ? "Other" : root.appLabel(parent.modelData) }
-                                    }
-                                }
-                                RowLayout {
-                                    spacing: Theme.gapXs
-                                    visible: root.day.watching >= 60
-                                    Swatch { color: Theme.activityWatching }
-                                    C.Caption { text: "Watching" }
-                                }
-                            }
-                        }
-                    }
-                    C.Caption {
-                        visible: !root.weekly
-                        text: root.caption !== "" ? root.caption : "Select a block on the timeline for exact times."
-                        color: root.caption !== "" ? Theme.muted : Theme.disabled
-                        font.family: root.caption !== "" ? Theme.mono : Theme.font
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                    }
-                    C.Card {
-                        visible: !root.weekly
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 74
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: Theme.gapXs
-                            ColumnChart {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                values: (root.day.hours || []).map(slot => ({a: slot.active, b: slot.watching || 0}))
-                                maximum: 3600
-                                onPicked: index => {
-                                    const slot = root.day.hours[index];
-                                    root.caption = slot.label + "  ·  " + root.formatTime(slot.active) + " active  ·  " + root.formatTime(slot.watching || 0) + " watching";
-                                }
-                            }
-                            HourAxis { Layout.fillWidth: true }
-                        }
-                    }
-                    C.Card {
-                        visible: !root.weekly
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        ScrollView {
-                            anchors.fill: parent
-                            anchors.margins: 11
-                            clip: true
-                            contentWidth: availableWidth
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: Theme.gapS
-                                Repeater {
-                                    model: root.dayAppRows
-                                    ColumnLayout {
-                                        id: appLine
-                                        required property var modelData
+                                        readonly property bool future: modelData.date > root.today()
+                                        readonly property real active: (root.dayMap[modelData.date] || {}).active || 0
                                         Layout.fillWidth: true
-                                        spacing: Theme.gapXs
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: Theme.gapS
-                                            AppGlyph { source: root.appIcon(appLine.modelData.app); size: 14 }
-                                            C.Label { text: root.appLabel(appLine.modelData.app); font.pixelSize: Theme.small; font.weight: Font.Medium; Layout.fillWidth: true; elide: Text.ElideRight }
-                                            C.Caption {
-                                                text: (appLine.modelData.windows.some(window => !window.startKnown || window.endReason === "gap") ? "partial  ·  " : "") + root.formatTime(appLine.modelData.total)
-                                                font.family: Theme.mono
-                                            }
+                                        Layout.preferredWidth: 1
+                                        Layout.fillHeight: true
+                                        radius: 6
+                                        opacity: future ? 0.25 : modelData.current ? 1 : 0.4
+                                        color: cellArea.containsMouse && !future ? Theme.hover : active >= 60 ? root.heatColor(active) : "transparent"
+                                        border.width: modelData.date === root.selectedDate ? 2 : 0
+                                        border.color: monthGrid.activeFocus ? Theme.accent : Theme.text
+                                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                        C.Label {
+                                            anchors.centerIn: parent
+                                            text: String(cell.modelData.number)
+                                            font.pixelSize: Theme.small
+                                            font.weight: cell.modelData.date === root.today() ? Font.Bold : Font.Normal
+                                            color: root.heatLevel(cell.active) >= 3 ? Theme.surface : Theme.text
                                         }
-                                        Item {
-                                            id: lane
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: 8
-                                            Rectangle { anchors.fill: parent; radius: 2; color: Theme.raised }
-                                            Repeater {
-                                                model: appLine.modelData.windows
-                                                Rectangle {
-                                                    required property var modelData
-                                                    x: root.timeX(modelData.start, lane.width)
-                                                    width: Math.max(2, root.timeX(modelData.end, lane.width) - x)
-                                                    height: lane.height
-                                                    radius: 2
-                                                    color: Theme.activityWindow
-                                                    opacity: 0.55
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        onClicked: {
-                                                            const window = parent.modelData;
-                                                            root.caption = root.appLabel(window.app) + "  ·  " + (window.startKnown ? "opened " : "already open at ") + root.clockTime(window.start) + "  ·  "
-                                                                + (window.endReason === "open" ? "still open" : window.endReason === "continues" ? "continued next day" : window.endReason === "gap" ? "last seen " + root.clockTime(window.end) : "closed " + root.clockTime(window.end));
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Repeater {
-                                                model: appLine.modelData.focus
-                                                Rectangle {
-                                                    required property var modelData
-                                                    x: root.timeX(modelData.start, lane.width)
-                                                    width: Math.max(2, root.timeX(modelData.end, lane.width) - x)
-                                                    height: lane.height
-                                                    radius: 2
-                                                    color: root.appColor(appLine.modelData.app)
-                                                    opacity: modelData.state === "watching" ? 0.6 : 1
-                                                }
-                                            }
-                                        }
+                                        MouseArea { id: cellArea; anchors.fill: parent; hoverEnabled: true; enabled: !cell.future; onClicked: root.setDate(cell.modelData.date) }
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: modelData.date + ", " + root.formatTime(active)
                                     }
-                                }
-                                C.Caption {
-                                    visible: root.dayAppRows.length === 0
-                                    text: root.day.detailAvailable ? "No app windows recorded on this day." : "This day was recorded before app detail was kept; only its total remains."
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
                                 }
                             }
                         }
-                    }
-                    // Week view
-                    C.Card {
-                        visible: root.weekly
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        ScrollView {
-                            anchors.fill: parent
-                            anchors.margins: 11
-                            clip: true
-                            contentWidth: availableWidth
+                        C.Card {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
                             ColumnLayout {
-                                width: parent.width
-                                spacing: Theme.gapXs
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: Theme.gapS
+                                C.Label { text: root.weekly ? "Week total" : Qt.formatDate(root.selected, "dddd"); font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
                                 Repeater {
-                                    model: root.week.days || []
+                                    model: {
+                                        const source = root.weekly ? (root.week.days || []).reduce((sum, entry) => ({active: sum.active + entry.active, watching: sum.watching + (entry.watching || 0), unlocked: sum.unlocked + entry.unlocked, focused: sum.focused + (entry.focused || 0)}), {active: 0, watching: 0, unlocked: 0, focused: 0}) : root.day;
+                                        const rows = [
+                                            {label: "Active", value: root.formatTime(source.active), color: Theme.accent},
+                                            {label: "Watching", value: root.formatTime(source.watching), color: Theme.activityWatching},
+                                            {label: "Idle", value: root.formatTime(Math.max(0, source.unlocked - source.active - (source.watching || 0))), color: Theme.activityIdle}
+                                        ];
+                                        if (source.focused >= 60) rows.push({label: "Focused", value: root.formatTime(source.focused), color: Theme.text});
+                                        if (!root.weekly && root.day.firstActive) rows.push({label: "First – last", value: root.clockTime(root.day.firstActive) + "–" + root.clockTime(root.day.lastActive), color: "transparent"});
+                                        return rows;
+                                    }
                                     RowLayout {
-                                        id: weekDay
                                         required property var modelData
                                         Layout.fillWidth: true
                                         spacing: Theme.gapS
-                                        C.Label {
-                                            text: Qt.formatDate(new Date(weekDay.modelData.date + "T12:00:00"), "ddd")
-                                            font.family: Theme.mono
-                                            font.pixelSize: Theme.caption
-                                            font.weight: weekDay.modelData.date === root.selectedDate ? Font.Bold : Font.Normal
-                                            color: weekDay.modelData.date === root.selectedDate ? Theme.text : Theme.muted
-                                            Layout.preferredWidth: Math.ceil(Theme.caption * 2.6)
-                                        }
-                                        AppBar {
-                                            Layout.fillWidth: true
-                                            implicitHeight: 9
-                                            active: weekDay.modelData.active
-                                            watching: weekDay.modelData.watching || 0
-                                            maximum: Math.max(14400, ...(root.week.days || []).map(entry => entry.active + (entry.watching || 0)))
-                                        }
-                                        C.Caption { text: root.formatTime(weekDay.modelData.active); font.family: Theme.mono; Layout.preferredWidth: Math.ceil(Theme.caption * 4.4); horizontalAlignment: Text.AlignRight }
+                                        Swatch { color: parent.modelData.color }
+                                        C.Caption { text: parent.modelData.label; Layout.fillWidth: true }
+                                        C.Label { text: parent.modelData.value; font.family: Theme.mono; font.pixelSize: Theme.small }
                                     }
                                 }
-                                Item { Layout.preferredHeight: 8 }
-                                RowLayout {
-                                    visible: root.weekHasHours
+                                Item { Layout.fillHeight: true }
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: Theme.gapS
+                        RowLayout {
+                            Layout.fillWidth: true
+                            C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: root.weekly ? "Previous week" : "Previous day"; onClicked: root.shiftDate(root.weekly ? -7 : -1) }
+                            C.Label {
+                                text: root.weekly ? "Week of " + Qt.formatDate(new Date((root.week.start || root.selectedDate) + "T12:00:00"), "d MMM") : Qt.formatDate(root.selected, "ddd, d MMMM")
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                font.weight: Font.DemiBold
+                            }
+                            C.Button { glyph: "chevron"; flat: true; implicitWidth: 30; enabled: root.selectedDate < root.today(); hint: root.weekly ? "Next week" : "Next day"; onClicked: root.shiftDate(root.weekly ? 7 : 1) }
+                            C.Segmented {
+                                fill: false
+                                Layout.preferredWidth: 130
+                                segmentHeight: 32
+                                model: [{key: false, text: "Day"}, {key: true, text: "Week"}]
+                                current: root.weekly
+                                onActivated: key => root.weekly = key
+                            }
+                        }
+                        // Day timeline
+                        C.Card {
+                            visible: !root.weekly
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: timelineColumn.implicitHeight + 22
+                            ColumnLayout {
+                                id: timelineColumn
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                spacing: Theme.gapXs
+                                Item {
+                                    id: presence
                                     Layout.fillWidth: true
+                                    Layout.preferredHeight: 10
+                                    Rectangle { anchors.fill: parent; radius: 3; color: Theme.raised }
+                                    Repeater {
+                                        model: root.day.segments || []
+                                        Rectangle {
+                                            required property var modelData
+                                            x: root.timeX(modelData.start, presence.width)
+                                            width: Math.max(1, root.timeX(modelData.end, presence.width) - x)
+                                            height: presence.height
+                                            color: root.stateColor(modelData.state)
+                                        }
+                                    }
+                                    // Focus sessions underline the time they covered.
+                                    Repeater {
+                                        model: root.day.focus || []
+                                        Rectangle {
+                                            required property var modelData
+                                            x: root.timeX(modelData.start, presence.width)
+                                            y: presence.height - 2
+                                            width: Math.max(2, root.timeX(modelData.end, presence.width) - x)
+                                            height: 2
+                                            color: Theme.text
+                                        }
+                                    }
+                                }
+                                Item {
+                                    id: strip
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 26
+                                    Rectangle { anchors.fill: parent; radius: 4; color: Theme.raised; opacity: 0.6 }
+                                    Repeater {
+                                        model: (root.day.segments || []).filter(segment => segment.app && segment.state !== "idle")
+                                        Rectangle {
+                                            required property var modelData
+                                            x: root.timeX(modelData.start, strip.width)
+                                            width: Math.max(2, root.timeX(modelData.end, strip.width) - x)
+                                            height: strip.height
+                                            radius: 2
+                                            color: root.appColor(modelData.app)
+                                            opacity: modelData.state === "watching" ? 0.6 : 1
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                onClicked: {
+                                                    const segment = parent.modelData;
+                                                    root.caption = root.appLabel(segment.app) + "  ·  " + root.clockTime(segment.start) + "–" + root.clockTime(segment.end) + "  ·  " + root.formatTime((segment.end - segment.start) / 1000) + " " + segment.state;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    C.Caption {
+                                        anchors.centerIn: parent
+                                        visible: (root.day.segments || []).length === 0
+                                        text: root.day.legacy ? "Only the daily total was kept for this day" : "Nothing recorded"
+                                        color: Theme.disabled
+                                    }
+                                }
+                                HourAxis { Layout.fillWidth: true }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.gapM
+                                    Repeater {
+                                        model: root.dayRanking.concat((root.day.apps || []).length > 6 ? ["other"] : [])
+                                        RowLayout {
+                                            required property string modelData
+                                            spacing: Theme.gapXs
+                                            Swatch { color: root.appColor(parent.modelData === "other" ? "" : parent.modelData) }
+                                            C.Caption { text: parent.modelData === "other" ? "Other" : root.appLabel(parent.modelData) }
+                                        }
+                                    }
+                                    RowLayout {
+                                        spacing: Theme.gapXs
+                                        visible: root.day.watching >= 60
+                                        Swatch { color: Theme.activityWatching }
+                                        C.Caption { text: "Watching" }
+                                    }
+                                }
+                            }
+                        }
+                        C.Caption {
+                            visible: !root.weekly
+                            text: root.caption !== "" ? root.caption : "Select a block on the timeline for exact times."
+                            color: root.caption !== "" ? Theme.muted : Theme.disabled
+                            font.family: root.caption !== "" ? Theme.mono : Theme.font
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        C.Card {
+                            visible: !root.weekly
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 74
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: Theme.gapXs
+                                ColumnChart {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    values: (root.day.hours || []).map(slot => ({a: slot.active, b: slot.watching || 0}))
+                                    maximum: 3600
+                                    onPicked: index => {
+                                        const slot = root.day.hours[index];
+                                        root.caption = slot.label + "  ·  " + root.formatTime(slot.active) + " active  ·  " + root.formatTime(slot.watching || 0) + " watching";
+                                    }
+                                }
+                                HourAxis { Layout.fillWidth: true }
+                            }
+                        }
+                        C.Card {
+                            visible: !root.weekly
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            ScrollView {
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                clip: true
+                                contentWidth: availableWidth
+                                ColumnLayout {
+                                    width: parent.width
+                                    spacing: Theme.gapS
+                                    Repeater {
+                                        model: root.dayAppRows
+                                        ColumnLayout {
+                                            id: appLine
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            spacing: Theme.gapXs
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: Theme.gapS
+                                                AppGlyph { source: root.appIcon(appLine.modelData.app); size: 14 }
+                                                C.Label { text: root.appLabel(appLine.modelData.app); font.pixelSize: Theme.small; font.weight: Font.Medium; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                C.Caption {
+                                                    text: (appLine.modelData.windows.some(window => !window.startKnown || window.endReason === "gap") ? "partial  ·  " : "") + root.formatTime(appLine.modelData.total)
+                                                    font.family: Theme.mono
+                                                }
+                                            }
+                                            Item {
+                                                id: lane
+                                                Layout.fillWidth: true
+                                                Layout.preferredHeight: 8
+                                                Rectangle { anchors.fill: parent; radius: 2; color: Theme.raised }
+                                                Repeater {
+                                                    model: appLine.modelData.windows
+                                                    Rectangle {
+                                                        required property var modelData
+                                                        x: root.timeX(modelData.start, lane.width)
+                                                        width: Math.max(2, root.timeX(modelData.end, lane.width) - x)
+                                                        height: lane.height
+                                                        radius: 2
+                                                        color: Theme.activityWindow
+                                                        opacity: 0.55
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            onClicked: {
+                                                                const window = parent.modelData;
+                                                                root.caption = root.appLabel(window.app) + "  ·  " + (window.startKnown ? "opened " : "already open at ") + root.clockTime(window.start) + "  ·  "
+                                                                    + (window.endReason === "open" ? "still open" : window.endReason === "continues" ? "continued next day" : window.endReason === "gap" ? "last seen " + root.clockTime(window.end) : "closed " + root.clockTime(window.end));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Repeater {
+                                                    model: appLine.modelData.focus
+                                                    Rectangle {
+                                                        required property var modelData
+                                                        x: root.timeX(modelData.start, lane.width)
+                                                        width: Math.max(2, root.timeX(modelData.end, lane.width) - x)
+                                                        height: lane.height
+                                                        radius: 2
+                                                        color: root.appColor(appLine.modelData.app)
+                                                        opacity: modelData.state === "watching" ? 0.6 : 1
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    C.Caption {
+                                        visible: root.dayAppRows.length === 0
+                                        text: root.day.detailAvailable ? "No app windows recorded on this day." : "This day was recorded before app detail was kept; only its total remains."
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
+                        }
+                        // Week view
+                        C.Card {
+                            visible: root.weekly
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            ScrollView {
+                                anchors.fill: parent
+                                anchors.margins: 11
+                                clip: true
+                                contentWidth: availableWidth
+                                ColumnLayout {
+                                    width: parent.width
                                     spacing: Theme.gapXs
-                                    Item { Layout.preferredWidth: Math.ceil(Theme.caption * 2.4); Layout.preferredHeight: 14 }
                                     Repeater {
                                         model: root.week.days || []
-                                        C.Caption {
+                                        RowLayout {
+                                            id: weekDay
                                             required property var modelData
-                                            text: Qt.formatDate(new Date(modelData.date + "T12:00:00"), "ddd").slice(0, 2)
-                                            font.family: Theme.mono
                                             Layout.fillWidth: true
-                                            Layout.preferredWidth: 1
-                                            horizontalAlignment: Text.AlignHCenter
+                                            spacing: Theme.gapS
+                                            C.Label {
+                                                text: Qt.formatDate(new Date(weekDay.modelData.date + "T12:00:00"), "ddd")
+                                                font.family: Theme.mono
+                                                font.pixelSize: Theme.caption
+                                                font.weight: weekDay.modelData.date === root.selectedDate ? Font.Bold : Font.Normal
+                                                color: weekDay.modelData.date === root.selectedDate ? Theme.text : Theme.muted
+                                                Layout.preferredWidth: Math.ceil(Theme.caption * 2.6)
+                                            }
+                                            AppBar {
+                                                Layout.fillWidth: true
+                                                implicitHeight: 9
+                                                active: weekDay.modelData.active
+                                                watching: weekDay.modelData.watching || 0
+                                                maximum: Math.max(14400, ...(root.week.days || []).map(entry => entry.active + (entry.watching || 0)))
+                                            }
+                                            C.Caption { text: root.formatTime(weekDay.modelData.active); font.family: Theme.mono; Layout.preferredWidth: Math.ceil(Theme.caption * 4.4); horizontalAlignment: Text.AlignRight }
                                         }
                                     }
-                                }
-                                Repeater {
-                                    model: root.weekHasHours ? root.weekHourLabels : []
+                                    Item { Layout.preferredHeight: 8 }
                                     RowLayout {
-                                        id: hourLine
-                                        required property string modelData
+                                        visible: root.weekHasHours
                                         Layout.fillWidth: true
                                         spacing: Theme.gapXs
-                                        C.Caption { text: hourLine.modelData.slice(0, 2); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: Math.ceil(Theme.caption * 2.4) }
+                                        Item { Layout.preferredWidth: Math.ceil(Theme.caption * 2.4); Layout.preferredHeight: 14 }
                                         Repeater {
                                             model: root.week.days || []
-                                            Rectangle {
+                                            C.Caption {
                                                 required property var modelData
-                                                readonly property var slot: {
-                                                    const slots = modelData.hours || [];
-                                                    const label = hourLine.modelData;
-                                                    return slots.find(entry => entry.label === label) || (label.endsWith("a") ? slots.find(entry => entry.label === label.slice(0, 2) + ":00") : null);
-                                                }
+                                                text: Qt.formatDate(new Date(modelData.date + "T12:00:00"), "ddd").slice(0, 2)
+                                                font.family: Theme.mono
                                                 Layout.fillWidth: true
                                                 Layout.preferredWidth: 1
-                                                Layout.preferredHeight: 9
-                                                radius: 2
-                                                color: !slot ? "transparent" : slot.active >= 2400 ? Theme.accent : slot.active >= 1200 ? Theme.activityLevel3 : slot.active >= 60 ? Theme.activityLevel2 : (slot.watching || 0) >= 60 ? Theme.activityWatching : slot.unlocked >= 60 ? Theme.activityIdle : Theme.raised
-                                                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                                horizontalAlignment: Text.AlignHCenter
+                                            }
+                                        }
+                                    }
+                                    Repeater {
+                                        model: root.weekHasHours ? root.weekHourLabels : []
+                                        RowLayout {
+                                            id: hourLine
+                                            required property string modelData
+                                            Layout.fillWidth: true
+                                            spacing: Theme.gapXs
+                                            C.Caption { text: hourLine.modelData.slice(0, 2); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: Math.ceil(Theme.caption * 2.4) }
+                                            Repeater {
+                                                model: root.week.days || []
+                                                Rectangle {
+                                                    required property var modelData
+                                                    readonly property var slot: {
+                                                        const slots = modelData.hours || [];
+                                                        const label = hourLine.modelData;
+                                                        return slots.find(entry => entry.label === label) || (label.endsWith("a") ? slots.find(entry => entry.label === label.slice(0, 2) + ":00") : null);
+                                                    }
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredWidth: 1
+                                                    Layout.preferredHeight: 9
+                                                    radius: 2
+                                                    color: !slot ? "transparent" : slot.active >= 2400 ? Theme.accent : slot.active >= 1200 ? Theme.activityLevel3 : slot.active >= 60 ? Theme.activityLevel2 : (slot.watching || 0) >= 60 ? Theme.activityWatching : slot.unlocked >= 60 ? Theme.activityIdle : Theme.raised
+                                                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                                }
                                             }
                                         }
                                     }
@@ -1139,114 +1145,117 @@ FocusScope {
             }
 
             // Apps -------------------------------------------------------------
-            ColumnLayout {
+            Loader {
                 anchors.fill: parent
-                visible: root.mode === "apps" && root.appDetail === ""
-                spacing: Theme.gapM
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapXs
-                    C.Segmented {
-                        fill: false
-                        Layout.preferredWidth: 220
-                        model: [{key: "day", text: "Day"}, {key: "week", text: "Week"}, {key: "month", text: "Month"}]
-                        current: root.appsRange
-                        onActivated: key => root.appsRange = key
+                active: root.mode === "apps" && root.appDetail === ""
+                sourceComponent: ColumnLayout {
+                    anchors.fill: parent
+                    spacing: Theme.gapM
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapXs
+                        C.Segmented {
+                            fill: false
+                            Layout.preferredWidth: 220
+                            model: [{key: "day", text: "Day"}, {key: "week", text: "Week"}, {key: "month", text: "Month"}]
+                            current: root.appsRange
+                            onActivated: key => root.appsRange = key
+                        }
+                        C.Button { glyph: "back"; flat: true; implicitWidth: 30; Layout.leftMargin: 8; hint: "Earlier"; onClicked: root.shiftPeriod(-1) }
+                        C.Label { text: root.periodLabel(); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                        C.Button { glyph: "chevron"; flat: true; implicitWidth: 30; enabled: root.appsData.end < root.today(); hint: "Later"; onClicked: root.shiftPeriod(1) }
                     }
-                    C.Button { glyph: "back"; flat: true; implicitWidth: 30; Layout.leftMargin: 8; hint: "Earlier"; onClicked: root.shiftPeriod(-1) }
-                    C.Label { text: root.periodLabel(); font.weight: Font.DemiBold; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
-                    C.Button { glyph: "chevron"; flat: true; implicitWidth: 30; enabled: root.appsData.end < root.today(); hint: "Later"; onClicked: root.shiftPeriod(1) }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapS
-                    C.Label { text: root.formatTime(root.appsData.total); font.family: Theme.mono; font.pixelSize: Theme.body + 4; font.weight: Font.DemiBold }
-                    C.Caption { text: "in apps" + (root.delta(root.appsData.total, root.appsData.previousTotal) ? "  ·  " + root.delta(root.appsData.total, root.appsData.previousTotal) + " vs previous " + root.appsRange : ""); Layout.fillWidth: true }
-                    Swatch { color: Theme.accent }
-                    C.Caption { text: "Active" }
-                    Swatch { color: Theme.activityWatching; Layout.leftMargin: 6 }
-                    C.Caption { text: "Watching" }
-                }
-                C.Card {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    ScrollView {
-                        id: appsScroll
-                        anchors.fill: parent
-                        anchors.margins: 6
-                        clip: true
-                        contentWidth: availableWidth
-                        ColumnLayout {
-                            width: parent.width
-                            spacing: 2
-                            Repeater {
-                                id: appRows
-                                model: root.appsData.apps || []
-                                Rectangle {
-                                    id: appRow
-                                    required property var modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 40
-                                    radius: Theme.radiusSmall
-                                    color: rowArea.containsMouse || activeFocus ? Theme.hover : "transparent"
-                                    border.width: activeFocus ? 1.5 : 0
-                                    border.color: Theme.accent
-                                    Behavior on color { ColorAnimation { duration: Theme.fast } }
-                                    activeFocusOnTab: true
-                                    onActiveFocusChanged: if (activeFocus) {
-                                        const view = appsScroll.contentItem;
-                                        if (y < view.contentY)
-                                            view.contentY = y;
-                                        else if (y + height > view.contentY + view.height)
-                                            view.contentY = y + height - view.height;
-                                    }
-                                    Keys.onPressed: event => {
-                                        const next = event.key === Qt.Key_Down ? appRows.itemAt(index + 1) : event.key === Qt.Key_Up ? appRows.itemAt(index - 1) : null;
-                                        if (next)
-                                            next.forceActiveFocus(Qt.TabFocusReason);
-                                        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
-                                            root.openApp(modelData.app);
-                                        else if (event.key !== Qt.Key_Down && event.key !== Qt.Key_Up)
-                                            return;
-                                        event.accepted = true;
-                                    }
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 8
-                                        anchors.rightMargin: 10
-                                        spacing: Theme.gapS
-                                        C.Caption { text: String(appRow.index + 1); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 16; horizontalAlignment: Text.AlignRight }
-                                        AppGlyph { source: root.appIcon(appRow.modelData.app); size: 18 }
-                                        C.Label { text: root.appLabel(appRow.modelData.app); Layout.preferredWidth: 150; elide: Text.ElideRight }
-                                        AppBar {
-                                            Layout.fillWidth: true
-                                            active: appRow.modelData.active
-                                            watching: appRow.modelData.watching
-                                            maximum: ((root.appsData.apps || [])[0] || {}).total || 1
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapS
+                        C.Label { text: root.formatTime(root.appsData.total); font.family: Theme.mono; font.pixelSize: Theme.body + 4; font.weight: Font.DemiBold }
+                        C.Caption { text: "in apps" + (root.delta(root.appsData.total, root.appsData.previousTotal) ? "  ·  " + root.delta(root.appsData.total, root.appsData.previousTotal) + " vs previous " + root.appsRange : ""); Layout.fillWidth: true }
+                        Swatch { color: Theme.accent }
+                        C.Caption { text: "Active" }
+                        Swatch { color: Theme.activityWatching; Layout.leftMargin: 6 }
+                        C.Caption { text: "Watching" }
+                    }
+                    C.Card {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        ScrollView {
+                            id: appsScroll
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            clip: true
+                            contentWidth: availableWidth
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: 2
+                                Repeater {
+                                    id: appRows
+                                    model: root.appsData.apps || []
+                                    Rectangle {
+                                        id: appRow
+                                        required property var modelData
+                                        required property int index
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 40
+                                        radius: Theme.radiusSmall
+                                        color: rowArea.containsMouse || activeFocus ? Theme.hover : "transparent"
+                                        border.width: activeFocus ? 1.5 : 0
+                                        border.color: Theme.accent
+                                        Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                        activeFocusOnTab: true
+                                        onActiveFocusChanged: if (activeFocus) {
+                                            const view = appsScroll.contentItem;
+                                            if (y < view.contentY)
+                                                view.contentY = y;
+                                            else if (y + height > view.contentY + view.height)
+                                                view.contentY = y + height - view.height;
                                         }
-                                        C.Label { text: root.formatTime(appRow.modelData.total); font.family: Theme.mono; font.pixelSize: Theme.small; Layout.preferredWidth: 62; horizontalAlignment: Text.AlignRight }
-                                        C.Caption { text: Math.round(appRow.modelData.share * 100) + "%"; font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight }
-                                        C.Caption {
-                                            text: appRow.modelData.previous >= 60 ? root.delta(appRow.modelData.total, appRow.modelData.previous) : "new"
-                                            font.family: Theme.mono
-                                            Layout.preferredWidth: 58
-                                            horizontalAlignment: Text.AlignRight
+                                        Keys.onPressed: event => {
+                                            const next = event.key === Qt.Key_Down ? appRows.itemAt(index + 1) : event.key === Qt.Key_Up ? appRows.itemAt(index - 1) : null;
+                                            if (next)
+                                                next.forceActiveFocus(Qt.TabFocusReason);
+                                            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+                                                root.openApp(modelData.app);
+                                            else if (event.key !== Qt.Key_Down && event.key !== Qt.Key_Up)
+                                                return;
+                                            event.accepted = true;
                                         }
-                                        C.Icon { name: "chevron"; size: 12; color: Theme.disabled }
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 8
+                                            anchors.rightMargin: 10
+                                            spacing: Theme.gapS
+                                            C.Caption { text: String(appRow.index + 1); font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 16; horizontalAlignment: Text.AlignRight }
+                                            AppGlyph { source: root.appIcon(appRow.modelData.app); size: 18 }
+                                            C.Label { text: root.appLabel(appRow.modelData.app); Layout.preferredWidth: 150; elide: Text.ElideRight }
+                                            AppBar {
+                                                Layout.fillWidth: true
+                                                active: appRow.modelData.active
+                                                watching: appRow.modelData.watching
+                                                maximum: ((root.appsData.apps || [])[0] || {}).total || 1
+                                            }
+                                            C.Label { text: root.formatTime(appRow.modelData.total); font.family: Theme.mono; font.pixelSize: Theme.small; Layout.preferredWidth: 62; horizontalAlignment: Text.AlignRight }
+                                            C.Caption { text: Math.round(appRow.modelData.share * 100) + "%"; font.family: Theme.mono; color: Theme.disabled; Layout.preferredWidth: 34; horizontalAlignment: Text.AlignRight }
+                                            C.Caption {
+                                                text: appRow.modelData.previous >= 60 ? root.delta(appRow.modelData.total, appRow.modelData.previous) : "new"
+                                                font.family: Theme.mono
+                                                Layout.preferredWidth: 58
+                                                horizontalAlignment: Text.AlignRight
+                                            }
+                                            C.Icon { name: "chevron"; size: 12; color: Theme.disabled }
+                                        }
+                                        MouseArea { id: rowArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openApp(appRow.modelData.app) }
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: root.appLabel(modelData.app) + ", " + root.formatTime(modelData.total)
                                     }
-                                    MouseArea { id: rowArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.openApp(appRow.modelData.app) }
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: root.appLabel(modelData.app) + ", " + root.formatTime(modelData.total)
                                 }
-                            }
-                            C.EmptyState {
-                                visible: (root.appsData.apps || []).length === 0
-                                Layout.fillWidth: true
-                                Layout.topMargin: 40
-                                glyph: "activity"
-                                title: "No app time in this " + root.appsRange
-                                description: "Focused apps are counted while you are active or watching."
+                                C.EmptyState {
+                                    visible: (root.appsData.apps || []).length === 0
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 40
+                                    glyph: "activity"
+                                    title: "No app time in this " + root.appsRange
+                                    description: "Focused apps are counted while you are active or watching."
+                                }
                             }
                         }
                     }
@@ -1254,78 +1263,81 @@ FocusScope {
             }
 
             // App detail -------------------------------------------------------
-            ColumnLayout {
+            Loader {
                 anchors.fill: parent
-                visible: root.mode === "apps" && root.appDetail !== ""
-                spacing: Theme.gapM
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapS
-                    C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: "All apps"; onClicked: root.appDetail = "" }
-                    AppGlyph { source: root.appIcon(root.appDetail); size: 22 }
-                    C.Label { text: root.appLabel(root.appDetail); font.pixelSize: Theme.body + 2; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                    C.Caption { text: root.appDetail; font.family: Theme.mono; color: Theme.disabled; elide: Text.ElideMiddle; Layout.maximumWidth: 220 }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapS
-                    C.Stat { label: "All time"; value: root.formatTime(root.appData.total); note: root.formatTime(root.appData.watching) + " watching" }
-                    C.Stat { label: "Last 30 days"; value: root.formatTime((root.appData.days || []).reduce((sum, entry) => sum + entry.total, 0)); note: (root.appData.days || []).filter(entry => entry.total >= 60).length + " days used" }
-                    C.Stat { label: "Per day used"; value: root.formatTime(root.appData.averagePerDay); note: root.appData.daysUsed + " days in total" }
-                    C.Stat { label: "First seen"; value: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "d MMM") : "–"; note: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "yyyy") : "" }
-                }
-                C.Label { text: "Last 30 days"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
-                C.Card {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredHeight: 3
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 11
-                        spacing: Theme.gapXs
-                        ColumnChart {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            values: (root.appData.days || []).map(entry => ({a: entry.total}))
-                            maximum: Math.max(3600, ...(root.appData.days || []).map(entry => entry.total))
-                            onPicked: index => {
-                                selectedIndex = index;
-                                const entry = root.appData.days[index];
-                                monthCaption.text = Qt.formatDate(new Date(entry.date + "T12:00:00"), "ddd d MMM") + "  ·  " + root.formatTime(entry.total);
+                active: root.mode === "apps" && root.appDetail !== ""
+                sourceComponent: ColumnLayout {
+                    anchors.fill: parent
+                    spacing: Theme.gapM
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapS
+                        C.Button { glyph: "back"; flat: true; implicitWidth: 30; hint: "All apps"; onClicked: root.appDetail = "" }
+                        AppGlyph { source: root.appIcon(root.appDetail); size: 22 }
+                        C.Label { text: root.appLabel(root.appDetail); font.pixelSize: Theme.body + 2; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                        C.Caption { text: root.appDetail; font.family: Theme.mono; color: Theme.disabled; elide: Text.ElideMiddle; Layout.maximumWidth: 220 }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapS
+                        C.Stat { label: "All time"; value: root.formatTime(root.appData.total); note: root.formatTime(root.appData.watching) + " watching" }
+                        C.Stat { label: "Last 30 days"; value: root.formatTime((root.appData.days || []).reduce((sum, entry) => sum + entry.total, 0)); note: (root.appData.days || []).filter(entry => entry.total >= 60).length + " days used" }
+                        C.Stat { label: "Per day used"; value: root.formatTime(root.appData.averagePerDay); note: root.appData.daysUsed + " days in total" }
+                        C.Stat { label: "First seen"; value: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "d MMM") : "–"; note: root.appData.firstDay ? Qt.formatDate(new Date(root.appData.firstDay + "T12:00:00"), "yyyy") : "" }
+                    }
+                    C.Label { text: "Last 30 days"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
+                    C.Card {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: 3
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 11
+                            spacing: Theme.gapXs
+                            ColumnChart {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                values: (root.appData.days || []).map(entry => ({a: entry.total}))
+                                maximum: Math.max(3600, ...(root.appData.days || []).map(entry => entry.total))
+                                onPicked: index => {
+                                    selectedIndex = index;
+                                    const entry = root.appData.days[index];
+                                    monthCaption.text = Qt.formatDate(new Date(entry.date + "T12:00:00"), "ddd d MMM") + "  ·  " + root.formatTime(entry.total);
+                                }
                             }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            C.Caption { text: (root.appData.days || []).length ? Qt.formatDate(new Date(root.appData.days[0].date + "T12:00:00"), "d MMM") : ""; font.family: Theme.mono; color: Theme.disabled }
-                            C.Caption { id: monthCaption; text: "Select a day"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
-                            C.Caption { text: "Today"; font.family: Theme.mono; color: Theme.disabled }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                C.Caption { text: (root.appData.days || []).length ? Qt.formatDate(new Date(root.appData.days[0].date + "T12:00:00"), "d MMM") : ""; font.family: Theme.mono; color: Theme.disabled }
+                                C.Caption { id: monthCaption; text: "Select a day"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
+                                C.Caption { text: "Today"; font.family: Theme.mono; color: Theme.disabled }
+                            }
                         }
                     }
-                }
-                C.Label { text: "When you use it"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
-                C.Card {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.preferredHeight: 2
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 11
-                        spacing: Theme.gapXs
-                        ColumnChart {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            values: (root.appData.hours || []).map(seconds => ({a: seconds}))
-                            maximum: Math.max(60, ...(root.appData.hours || []))
-                            onPicked: index => {
-                                selectedIndex = index;
-                                hourCaption.text = String(index).padStart(2, "0") + ":00  ·  " + root.formatTime(root.appData.hours[index]) + " over 30 days";
+                    C.Label { text: "When you use it"; font.pixelSize: Theme.small; font.weight: Font.Medium; color: Theme.muted }
+                    C.Card {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredHeight: 2
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 11
+                            spacing: Theme.gapXs
+                            ColumnChart {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                values: (root.appData.hours || []).map(seconds => ({a: seconds}))
+                                maximum: Math.max(60, ...(root.appData.hours || []))
+                                onPicked: index => {
+                                    selectedIndex = index;
+                                    hourCaption.text = String(index).padStart(2, "0") + ":00  ·  " + root.formatTime(root.appData.hours[index]) + " over 30 days";
+                                }
                             }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                HourAxis { Layout.fillWidth: true }
+                            }
+                            C.Caption { id: hourCaption; text: "Hour of day, last 30 days"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
                         }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            HourAxis { Layout.fillWidth: true }
-                        }
-                        C.Caption { id: hourCaption; text: "Hour of day, last 30 days"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; font.family: Theme.mono }
                     }
                 }
             }

@@ -1492,7 +1492,7 @@ class Backend:
                 except Exception as exc:
                     raise BackendError("wallhaven", wallhaven.message(exc)) from None
         if method == "wallpaper.list":
-            result = await asyncio.to_thread(wallpaper.catalog, settings()["wallpaperDirectory"])
+            result = await asyncio.to_thread(wallpaper.catalog, settings()["wallpaperDirectory"], CACHE / "thumbs")
             try:
                 result["active"] = await self.active_wallpapers()
             except BackendError as exc:

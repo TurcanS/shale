@@ -282,9 +282,15 @@ FocusScope {
                         clip: true
                         Image {
                             id: thumbnail
+                            // A local wallpaper's small copy once it exists (see wallpaper.catalog). The first time,
+                            // the original is decoded and the result saved as that copy, so later opens skip the decode.
+                            property bool copyBroken: false
+                            property bool copySaved: false
+                            readonly property string original: tile.modelData.url
                             anchors.fill: parent
                             anchors.margins: 2
-                            source: Math.abs(tile.distance) <= 3 ? tile.modelData.url : ""
+                            // Tiles just out of view preload only small copies; an original waits until its tile shows, so it can be saved.
+                            source: Math.abs(tile.distance) > 3 ? "" : tile.modelData.thumb && !copyBroken ? tile.modelData.thumb : tile.visible || !tile.modelData.thumbPath ? original : ""
                             asynchronous: true
                             sourceSize.width: 760
                             cache: true
@@ -292,6 +298,24 @@ FocusScope {
                             fillMode: Image.PreserveAspectCrop
                             opacity: status === Image.Ready ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: Theme.enter } }
+                            function saveCopy() {
+                                if (copySaved || !tile.modelData.thumbPath || status !== Image.Ready || source.toString() !== original || !tile.visible || width <= 0)
+                                    return;
+                                copySaved = grabToImage(result => result.saveToFile(tile.modelData.thumbPath),
+                                                        Qt.size(760, Math.round(760 * height / width)));
+                            }
+                            onStatusChanged: {
+                                if (status === Image.Error && tile.modelData.thumb && !copyBroken)
+                                    copyBroken = true;
+                                else
+                                    saveCopy();
+                            }
+                            Connections {
+                                target: tile
+                                function onVisibleChanged() {
+                                    thumbnail.saveCopy();
+                                }
+                            }
                         }
                         C.Icon {
                             anchors.centerIn: parent

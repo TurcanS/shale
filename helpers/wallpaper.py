@@ -2,6 +2,7 @@
 
 No image downloads happen here."""
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,12 +19,22 @@ QUERY_LINE = re.compile(r"^:?\s*([^:\s]+): .*?currently displaying: image: (.+)$
 EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
 CATALOG_LIMIT = 500
 
-def catalog(folder):
-    """Images in the folder and its subfolders; `limited` says the listing stopped at CATALOG_LIMIT entries."""
+def thumbnail_name(path, info):
+    """The cached thumbnail's file name: changes whenever the image does, so a stale one is never shown."""
+    key = f"{path}\0{info.st_mtime_ns}\0{info.st_size}".encode()
+    return hashlib.sha1(key).hexdigest()[:24] + ".jpg"
+
+def catalog(folder, thumbs=None):
+    """Images in the folder and its subfolders; `limited` says the listing stopped at CATALOG_LIMIT entries.
+
+    With a `thumbs` folder, each entry also says where the picker keeps its small copy: `thumb` is its URL once it
+    exists, `thumbPath` where to write it otherwise. Decoding a large original for every open of the picker costs far
+    more than reading a 760x480 JPEG. Copies of images no longer listed are removed."""
     directory = Path(folder).expanduser().resolve()
     if not directory.is_dir():
         return {'directory': str(directory), 'entries': [], 'limited': False}
     entries = []
+    limited = False
     for base, dirs, files in os.walk(directory, followlinks=False):
         dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
         for name in sorted(files):
@@ -31,10 +42,46 @@ def catalog(folder):
             if path.suffix.lower() not in EXTENSIONS or not path.is_file():
                 continue
             resolved = path.resolve()
-            entries.append({'path': str(resolved), 'url': resolved.as_uri(), 'name': path.stem.replace('_', ' ').replace('-', ' '), 'file': name})
+            entry = {'path': str(resolved), 'url': resolved.as_uri(), 'name': path.stem.replace('_', ' ').replace('-', ' '), 'file': name}
+            if thumbs is not None:
+                try:
+                    entry['thumbFile'] = thumbnail_name(resolved, resolved.stat())
+                except OSError:
+                    pass
+            entries.append(entry)
             if len(entries) >= CATALOG_LIMIT:
-                return {'directory': str(directory), 'entries': entries, 'limited': True}
-    return {'directory': str(directory), 'entries': entries, 'limited': False}
+                limited = True
+                break
+        if limited:
+            break
+    if thumbs is not None:
+        attach_thumbnails(entries, Path(thumbs))
+    return {'directory': str(directory), 'entries': entries, 'limited': limited}
+
+def attach_thumbnails(entries, thumbs):
+    try:
+        thumbs.mkdir(parents=True, exist_ok=True)
+        present = {item.name for item in thumbs.iterdir() if item.suffix == '.jpg'}
+    except OSError:
+        for entry in entries:
+            entry.pop('thumbFile', None)
+        return
+    wanted = set()
+    for entry in entries:
+        name = entry.pop('thumbFile', None)
+        if not name:
+            continue
+        wanted.add(name)
+        target = thumbs / name
+        if name in present:
+            entry['thumb'] = target.as_uri()
+        else:
+            entry['thumbPath'] = str(target)
+    for name in present - wanted:
+        try:
+            (thumbs / name).unlink()
+        except OSError:
+            pass
 
 def running(proc=Path('/proc')):
     """Names (comm) of this user's running processes."""
