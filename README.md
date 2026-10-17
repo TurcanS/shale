@@ -2,7 +2,7 @@
 
 A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshell.org): a compact top bar, animated panels and the everyday controls you'd otherwise need separate apps for.
 
-![Shale desktop](docs/screenshots/desktop.png)
+![Shale showcase](docs/screenshots/showcase.gif)
 
 | Control center | Launcher |
 |---|---|
