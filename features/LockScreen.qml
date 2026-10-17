@@ -167,10 +167,10 @@ Scope {
             }
         }
     }
-    // The desktop comes back from the clock outward instead of appearing all at once.
+    // The desktop folds in toward the clock before the lock screen takes over, and comes back from it after.
     Variants {
         model: Quickshell.screens
-        delegate: UnlockReveal {
+        delegate: LockTransition {
             id: reveal
             required property var modelData
             screen: reveal.modelData
@@ -179,7 +179,7 @@ Scope {
     }
     WlSessionLock {
         id: lock
-        locked: ShellState.locked && ShellState.lockOwner === "shell"
+        locked: ShellState.locked && ShellState.lockOwner === "shell" && ShellState.lockEngaged
         onSecureChanged: ShellState.lockSecure = secure
         WlSessionLockSurface {
             id: surface

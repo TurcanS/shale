@@ -44,17 +44,29 @@ PanelWindow {
         opacity: bar.arrival
         transform: Translate { y: -(1 - bar.arrival) * 14 }
     }
-    // Hidden while locked; after an unlock it drops in just behind the desktop's reveal.
+    // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1
     Component.onCompleted: arrival = ShellState.locked ? 0 : 1
     Connections {
         target: ShellState
         function onLockedChanged() {
             arrive.stop();
-            bar.arrival = 0;
-            if (!ShellState.locked)
+            leave.stop();
+            if (ShellState.locked) {
+                leave.restart();
+            } else {
+                bar.arrival = 0;
                 arrive.restart();
+            }
         }
+    }
+    NumberAnimation {
+        id: leave
+        target: bar
+        property: "arrival"
+        to: 0
+        duration: Theme.reduced ? 0 : Theme.lowPower ? 140 : 240
+        easing.type: Easing.InCubic
     }
     SequentialAnimation {
         id: arrive

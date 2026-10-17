@@ -58,8 +58,22 @@ QtObject {
     property string lockOwner: ""
     // True once the compositor confirms every output is covered by the lock screen.
     property bool lockSecure: false
-    onLockedChanged: if (Backend.ready)
-        Backend.request("session.lockedHint", {locked: locked})
+    // The shell's lock screen takes over once the desktop has folded away (LockTransition), a moment after
+    // `locked`; until then lockStatus reports it locked but not yet secure, as it would while the compositor confirms.
+    property bool lockEngaged: false
+    readonly property int lockLead: setting("reducedMotion", false) ? 0 : powerSaver || setting("batterySaving", false) ? 420 : 680
+    property Timer lockEngage: Timer {
+        interval: root.lockLead
+        onTriggered: root.lockEngaged = root.locked && root.lockOwner === "shell"
+    }
+    onLockedChanged: {
+        if (!locked) {
+            lockEngage.stop();
+            lockEngaged = false;
+        }
+        if (Backend.ready)
+            Backend.request("session.lockedHint", {locked: locked});
+    }
     function lockShell() {
         // hyprlock only when chosen and known to be installed; otherwise the screen would stay unlocked.
         if (setting("lockScreen", "builtin") === "hyprlock" && Backend.has("hyprlock", false))
@@ -70,6 +84,10 @@ QtObject {
         osdVisible = false;
         lockOwner = "shell";
         locked = true;
+        if (lockLead > 0)
+            lockEngage.restart();
+        else
+            lockEngaged = true;
         return true;
     }
     // Called by the lock screen after PAM accepts the password.
