@@ -167,6 +167,16 @@ Scope {
             }
         }
     }
+    // The desktop comes back from the clock outward instead of appearing all at once.
+    Variants {
+        model: Quickshell.screens
+        delegate: UnlockReveal {
+            id: reveal
+            required property var modelData
+            screen: reveal.modelData
+            context: root
+        }
+    }
     WlSessionLock {
         id: lock
         locked: ShellState.locked && ShellState.lockOwner === "shell"

@@ -30,7 +30,9 @@ PanelWindow {
     WlrLayershell.namespace: "shale-bar"
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: ExclusionMode.Auto
-    visible: !ShellState.locked && !(ShellState.setting("hideFullscreen", true) && content.monitor && content.monitor.hasFullscreen) && ShellState.setting("hiddenOutputs", []).indexOf(bar.outputName) < 0
+    // Stays mapped under the lock screen: unmapping would hand its space to the windows, and they would all
+    // shrink back into place as the session unlocks.
+    visible: !(ShellState.setting("hideFullscreen", true) && content.monitor && content.monitor.hasFullscreen) && ShellState.setting("hiddenOutputs", []).indexOf(bar.outputName) < 0
     BarContent {
         id: content
         anchors.fill: parent
@@ -38,7 +40,32 @@ PanelWindow {
         window: bar
         tooltip: barTooltip
         trayMenu: trayMenu
-        onScreen: bar.visible
+        onScreen: bar.visible && !ShellState.locked
+        opacity: bar.arrival
+        transform: Translate { y: -(1 - bar.arrival) * 14 }
+    }
+    // Hidden while locked; after an unlock it drops in just behind the desktop's reveal.
+    property real arrival: 1
+    Component.onCompleted: arrival = ShellState.locked ? 0 : 1
+    Connections {
+        target: ShellState
+        function onLockedChanged() {
+            arrive.stop();
+            bar.arrival = 0;
+            if (!ShellState.locked)
+                arrive.restart();
+        }
+    }
+    SequentialAnimation {
+        id: arrive
+        PauseAnimation { duration: Theme.reduced ? 0 : 180 }
+        NumberAnimation {
+            target: bar
+            property: "arrival"
+            to: 1
+            duration: Theme.reduced ? 0 : Theme.lowPower ? 200 : 420
+            easing.type: Easing.OutCubic
+        }
     }
     TrayMenu {
         id: trayMenu
