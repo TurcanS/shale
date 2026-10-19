@@ -5,7 +5,8 @@ QtObject {
     readonly property var surfacePalettes: ({
         charcoal: {background: "#000000", panel: "#111214", surface: "#1b1d20", raised: "#25272b", hover: "#34373c", border: "#303237", text: "#f0ede7", muted: "#a9abb1", disabled: "#777b83"},
         midnight: {background: "#04070d", panel: "#101722", surface: "#1b2531", raised: "#273543", hover: "#35495a", border: "#344352", text: "#edf1f5", muted: "#a9b6c2", disabled: "#778696"},
-        warm: {background: "#070605", panel: "#191613", surface: "#241f1b", raised: "#302923", hover: "#40372f", border: "#3a322b", text: "#f1ede6", muted: "#b7ada3", disabled: "#827a73"}
+        warm: {background: "#070605", panel: "#191613", surface: "#241f1b", raised: "#302923", hover: "#40372f", border: "#3a322b", text: "#f1ede6", muted: "#b7ada3", disabled: "#827a73"},
+        basalt: {background: "#050709", panel: "#0c0f12", surface: "#16191c", raised: "#202328", hover: "#2b2f35", border: "#2f3338", text: "#f0ece5", muted: "#a7abb1", disabled: "#71757a"}
     })
     readonly property var surfaces: surfacePalettes[ShellState.setting("surfaceTone", "charcoal")] || surfacePalettes.charcoal
     readonly property color background: surfaces.background
@@ -50,6 +51,8 @@ QtObject {
     readonly property color border: surfaces.border
     readonly property color text: surfaces.text
     readonly property color muted: surfaces.muted
+    // The partner of the accent (the end of the Front's gradient, the hot edge of a fired reminder).
+    readonly property color accent2: "#fc7b6d"
     readonly property color accentHover: Qt.hsla(accentHue, accent.hslSaturation, Math.min(1, accent.hslLightness + 0.08), 1)
     readonly property color accentText: contrast(accent, selection) >= 4.5 ? accent : text
     readonly property color disabled: surfaces.disabled

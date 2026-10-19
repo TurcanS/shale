@@ -67,6 +67,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
+SURFACE_TONES: tuple[str, ...] = ("charcoal", "midnight", "warm", "basalt")
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shale/config.json"
 RUNTIME = runtime_base() / "shale"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shale"
@@ -223,7 +224,7 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose a supported text size.")
     if key == "captureDelay" and value not in (0, 3, 5, 10):
         raise BackendError("invalid", "Choose a supported capture delay.")
-    if key == "surfaceTone" and value not in ("charcoal", "midnight", "warm"):
+    if key == "surfaceTone" and value not in SURFACE_TONES:
         raise BackendError("invalid", "Choose a supported surface tone.")
     if key in ("accentColor", "accentManual") and ((luminance := accent_luminance(value)) is None or luminance < 0.28):
         raise BackendError("invalid", "Choose a brighter six-digit hex color.")

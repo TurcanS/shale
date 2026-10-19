@@ -34,12 +34,14 @@ ColumnLayout {
         {name: "Lilac", color: "#c8b4e9"},
         {name: "Orchid", color: "#e1acd1"},
         {name: "Ochre", color: "#e0c283"},
-        {name: "Clay", color: "#d8ae98"}
+        {name: "Clay", color: "#d8ae98"},
+        {name: "Ember", color: "#fda856"}
     ]
     readonly property var tones: [
         {name: "Charcoal", key: "charcoal"},
         {name: "Midnight", key: "midnight"},
-        {name: "Warm", key: "warm"}
+        {name: "Warm", key: "warm"},
+        {name: "Basalt", key: "basalt"}
     ]
     function validAccent(value) { return /^#[0-9a-fA-F]{6}$/.test(value) && Theme.luminance(Qt.color(value)) >= 0.28; }
     function applyCustom() {
