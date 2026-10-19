@@ -34,7 +34,7 @@ PanelWindow {
     }
     // Tall enough for the open Day hub, but transparent and click-through outside the visible shapes; the space kept
     // from windows stays the bar's own 32 px, so opening the hub never moves a window.
-    implicitHeight: hub.openHeight
+    implicitHeight: hub.openHeight + hub.shadowRoom
     color: "transparent"
     mask: Region {
         item: content
@@ -107,9 +107,21 @@ PanelWindow {
         target: bar
         property: "dayProgress"
     }
+    // Hyprland drops a grab that starts before the bar can take the keyboard, so it is armed a moment after opening.
+    property bool dayGrab: false
+    Timer {
+        id: dayGrabArm
+        interval: 100
+        onTriggered: bar.dayGrab = bar.dayOpen
+    }
+    onDayOpenChanged: {
+        dayGrab = false;
+        if (dayOpen)
+            dayGrabArm.restart();
+    }
     HyprlandFocusGrab {
         windows: [bar]
-        active: bar.dayOpen
+        active: bar.dayGrab
         onCleared: bar.closeDay()
     }
     DayHub {

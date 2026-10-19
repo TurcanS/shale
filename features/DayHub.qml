@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import "../core"
 import "../components" as C
@@ -17,6 +18,8 @@ Item {
     readonly property int openWidth: 640
     readonly property int openHeight: 460
     readonly property alias shape: shape
+    // Space under the open hub for its shadow, inside the window so the shadow is not cut off.
+    readonly property int shadowRoom: 40
     signal dismissed()
     function settle(from, to, t) {
         return from + (to - from) * t;
@@ -45,6 +48,16 @@ Item {
     function focusCapture() {
         capture.forceActiveFocus();
     }
+    // The same lift as the other panels; skipped when effects are trimmed.
+    RectangularShadow {
+        anchors.fill: shape
+        visible: shape.visible && !Theme.lowPower
+        opacity: hub.grow
+        radius: shape.radius
+        blur: 28
+        offset.y: 8
+        color: Qt.rgba(0, 0, 0, 0.5)
+    }
     Rectangle {
         id: shape
         visible: hub.progress > 0
@@ -58,6 +71,9 @@ Item {
         topLeftRadius: hub.edge ? hub.settle(radius, 0, hub.grow) : radius
         topRightRadius: topLeftRadius
         color: Theme.panel
+        // A hairline edge separates the hub from dark windows once it has left the bar.
+        border.width: hub.grow > 0 ? 1 : 0
+        border.color: Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, hub.grow)
         clip: true
         Keys.onEscapePressed: hub.dismissed()
         ColumnLayout {
