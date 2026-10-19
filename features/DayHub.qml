@@ -38,11 +38,24 @@ Item {
     component Piece: Item {
         id: piece
         property int order: 0
-        // Each piece rises 6 px in order while opening, about 30 ms apart; closing fades all at once.
-        readonly property real shown: hub.opening ? hub.clamp((hub.progress - 0.45 - order * 0.07) / 0.35) : hub.clamp((hub.progress - 0.3) / 0.7)
+        // Each piece rises 6 px in order while opening, about 30 ms apart, and all fade together when closing. An
+        // animation of its own (not a formula of progress) lets a reversal carry on from where each piece is.
+        property real shown: hub.opening ? 1 : 0
+        Behavior on shown {
+            id: rise
+            SequentialAnimation {
+                PauseAnimation {
+                    duration: rise.targetValue < 1 || Theme.reduced ? 0 : (Theme.lowPower ? 80 + 15 * piece.order : 160 + 30 * piece.order)
+                }
+                NumberAnimation {
+                    duration: rise.targetValue < 1 ? Theme.fast : Theme.enter
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
         Layout.fillWidth: true
         opacity: shown
-        transform: Translate { y: Theme.reduced ? 0 : (1 - hub.outCubic(piece.shown)) * 6 }
+        transform: Translate { y: Theme.reduced ? 0 : (1 - piece.shown) * 6 }
     }
     readonly property real grow: clamp((progress - 0.2) / 0.8)
     function focusCapture() {
@@ -76,6 +89,14 @@ Item {
         border.color: Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, hub.grow)
         clip: true
         Keys.onEscapePressed: hub.dismissed()
+        // The hub lies over the middle of the bar; without this, clicks, scrolls and hovers on it would reach the
+        // bar buttons underneath (the clock would open the calendar).
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            hoverEnabled: true
+            onWheel: wheel => wheel.accepted = true
+        }
         ColumnLayout {
             x: Theme.panelPadding
             y: Theme.panelPadding
