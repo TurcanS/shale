@@ -35,6 +35,11 @@ Item {
         })
     // The now-playing button while it exists, for the hover card.
     property Item mediaButton: null
+    // Placeholder entry to the Day hub (morph spike): sits just right of the center zone.
+    property Item centerZone: null
+    property bool dayOpen: false
+    readonly property alias dayPill: dayPill
+    signal dayClicked()
     property bool mediaHovered: false
     readonly property var monitor: Services.workspaces.find(w => w.monitor && w.monitor.name === bar.outputName && w.active)
     function controlActive(detail) {
@@ -68,6 +73,7 @@ Item {
             x: modelData === "left" ? 5 : modelData === "center" ? Math.round((bar.width - width) / 2) : bar.width - width - 5
             height: parent.height
             spacing: modelData === "left" ? Theme.gapS : Theme.gapXs
+            Component.onCompleted: if (modelData === "center") bar.centerZone = zone
             Repeater {
                 model: bar.layout[zone.modelData]
                 Loader {
@@ -80,6 +86,15 @@ Item {
                 }
             }
         }
+    }
+    BarButton {
+        id: dayPill
+        x: bar.centerZone ? bar.centerZone.x + bar.centerZone.width + Theme.gapS : 0
+        anchors.verticalCenter: parent.verticalCenter
+        text: "Day"
+        flat: true
+        selected: bar.dayOpen
+        onClicked: bar.dayClicked()
     }
     Component {
         id: launcherItem
