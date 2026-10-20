@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Shapes
@@ -36,10 +37,17 @@ Item {
     // The now-playing button while it exists, for the hover card.
     property Item mediaButton: null
     // Placeholder entry to the Day hub (morph spike): sits just right of the center zone.
-    property Item centerZone: null
     property bool dayOpen: false
-    readonly property alias dayPill: dayPill
+    // The clock, which is the Day pill; null when the clock is not in the bar.
+    property Item dayAnchor: null
     signal dayClicked()
+    // Where the Day hub grows from, in this item's coordinates: the clock, or the middle of the bar without one.
+    function dayRect() {
+        if (!dayAnchor || !dayAnchor.visible)
+            return Qt.rect(Math.round(width / 2) - 40, 3, 80, height - 6);
+        const point = dayAnchor.mapToItem(bar, 0, 0);
+        return Qt.rect(point.x, point.y, dayAnchor.width, dayAnchor.height);
+    }
     property bool mediaHovered: false
     readonly property var monitor: Services.workspaces.find(w => w.monitor && w.monitor.name === bar.outputName && w.active)
     function controlActive(detail) {
@@ -73,7 +81,6 @@ Item {
             x: modelData === "left" ? 5 : modelData === "center" ? Math.round((bar.width - width) / 2) : bar.width - width - 5
             height: parent.height
             spacing: modelData === "left" ? Theme.gapS : Theme.gapXs
-            Component.onCompleted: if (modelData === "center") bar.centerZone = zone
             Repeater {
                 model: bar.layout[zone.modelData]
                 Loader {
@@ -86,15 +93,6 @@ Item {
                 }
             }
         }
-    }
-    BarButton {
-        id: dayPill
-        x: bar.centerZone ? bar.centerZone.x + bar.centerZone.width + Theme.gapS : 0
-        anchors.verticalCenter: parent.verticalCenter
-        text: "Day"
-        flat: true
-        selected: bar.dayOpen
-        onClicked: bar.dayClicked()
     }
     Component {
         id: launcherItem
@@ -272,7 +270,19 @@ Item {
                 font.pixelSize: Theme.barText
             }
             flat: true
-            text: Qt.formatDateTime(clock.date, format)
+            selected: bar.dayOpen
+            // Something due within the hour rides along with the time.
+            readonly property var soon: {
+                const item = Day.nextItem;
+                const left = item && item.at ? item.at - clock.date.getTime() : -1;
+                if (left < 0 || left > 3600000)
+                    return "";
+                const text = item.text.length > 24 ? item.text.slice(0, 23) + "…" : item.text;
+                return text + " in " + Math.max(1, Math.ceil(left / 60000)) + "m";
+            }
+            text: Qt.formatDateTime(clock.date, format) + (soon ? "  ·  " + soon : "")
+            Component.onCompleted: bar.dayAnchor = clockButton
+            Component.onDestruction: if (bar.dayAnchor === clockButton) bar.dayAnchor = null
             contentItem: C.Label {
                 text: clockButton.text
                 font.family: Theme.mono
@@ -281,9 +291,9 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideNone
             }
-            hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy")
+            hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy") + "\nClick for your day"
             tooltip: bar.tooltip
-            onClicked: ShellState.toggle("calendar", bar.outputName)
+            onClicked: bar.dayClicked()
         }
     }
     Component {

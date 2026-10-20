@@ -17,6 +17,9 @@ QtObject {
     // When the next reminder is due (epoch ms); 0 when none is.
     property real fireAt: 0
     property bool loaded: false
+    // Set by the reminder delivery. Until something shows what fires, nothing is fired, or reminders would be marked
+    // as handled unseen.
+    property bool deliver: false
     // Each fired item once. `away` is true when it was missed while the shell was off, asleep or locked, and `at`
     // is the time it was due.
     signal fired(var items)
@@ -88,7 +91,7 @@ QtObject {
         onTriggered: {
             if (root.date !== root.today())
                 root.refresh();
-            if (root.fireAt > 0 && Date.now() >= root.fireAt && !ShellState.locked)
+            if (root.deliver && root.fireAt > 0 && Date.now() >= root.fireAt && !ShellState.locked)
                 root.fire();
             else
                 root.aim();
@@ -101,9 +104,14 @@ QtObject {
     // Starting up (or the helper restarting) reports what came due while the shell was off. While locked nothing is
     // fired; unlocking reports what fell due meanwhile.
     function start() {
-        if (Backend.ready)
+        if (!Backend.ready)
+            return;
+        if (deliver)
             fire();
+        else
+            refresh();
     }
+    onDeliverChanged: start()
     Component.onCompleted: start()
     property Connections backendState: Connections {
         target: Backend

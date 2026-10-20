@@ -10,8 +10,6 @@ FocusScope {
     readonly property int panelHeight: 460 + extraHeight
     property date today: new Date()
     property date month: new Date(today.getFullYear(), today.getMonth(), 1)
-    readonly property int firstDay: ShellState.firstDayOfWeek
-    readonly property int offset: (month.getDay() - firstDay + 7) % 7
     // The panel grows by the weather card so the month grid keeps its size.
     readonly property int extraHeight: weatherCard.implicitHeight + 16
     property alias weatherCard: weatherCard
@@ -63,104 +61,13 @@ FocusScope {
             id: weatherCard
             Layout.fillWidth: true
         }
-        Rectangle {
+        MonthView {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            implicitHeight: calendarBody.implicitHeight + 24
-            radius: Theme.controlRadius
-            color: Theme.surface
-            WheelHandler {
-                property double lastShift: 0
-                onWheel: event => {
-                    if (event.angleDelta.y === 0 || Date.now() - lastShift < 180)
-                        return;
-                    lastShift = Date.now();
-                    root.shift(event.angleDelta.y < 0 ? 1 : -1);
-                }
-            }
-            ColumnLayout {
-                id: calendarBody
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: Theme.gapS
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.gapS
-                    C.Button {
-                        glyph: "back"
-                        implicitWidth: 36
-                        implicitHeight: 32
-                        flat: true
-                        hint: "Previous month"
-                        onClicked: root.shift(-1)
-                    }
-                    C.Label {
-                        text: Qt.formatDateTime(root.month, "MMMM yyyy")
-                        font.pixelSize: Theme.body
-                        font.weight: Font.DemiBold
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    C.Button {
-                        glyph: "chevron"
-                        implicitWidth: 36
-                        implicitHeight: 32
-                        flat: true
-                        hint: "Next month"
-                        onClicked: root.shift(1)
-                    }
-                }
-                GridLayout {
-                    columns: 7
-                    columnSpacing: 2
-                    rowSpacing: Theme.gapXs
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Repeater {
-                        model: 7
-                        C.Label {
-                            required property int index
-                            text: Qt.locale().dayName(((root.firstDay + index) % 7) || 7, Locale.ShortFormat)
-                            color: Theme.muted
-                            font.pixelSize: Theme.caption
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 1
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                    }
-                    Repeater {
-                        model: 42
-                        C.Button {
-                            required property int index
-                            readonly property date day: new Date(root.month.getFullYear(), root.month.getMonth(), 1 + index - root.offset)
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            Layout.preferredWidth: 1
-                            implicitWidth: 30
-                            implicitHeight: Math.max(30, Theme.body + 16)
-                            cornerRadius: 8
-                            text: String(day.getDate())
-                            flat: true
-                            opacity: day.getMonth() === root.month.getMonth() ? 1 : 0.64
-                            selected: Qt.formatDateTime(day, "yyyy-MM-dd") === Qt.formatDateTime(root.today, "yyyy-MM-dd")
-                            accent: selected
-                            readonly property bool outside: day.getMonth() !== root.month.getMonth()
-                            hint: Qt.formatDateTime(day, "dddd, d MMMM yyyy")
-                            Accessible.name: (outside ? "Go to " : "Copy ") + hint
-                            // Days from a neighbouring month navigate there; days in view copy the date.
-                            onClicked: {
-                                if (outside) {
-                                    root.month = new Date(day.getFullYear(), day.getMonth(), 1);
-                                    return;
-                                }
-                                ShellState.run("clipboard.write", {
-                                    text: Qt.formatDateTime(day, "yyyy-MM-dd")
-                                }, () => ShellState.message("Date copied · " + Qt.formatDateTime(day, "yyyy-MM-dd"), "success"));
-                            }
-                        }
-                    }
-                }
-            }
+            month: root.month
+            today: root.today
+            onShiftRequested: delta => root.shift(delta)
+            onMonthChosen: month => root.month = month
         }
         RowLayout {
             Layout.fillWidth: true

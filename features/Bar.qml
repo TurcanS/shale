@@ -71,7 +71,7 @@ PanelWindow {
         onDayClicked: bar.toggleDay()
         transform: Translate { y: -(1 - bar.arrival) * 14 }
     }
-    // Placeholder Day hub (morph spike). One number drives it; a click mid-way reverses from where it is.
+    // The Day hub. One number drives it; a click mid-way reverses from where it is.
     property bool dayOpen: false
     property real dayProgress: 0
     function toggleDay() {
@@ -83,6 +83,7 @@ PanelWindow {
             return;
         // Only one overlay at a time: an open panel gives way to the hub.
         ShellState.close();
+        hub.pill = pillRect();
         dayOpen = true;
         dayMotion.duration = Theme.reduced ? 0 : Theme.lowPower ? 200 : 420;
         dayMotion.to = 1;
@@ -93,9 +94,15 @@ PanelWindow {
         if (!dayOpen)
             return;
         dayOpen = false;
+        hub.pill = pillRect();
         dayMotion.duration = Theme.leave;
         dayMotion.to = 0;
         dayMotion.restart();
+    }
+    // Taken as the hub opens and closes, not bound: the clock moves inside its zone's layout as its text changes.
+    function pillRect() {
+        const rect = content.dayRect();
+        return Qt.rect(content.x + rect.x, content.y + rect.y, rect.width, rect.height);
     }
     // Locking or hiding the bar must not leave a half-open hub behind, so it snaps shut.
     function dropDay() {
@@ -132,7 +139,6 @@ PanelWindow {
         progress: bar.dayProgress
         opening: bar.dayOpen
         edge: bar.edge
-        pill: Qt.rect(content.x + content.dayPill.x, content.y + content.dayPill.y, content.dayPill.width, content.dayPill.height)
         onDismissed: bar.closeDay()
         onPillClicked: bar.toggleDay()
     }
