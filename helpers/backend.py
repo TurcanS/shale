@@ -25,6 +25,7 @@ import wallhaven
 import wallpaperscom
 import activity
 import art
+import day
 import sysmon
 from runtime import runtime_base
 import bluetooth_keep
@@ -667,6 +668,7 @@ class Backend:
     def __init__(self):
         self.activity = None
         self.activity_snapshot = None
+        self.day = None
         # Keeps the previous counters for the system monitor's rates.
         self.sysmon = sysmon.Sampler(run=run)
         # Followed by watch_power; slows the system monitor's background sampling.
@@ -1390,6 +1392,13 @@ class Backend:
             except (ValueError, OverflowError, sqlite3.Error) as error:
                 raise BackendError("invalid", str(error)) from None
             raise BackendError("invalid", "Unknown activity operation.")
+        if method.startswith("day."):
+            try:
+                if self.day is None:
+                    self.day = day.DayStore(STATE / "day.sqlite3")
+                return self.day.handle(method, p)
+            except (ValueError, OverflowError, sqlite3.Error) as error:
+                raise BackendError("invalid", str(error)) from None
         if method == "capabilities":
             return await self.capabilities()
         if method == "settings.get":
