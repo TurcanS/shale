@@ -105,3 +105,12 @@ function span(milliseconds) {
 function ranking(apps) {
     return apps.slice(0, 6).map(entry => entry.app);
 }
+
+// Seconds recorded per state up to `upTo`: what Activity's day view adds up, so the pill's "recorded" matches it.
+function totals(segments, upTo) {
+    const result = {active: 0, watching: 0, idle: 0};
+    for (const segment of segments)
+        if (segment.start < upTo)
+            result[segment.state] += (Math.min(segment.end, upTo) - segment.start) / 1000;
+    return result;
+}

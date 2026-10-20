@@ -23,6 +23,8 @@ QtObject {
     // Each fired item once. `away` is true when it was missed while the shell was off, asleep or locked, and `at`
     // is the time it was due.
     signal fired(var items)
+    // A to-do was checked off from the shell: the island stamps it.
+    signal cleared()
 
     function today() {
         const now = new Date();
@@ -62,7 +64,12 @@ QtObject {
         change("day.update", Object.assign({id: id}, fields), callback);
     }
     function done(id, callback) {
-        change("day.done", {id: id}, callback);
+        change("day.done", {id: id}, (result, error) => {
+            if (!error)
+                root.cleared();
+            if (callback)
+                callback(result, error);
+        });
     }
     function undone(id, callback) {
         change("day.undone", {id: id}, callback);

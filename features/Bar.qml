@@ -41,6 +41,9 @@ PanelWindow {
         Region {
             item: hub.shape
         }
+        Region {
+            item: island.card
+        }
     }
     WlrLayershell.namespace: "shale-bar"
     WlrLayershell.layer: WlrLayer.Top
@@ -144,6 +147,14 @@ PanelWindow {
         edge: bar.edge
         onDismissed: bar.closeDay()
         onPillClicked: bar.toggleDay(false)
+    }
+    // Live activities grow out of the pill (Quiet, a timer's last seconds, a new track, a cleared order).
+    Island {
+        id: island
+        anchors.fill: parent
+        rectOf: bar.pillRect
+        blocked: bar.dayOpen || ShellState.presentation || ShellState.locked || !bar.visible
+        hovered: content.dayHovered
     }
     // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1

@@ -41,6 +41,8 @@ Item {
     property bool dayOpen: false
     // The clock; null when the clock is not in the bar.
     property Item dayAnchor: null
+    // Whether the pointer is on the Day pill.
+    property bool dayHovered: false
     signal dayClicked()
     // A right-click: the quick-add row.
     signal dayPeekClicked()
@@ -303,12 +305,14 @@ Item {
             Component.onCompleted: bar.dayAnchor = clockButton
             // Today's Line runs along the bottom of the pill.
             StrataLine {
+                id: todayLine
                 x: 0
                 y: parent.height - height - 1
                 width: parent.width
                 onScreen: bar.onScreen
                 open: bar.dayOpen
             }
+            onHoveredChanged: bar.dayHovered = hovered
             onUpcomingChanged: eventIndex = Math.min(eventIndex, Math.max(0, upcoming.length - 1))
             TapHandler {
                 acceptedButtons: Qt.RightButton
@@ -368,6 +372,7 @@ Item {
             // The hover card: the next three events and what is open.
             hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy")
                 + (clockButton.upcoming.length ? "\n" + clockButton.upcoming.map(item => Station.countdown(item.at, clockButton.nowMs) + "  " + item.text).join("\n") : "")
+                + (clockButton.recording && todayLine.activity ? "\nRecorded " + Station.duration(todayLine.recorded) : "")
                 + "\n" + clockButton.openText + (clockButton.overdue ? ", " + clockButton.overdue + " late" : "")
                 + "\nClick for your day · Middle-click for Quiet" + (clockButton.upcoming.length > 1 ? " · Scroll for the next event" : "")
             tooltip: bar.tooltip

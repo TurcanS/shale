@@ -26,6 +26,9 @@ Item {
     readonly property var ranking: LineMath.ranking(activity ? activity.apps || [] : [])
     readonly property var bands: LineMath.bands(segments, bounds.start, bounds.end, now, span)
     readonly property var marks: LineMath.marks(Day.items, Day.todos, bounds.start, bounds.end, span)
+    // Recorded time, added up as Activity's day view does (active and watching).
+    readonly property var totals: LineMath.totals(segments, now)
+    readonly property real recorded: totals.active + totals.watching
     readonly property string front: LineMath.frontState(segments, now)
     readonly property bool hovered: hover.hovered
     // The Line has grown while the pointer is on it, and keeps its size while it points at something.
