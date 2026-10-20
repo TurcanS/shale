@@ -14,7 +14,7 @@ Item {
     property bool open: false
     readonly property bool tracking: ShellState.setting("activityTracking", "ask") === "on"
     readonly property bool shown: onScreen && !ShellState.presentation && !ShellState.locked
-    readonly property int restHeight: 3
+    readonly property int restHeight: 4
     readonly property int hoverHeight: 9
     // Space either side so the Line stays inside the pill's rounded ends.
     readonly property int inset: 7
@@ -101,9 +101,22 @@ Item {
         height: line.height
         Rectangle {
             anchors.fill: parent
-            radius: 1
+            radius: 2
             color: Theme.raised
             opacity: 0.55
+        }
+        // Faint hour notches in the open rock, always there, so the scale reads before the pointer arrives.
+        Repeater {
+            model: 7
+            Rectangle {
+                required property int index
+                x: index / 6 * strip.width - 0.5
+                y: -3
+                width: 1
+                height: 3
+                color: Theme.text
+                opacity: 0.22
+            }
         }
         Repeater {
             model: line.bands
@@ -112,6 +125,7 @@ Item {
                 x: modelData.x
                 width: modelData.width
                 height: parent.height
+                radius: 1
                 color: line.bandColor(modelData)
             }
         }
@@ -161,6 +175,17 @@ Item {
             }
         }
         // The Front: bright while active, amber-leaning while watching, dim while idle.
+        Rectangle {
+            visible: !Theme.lowPower && line.front !== "idle"
+            x: front.x - 5
+            width: 13
+            height: parent.height + 8
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: -2
+            radius: 6
+            color: line.front === "watching" ? Theme.warning : Theme.accent
+            opacity: 0.28 * front.breath
+        }
         Rectangle {
             id: front
             x: Math.min(strip.width, LineMath.position(line.now, line.bounds.start, line.bounds.end, strip.width)) - width / 2

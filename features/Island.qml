@@ -104,10 +104,43 @@ Item {
         border.width: 1
         border.color: Theme.border
         opacity: Theme.reduced ? island.reveal : Math.min(1, island.reveal * 3)
+        // What is live sets the colour of the card's left edge, as an app does on a notification card.
+        Rectangle {
+            x: 1
+            y: 8
+            width: 3
+            height: parent.height - 16
+            radius: 1.5
+            color: island.kind === "quiet" ? Theme.accent : island.kind === "timer" ? Theme.accent2 : island.kind === "media" ? Theme.activityApps[1] : Theme.text
+            opacity: Math.max(0, (island.reveal - 0.6) / 0.4)
+        }
+        // A lit top edge and two screws, as on the hub's plates.
+        Rectangle {
+            x: 10
+            y: 1
+            width: parent.width - 20
+            height: 1
+            color: Qt.rgba(1, 1, 1, 0.07)
+        }
+        Repeater {
+            model: 2
+            Rectangle {
+                required property int index
+                x: index ? card.width - 10 : 6
+                y: 5
+                width: 3
+                height: 3
+                radius: 1.5
+                color: Theme.raised
+            }
+        }
         // Content fades in after the shape has settled.
         Item {
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.leftMargin: 16
+            anchors.rightMargin: 14
+            anchors.topMargin: 10
+            anchors.bottomMargin: 8
             opacity: Math.max(0, (island.reveal - 0.6) / 0.4)
             RowLayout {
                 anchors.fill: parent
@@ -122,7 +155,8 @@ Item {
                     C.Readout {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
-                        font.pixelSize: Theme.body
+                        font.pixelSize: Theme.body + 3
+                        color: island.kind === "quiet" ? Theme.accent : Theme.text
                         text: {
                             const kind = island.kind;
                             if (kind === "quiet")

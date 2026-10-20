@@ -10,6 +10,16 @@ Item {
     property int size: 8
     implicitWidth: size
     implicitHeight: size
+    // The glow around a lit lamp; left out in power saver.
+    Rectangle {
+        anchors.centerIn: parent
+        width: lamp.size * 2.4
+        height: width
+        radius: width / 2
+        color: lamp.color
+        visible: lamp.lit && !Theme.lowPower
+        opacity: 0.22 * lamp.pulse
+    }
     Rectangle {
         anchors.fill: parent
         radius: width / 2

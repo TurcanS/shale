@@ -266,15 +266,45 @@ Item {
             }
             // Measure before laying out: an eliding Text can report a constrained
             // implicit width when it is used directly as a button content item.
-            implicitWidth: Math.ceil(clockMetrics.advanceWidth) + 24 + 16
-            implicitHeight: 26
+            implicitWidth: Math.ceil(clockMetrics.advanceWidth) + 28 + 16
+            implicitHeight: 28
             TextMetrics {
                 id: clockMetrics
                 text: clockButton.text
-                font.family: Theme.mono
+                font.family: Theme.instrument
                 font.pixelSize: Theme.barText
+                font.letterSpacing: 0.8
             }
             flat: true
+            // A recessed instrument plate with a lit top edge and its two screws, instead of a bare button.
+            background: Rectangle {
+                radius: 7
+                color: clockButton.down || clockButton.selected ? Theme.selection : clockButton.hovered ? Theme.hover : Qt.rgba(0, 0, 0, 0.28)
+                border.width: 1
+                border.color: clockButton.selected ? Theme.accent : Theme.border
+                Behavior on color {
+                    ColorAnimation { duration: Theme.fast }
+                }
+                Rectangle {
+                    x: 8
+                    y: 1
+                    width: parent.width - 16
+                    height: 1
+                    color: Qt.rgba(1, 1, 1, 0.07)
+                }
+                Repeater {
+                    model: 2
+                    Rectangle {
+                        required property int index
+                        x: index ? parent.width - 6 : 3
+                        y: 3
+                        width: 3
+                        height: 3
+                        radius: 1.5
+                        color: Theme.raised
+                    }
+                }
+            }
             selected: bar.dayOpen
             readonly property real nowMs: clock.date.getTime()
             // Reminders still to come, soonest first; the next one may be on a later day. Scrolling over the capsule
@@ -362,8 +392,9 @@ Item {
                 C.Label {
                     anchors.verticalCenter: parent.verticalCenter
                     text: clockButton.text
-                    font.family: Theme.mono
+                    font.family: Theme.instrument
                     font.pixelSize: Theme.barText
+                    font.letterSpacing: 0.8
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideNone
