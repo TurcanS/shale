@@ -17,8 +17,11 @@ Item {
     property bool edge: false
     // Where the pill sits in the bar, in this item's coordinates; the bar sets it as the hub opens and closes.
     property rect pill: Qt.rect(0, 0, 0, 0)
-    readonly property int openWidth: 640
-    readonly property int openHeight: 460
+    // The quick-add row: only the field, Enter adds and closes.
+    property bool peek: false
+    readonly property int fullHeight: 460
+    readonly property int openWidth: peek ? 480 : 640
+    readonly property int openHeight: peek ? Theme.controlLarge + Theme.small + Theme.gapXs + 2 * Theme.gapM + 4 : fullHeight
     readonly property alias shape: shape
     // Space under the open hub for its shadow, inside the window so the shadow is not cut off.
     readonly property int shadowRoom: 40
@@ -70,6 +73,18 @@ Item {
         transform: Translate { y: Theme.reduced ? 0 : (1 - piece.shown) * 6 }
     }
     readonly property real grow: clamp((progress - 0.2) / 0.8)
+    component FocusLength: C.Button {
+        id: length
+        required property int minutes
+        visible: !Focus.active
+        flat: true
+        text: String(minutes)
+        Accessible.name: "Focus for " + minutes + " minutes"
+        Layout.fillWidth: true
+        KeyNavigation.tab: todoList
+        KeyNavigation.backtab: nextList
+        onClicked: Focus.start(length.minutes)
+    }
 
     // Open to-dos in their order, then today's done ones, latest first.
     readonly property var doneToday: Day.items.filter(item => item.kind === "todo" && item.doneAt).sort((a, b) => b.doneAt - a.doneAt)
@@ -87,7 +102,7 @@ Item {
     readonly property var parsed: DayText.parse(capture.text, now)
 
     function focusCapture() {
-        capture.forceActiveFocus();
+        (peek ? peekField : capture).forceActiveFocus();
     }
     // Escape closes the drawer first, then the hub, as the panels do.
     function stepBack() {
@@ -104,20 +119,23 @@ Item {
         if (!drawer)
             capture.forceActiveFocus();
     }
-    function submit() {
-        const item = DayText.parse(capture.text, Date.now());
+    function submit(field) {
+        const item = DayText.parse(field.text, Date.now());
         if (!item || item.error)
             return;
         // Cleared at once: keys typed before the helper answers belong to the next item.
-        const text = capture.text;
-        capture.text = "";
-        Day.add(item, (result, error) => {
-            if (!error)
-                return;
-            if (!capture.text)
-                capture.text = text;
-            ShellState.message(error.message, "error");
-        });
+        const text = field.text;
+        field.text = "";
+        Day.add(item, (result, error) => hub.added(error, field, text));
+        if (peek)
+            dismissed();
+    }
+    function added(error, field, text) {
+        if (!error)
+            return;
+        if (!field.text)
+            field.text = text;
+        ShellState.message(error.message, "error");
     }
     function toggle(item, row) {
         pendingRow = row;
@@ -152,18 +170,22 @@ Item {
             return;
         lastDeleted = null;
         const item = deleted.item;
-        Day.add({kind: item.kind, text: item.text, dueAt: item.dueAt, repeat: item.repeat}, (added, error) => {
-            if (error)
-                return;
-            if (item.doneAt)
-                Day.done(added.id);
-            else if (deleted.row >= 0) {
-                const ids = Day.todos.map(todo => todo.id).filter(id => id !== added.id);
-                ids.splice(Math.min(deleted.row, ids.length), 0, added.id);
-                Day.reorder(ids);
-            }
-        });
+        Day.add({kind: item.kind, text: item.text, dueAt: item.dueAt, repeat: item.repeat}, (added, error) => hub.restored(added, error, item, deleted.row));
         ShellState.toast = "";
+    }
+    // A named function rather than code in the callback: qmllint skips a whole file whose callbacks declare constants.
+    function restored(added, error, item, row) {
+        if (error)
+            return;
+        if (item.doneAt) {
+            Day.done(added.id);
+            return;
+        }
+        if (row < 0)
+            return;
+        const ids = Day.todos.map(todo => todo.id).filter(id => id !== added.id);
+        ids.splice(Math.min(row, ids.length), 0, added.id);
+        Day.reorder(ids);
     }
     function timeText(at) {
         const date = new Date(at);
@@ -187,6 +209,7 @@ Item {
         } else {
             drawer = false;
             capture.text = "";
+            peekField.text = "";
         }
     }
     Timer {
@@ -256,7 +279,37 @@ Item {
                     hub.pillClicked();
             }
         }
+        // The quick-add row.
+        Piece {
+            visible: hub.peek
+            x: Theme.gapM
+            y: Theme.gapM
+            width: hub.openWidth - 2 * Theme.gapM
+            height: hub.openHeight - 2 * Theme.gapM
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Theme.gapXs
+                C.Field {
+                    id: peekField
+                    Layout.fillWidth: true
+                    placeholderText: "Add a to-do, or \"in 20m stretch\""
+                    Keys.onEscapePressed: hub.stepBack()
+                    Keys.onReturnPressed: hub.submit(peekField)
+                    Keys.onEnterPressed: hub.submit(peekField)
+                    onTextChanged: hub.now = Date.now()
+                }
+                C.Label {
+                    readonly property var parsed: DayText.parse(peekField.text, hub.now)
+                    text: parsed ? DayText.describe(parsed, hub.now) : "Enter adds · Escape closes"
+                    color: parsed && parsed.error ? Theme.warning : Theme.muted
+                    font.pixelSize: Theme.small
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+            }
+        }
         ColumnLayout {
+            visible: !hub.peek
             x: Theme.panelPadding
             y: Theme.panelPadding
             width: hub.openWidth - 2 * Theme.panelPadding
@@ -328,7 +381,7 @@ Item {
                         }
                         ListView {
                             id: nextList
-                            KeyNavigation.tab: todoList
+                            KeyNavigation.tab: Focus.active ? endFocus : focus25
                             KeyNavigation.backtab: dateButton
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -399,23 +452,32 @@ Item {
                                 name: "focus"
                                 color: Theme.muted
                             }
+                            // In the Tab cycle after Next up; Left and Right move between the lengths.
                             C.Button {
+                                id: endFocus
                                 visible: Focus.active
                                 flat: true
                                 text: "End focus · " + Focus.minutesText(Focus.remainingSeconds)
                                 Layout.fillWidth: true
+                                KeyNavigation.tab: todoList
+                                KeyNavigation.backtab: nextList
                                 onClicked: Focus.end(true)
                             }
-                            Repeater {
-                                model: Focus.active ? [] : [25, 50, 90]
-                                C.Button {
-                                    required property int modelData
-                                    flat: true
-                                    text: String(modelData)
-                                    Accessible.name: "Focus for " + modelData + " minutes"
-                                    Layout.fillWidth: true
-                                    onClicked: Focus.start(modelData)
-                                }
+                            FocusLength {
+                                id: focus25
+                                minutes: 25
+                                KeyNavigation.right: focus50
+                            }
+                            FocusLength {
+                                id: focus50
+                                minutes: 50
+                                KeyNavigation.left: focus25
+                                KeyNavigation.right: focus90
+                            }
+                            FocusLength {
+                                id: focus90
+                                minutes: 90
+                                KeyNavigation.left: focus50
                             }
                         }
                     }
@@ -436,7 +498,7 @@ Item {
                         ListView {
                             id: todoList
                             KeyNavigation.tab: capture
-                            KeyNavigation.backtab: nextList
+                            KeyNavigation.backtab: Focus.active ? endFocus : focus25
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
@@ -532,8 +594,8 @@ Item {
                             Layout.fillWidth: true
                             placeholderText: "Add a to-do, or \"in 20m stretch\""
                             Keys.onEscapePressed: hub.stepBack()
-                            Keys.onReturnPressed: hub.submit()
-                            Keys.onEnterPressed: hub.submit()
+                            Keys.onReturnPressed: hub.submit(capture)
+                            Keys.onEnterPressed: hub.submit(capture)
                             onTextChanged: hub.now = Date.now()
                         }
                         // How the text was understood, before Enter adds it; a refusal says why.

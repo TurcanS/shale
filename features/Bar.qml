@@ -19,7 +19,7 @@ PanelWindow {
     IpcHandler {
         target: "day-" + bar.outputName
         function toggle(): void {
-            bar.toggleDay();
+            bar.toggleDay(false);
         }
     }
     anchors {
@@ -34,7 +34,7 @@ PanelWindow {
     }
     // Tall enough for the open Day hub, but transparent and click-through outside the visible shapes; the space kept
     // from windows stays the bar's own 32 px, so opening the hub never moves a window.
-    implicitHeight: hub.openHeight + hub.shadowRoom
+    implicitHeight: hub.fullHeight + hub.shadowRoom
     color: "transparent"
     mask: Region {
         item: content
@@ -68,13 +68,15 @@ PanelWindow {
         // The rest of the bar steps back a little while the hub opens.
         opacity: bar.arrival * (1 - 0.25 * Math.min(1, bar.dayProgress / 0.3))
         dayOpen: bar.dayOpen
-        onDayClicked: bar.toggleDay()
+        onDayClicked: bar.toggleDay(false)
+        onDayPeekClicked: bar.toggleDay(true)
         transform: Translate { y: -(1 - bar.arrival) * 14 }
     }
     // The Day hub. One number drives it; a click mid-way reverses from where it is.
     property bool dayOpen: false
     property real dayProgress: 0
-    function toggleDay() {
+    // `peek` opens only the quick-add row (a right-click on the pill).
+    function toggleDay(peek) {
         if (dayOpen) {
             closeDay();
             return;
@@ -84,6 +86,7 @@ PanelWindow {
         // Only one overlay at a time: an open panel gives way to the hub.
         ShellState.close();
         hub.pill = pillRect();
+        hub.peek = peek === true;
         dayOpen = true;
         dayMotion.duration = Theme.reduced ? 0 : Theme.lowPower ? 200 : 420;
         dayMotion.to = 1;
@@ -140,7 +143,7 @@ PanelWindow {
         opening: bar.dayOpen
         edge: bar.edge
         onDismissed: bar.closeDay()
-        onPillClicked: bar.toggleDay()
+        onPillClicked: bar.toggleDay(false)
     }
     // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1

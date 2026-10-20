@@ -36,11 +36,13 @@ Item {
         })
     // The now-playing button while it exists, for the hover card.
     property Item mediaButton: null
-    // Placeholder entry to the Day hub (morph spike): sits just right of the center zone.
+    // Whether the Day hub is open; the clock, which is the Day pill, shows it selected.
     property bool dayOpen: false
-    // The clock, which is the Day pill; null when the clock is not in the bar.
+    // The clock; null when the clock is not in the bar.
     property Item dayAnchor: null
     signal dayClicked()
+    // A right-click: the quick-add row.
+    signal dayPeekClicked()
     // Where the Day hub grows from, in this item's coordinates: the clock, or the middle of the bar without one.
     function dayRect() {
         if (!dayAnchor || !dayAnchor.visible)
@@ -281,7 +283,30 @@ Item {
                 return text + " in " + Math.max(1, Math.ceil(left / 60000)) + "m";
             }
             text: Qt.formatDateTime(clock.date, format) + (soon ? "  ·  " + soon : "")
+            // Open to-dos due today, as a small count on the pill.
+            readonly property int dueToday: Day.todos.filter(item => item.dueAt && new Date(item.dueAt).toDateString() === clock.date.toDateString()).length
             Component.onCompleted: bar.dayAnchor = clockButton
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: bar.dayPeekClicked()
+            }
+            Rectangle {
+                visible: clockButton.dueToday > 0
+                anchors.right: parent.right
+                anchors.top: parent.top
+                width: Math.max(14, dueLabel.implicitWidth + 6)
+                height: 14
+                radius: 7
+                color: Theme.accent
+                C.Label {
+                    id: dueLabel
+                    anchors.centerIn: parent
+                    text: String(clockButton.dueToday)
+                    color: Theme.background
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                }
+            }
             Component.onDestruction: if (bar.dayAnchor === clockButton) bar.dayAnchor = null
             contentItem: C.Label {
                 text: clockButton.text
