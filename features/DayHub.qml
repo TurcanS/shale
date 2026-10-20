@@ -58,128 +58,15 @@ Item {
     function outCubic(t) {
         return 1 - Math.pow(1 - t, 3);
     }
-    component Piece: Item {
-        id: piece
-        property int order: 0
-        // Each piece rises 6 px in order while opening, about 30 ms apart, and all fade together when closing. An
-        // animation of its own (not a formula of progress) lets a reversal carry on from where each piece is.
-        property real shown: hub.opening ? 1 : 0
-        Behavior on shown {
-            id: rise
-            SequentialAnimation {
-                PauseAnimation {
-                    duration: rise.targetValue < 1 || Theme.reduced ? 0 : (Theme.lowPower ? 80 + 15 * piece.order : 160 + 30 * piece.order)
-                }
-                NumberAnimation {
-                    duration: rise.targetValue < 1 ? Theme.fast : Theme.enter
-                    easing.type: Easing.OutCubic
-                }
-            }
-        }
-        Layout.fillWidth: true
-        opacity: shown
-        transform: Translate { y: Theme.reduced ? 0 : (1 - piece.shown) * 6 }
+    component Piece: C.Piece {
+        opening: hub.opening
     }
-    // An instrument plate: a screwed-on panel with its name stamped in the top left.
-    component Plate: Piece {
-        id: plate
-        property string label: ""
-        property string note: ""
-        property color noteColor: Theme.muted
-        default property alias content: body.data
-        Rectangle {
-            anchors.fill: parent
-            radius: 6
-            color: Theme.panel
-            border.width: 1
-            border.color: Theme.border
-            // A lighter top edge, as on a machined plate.
-            Rectangle {
-                x: 6
-                y: 1
-                width: parent.width - 12
-                height: 1
-                color: Qt.rgba(1, 1, 1, 0.04)
-            }
-            Repeater {
-                model: 2
-                Rectangle {
-                    required property int index
-                    x: index ? parent.width - 11 : 6
-                    y: 6
-                    width: 5
-                    height: 5
-                    radius: 2.5
-                    color: Theme.raised
-                }
-            }
-        }
-        StationText {
-            x: 16
-            y: 11
-            text: plate.label
-        }
-        StationText {
-            anchors.right: parent.right
-            anchors.rightMargin: 16
-            y: 11
-            text: plate.note
-            color: plate.noteColor
-        }
-        Item {
-            id: body
-            anchors.fill: parent
-            anchors.topMargin: 28
-            anchors.leftMargin: 14
-            anchors.rightMargin: 14
-            anchors.bottomMargin: 10
-        }
+    component Plate: C.Plate {
+        opening: hub.opening
     }
-    // The small stamped capitals that name every instrument and reading.
-    component StationText: Text {
-        font.family: Theme.instrument
-        font.pixelSize: Theme.caption
-        font.capitalization: Font.AllUppercase
-        font.letterSpacing: 1.6
-        color: Theme.muted
+    component StationText: C.StationText {
     }
-    // A hardware key: raised, pressed in when chosen; the accent edge shows keyboard focus.
-    component StationKey: AbstractButton {
-        id: key
-        property bool lit: false
-        implicitHeight: 30
-        implicitWidth: Math.max(40, keyText.implicitWidth + 20)
-        Layout.fillWidth: true
-        focusPolicy: Qt.StrongFocus
-        hoverEnabled: true
-        Accessible.role: Accessible.Button
-        Accessible.name: text
-        contentItem: Text {
-            id: keyText
-            text: key.text
-            font.family: Theme.instrument
-            font.pixelSize: Theme.label
-            color: key.lit ? Theme.accent : Theme.text
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Rectangle {
-            radius: 4
-            color: key.down ? Theme.background : key.hovered ? Theme.hover : Theme.raised
-            border.width: key.activeFocus ? 1.5 : 1
-            border.color: key.activeFocus ? Theme.accent : Theme.border
-            // The key's lower lip; it disappears while pressed.
-            Rectangle {
-                visible: !key.down
-                anchors.bottom: parent.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: 1
-                height: 2
-                radius: 2
-                color: Theme.background
-            }
-        }
+    component StationKey: C.StationKey {
     }
     readonly property real grow: clamp((progress - 0.2) / 0.8)
     component FocusLength: StationKey {

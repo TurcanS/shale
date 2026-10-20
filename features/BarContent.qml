@@ -5,6 +5,7 @@ import QtQuick.Shapes
 import Quickshell
 import "../core"
 import "../core/barItems.js" as BarItems
+import "../core/station.js" as Station
 import "../services"
 import "../components" as C
 
@@ -263,7 +264,7 @@ Item {
             }
             // Measure before laying out: an eliding Text can report a constrained
             // implicit width when it is used directly as a button content item.
-            implicitWidth: Math.ceil(clockMetrics.advanceWidth) + 24
+            implicitWidth: Math.ceil(clockMetrics.advanceWidth) + 24 + 16
             implicitHeight: 26
             TextMetrics {
                 id: clockMetrics
@@ -273,50 +274,102 @@ Item {
             }
             flat: true
             selected: bar.dayOpen
-            // Something due within the hour rides along with the time.
-            readonly property var soon: {
-                const item = Day.nextItem;
-                const left = item && item.at ? item.at - clock.date.getTime() : -1;
-                if (left < 0 || left > 3600000)
-                    return "";
-                const text = item.text.length > 24 ? item.text.slice(0, 23) + "…" : item.text;
-                return text + " in " + Math.max(1, Math.ceil(left / 60000)) + "m";
+            readonly property real nowMs: clock.date.getTime()
+            // Reminders still to come, soonest first; the next one may be on a later day. Scrolling over the capsule
+            // moves the countdown along them, three at most.
+            readonly property var upcoming: {
+                const list = Day.items.filter(item => item.kind === "reminder" && !item.doneAt && item.at > clockButton.nowMs);
+                if (Day.nextItem && Day.nextItem.at > clockButton.nowMs && !list.some(item => item.id === Day.nextItem.id))
+                    list.push(Day.nextItem);
+                return list.sort((a, b) => a.at - b.at).slice(0, 3);
             }
-            text: Qt.formatDateTime(clock.date, format) + (soon ? "  ·  " + soon : "")
-            // Open to-dos due today, as a small count on the pill.
+            property int eventIndex: 0
+            readonly property var shownEvent: upcoming.length ? upcoming[Math.min(eventIndex, upcoming.length - 1)] : null
+            // Something due within the hour rides along as a countdown.
+            readonly property real eventIn: shownEvent ? shownEvent.at - nowMs : -1
+            readonly property string soon: {
+                if (eventIn < 0 || eventIn > 3600000)
+                    return "";
+                const text = shownEvent.text.length > 24 ? shownEvent.text.slice(0, 23) + "…" : shownEvent.text;
+                return Station.countdown(shownEvent.at, nowMs) + " " + text;
+            }
+            readonly property bool quiet: Focus.active
+            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  QUIET " + Focus.clockText(Focus.remainingSeconds) : soon ? "  ·  " + soon : "")
+            // Open to-dos due today, as a small count on the pill; amber with a mark when one is already late.
             readonly property int dueToday: Day.todos.filter(item => item.dueAt && new Date(item.dueAt).toDateString() === clock.date.toDateString()).length
+            readonly property int overdue: Day.todos.filter(item => item.dueAt && item.dueAt < clockButton.nowMs).length
+            readonly property bool recording: ShellState.setting("activityTracking", "ask") === "on"
+            readonly property string openText: Day.todos.length + " open to-do" + (Day.todos.length === 1 ? "" : "s")
             Component.onCompleted: bar.dayAnchor = clockButton
+            // Today's Line runs along the bottom of the pill.
+            StrataLine {
+                x: 0
+                y: parent.height - height - 1
+                width: parent.width
+                onScreen: bar.onScreen
+                open: bar.dayOpen
+            }
+            onUpcomingChanged: eventIndex = Math.min(eventIndex, Math.max(0, upcoming.length - 1))
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 onTapped: bar.dayPeekClicked()
             }
+            // Quiet starts or ends on a middle click.
+            TapHandler {
+                acceptedButtons: Qt.MiddleButton
+                onTapped: Focus.active ? Focus.end(true) : Focus.start(25)
+            }
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => {
+                    if (clockButton.upcoming.length > 1)
+                        clockButton.eventIndex = (clockButton.eventIndex + (event.angleDelta.y < 0 ? 1 : clockButton.upcoming.length - 1)) % clockButton.upcoming.length;
+                }
+            }
             Rectangle {
-                visible: clockButton.dueToday > 0
+                visible: clockButton.dueToday > 0 || clockButton.overdue > 0
                 anchors.right: parent.right
                 anchors.top: parent.top
                 width: Math.max(14, dueLabel.implicitWidth + 6)
                 height: 14
                 radius: 7
-                color: Theme.accent
+                color: clockButton.overdue > 0 ? Theme.warning : Theme.accent
                 C.Label {
                     id: dueLabel
                     anchors.centerIn: parent
-                    text: String(clockButton.dueToday)
+                    text: String(clockButton.dueToday) + (clockButton.overdue > 0 ? "!" : "")
                     color: Theme.background
                     font.pixelSize: 9
                     font.weight: Font.DemiBold
                 }
             }
             Component.onDestruction: if (bar.dayAnchor === clockButton) bar.dayAnchor = null
-            contentItem: C.Label {
-                text: clockButton.text
-                font.family: Theme.mono
-                font.pixelSize: Theme.barText
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideNone
+            contentItem: Row {
+                spacing: 8
+                // The recording lamp is lit while Activity records; with an event inside the hour it turns to the
+                // event's colour and breathes in the last five minutes. Quiet puts it out: nothing gets through.
+                C.Lamp {
+                    anchors.verticalCenter: parent.verticalCenter
+                    size: 7
+                    lit: clockButton.recording && !clockButton.quiet || (!!clockButton.soon && !clockButton.quiet)
+                    color: clockButton.soon ? Theme.accent2 : Theme.accent
+                    breathing: clockButton.eventIn >= 0 && clockButton.eventIn <= 300000
+                }
+                C.Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: clockButton.text
+                    font.family: Theme.mono
+                    font.pixelSize: Theme.barText
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideNone
+                }
             }
-            hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy") + "\nClick for your day"
+            // The hover card: the next three events and what is open.
+            hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy")
+                + (clockButton.upcoming.length ? "\n" + clockButton.upcoming.map(item => Station.countdown(item.at, clockButton.nowMs) + "  " + item.text).join("\n") : "")
+                + "\n" + clockButton.openText + (clockButton.overdue ? ", " + clockButton.overdue + " late" : "")
+                + "\nClick for your day · Middle-click for Quiet" + (clockButton.upcoming.length > 1 ? " · Scroll for the next event" : "")
             tooltip: bar.tooltip
             onClicked: bar.dayClicked()
         }
