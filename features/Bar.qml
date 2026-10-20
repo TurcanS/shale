@@ -46,7 +46,9 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: ExclusionMode.Normal
     exclusiveZone: 32
-    WlrLayershell.keyboardFocus: bar.dayOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    // Exclusive only until the focus grab holds the keyboard: Hyprland ignores clicks on windows while a layer keeps
+    // exclusive focus, so the grab would never see the click outside that closes the hub.
+    WlrLayershell.keyboardFocus: !bar.dayOpen ? WlrKeyboardFocus.None : bar.dayGrab ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive
     // Stays mapped under the lock screen: unmapping would hand its space to the windows, and they would all
     // shrink back into place as the session unlocks.
     visible: !(ShellState.setting("hideFullscreen", true) && content.monitor && content.monitor.hasFullscreen) && ShellState.setting("hiddenOutputs", []).indexOf(bar.outputName) < 0
@@ -132,6 +134,7 @@ PanelWindow {
         edge: bar.edge
         pill: Qt.rect(content.x + content.dayPill.x, content.y + content.dayPill.y, content.dayPill.width, content.dayPill.height)
         onDismissed: bar.closeDay()
+        onPillClicked: bar.toggleDay()
     }
     // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1

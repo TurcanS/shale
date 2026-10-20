@@ -21,6 +21,7 @@ Item {
     // Space under the open hub for its shadow, inside the window so the shadow is not cut off.
     readonly property int shadowRoom: 40
     signal dismissed()
+    signal pillClicked()
     function settle(from, to, t) {
         return from + (to - from) * t;
     }
@@ -90,12 +91,18 @@ Item {
         clip: true
         Keys.onEscapePressed: hub.dismissed()
         // The hub lies over the middle of the bar; without this, clicks, scrolls and hovers on it would reach the
-        // bar buttons underneath (the clock would open the calendar).
+        // bar buttons underneath (the clock would open the calendar). The pill it grew from stays clickable, so a
+        // second click closes the hub, or reverses it mid-way.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
             hoverEnabled: true
             onWheel: wheel => wheel.accepted = true
+            onClicked: mouse => {
+                const x = mouse.x + shape.x, y = mouse.y + shape.y;
+                if (mouse.button === Qt.LeftButton && x >= hub.pill.x && x < hub.pill.x + hub.pill.width && y >= hub.pill.y && y < hub.pill.y + hub.pill.height)
+                    hub.pillClicked();
+            }
         }
         ColumnLayout {
             x: Theme.panelPadding
