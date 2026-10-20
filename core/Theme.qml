@@ -63,6 +63,16 @@ QtObject {
     readonly property var installedFonts: Qt.fontFamilies()
     readonly property string font: installedFonts.indexOf("Adwaita Sans") >= 0 ? "Adwaita Sans" : "sans-serif"
     readonly property string mono: installedFonts.indexOf("Adwaita Mono") >= 0 ? "Adwaita Mono" : "monospace"
+    // The Day hub's station faces, shipped in assets/fonts (SIL Open Font License): a dot-matrix readout and an
+    // instrument label face. The shell's own faces stand in until they load, or if they are missing.
+    readonly property FontLoader readoutLoader: FontLoader {
+        source: Qt.resolvedUrl("../assets/fonts/Doto-Black.ttf")
+    }
+    readonly property FontLoader instrumentLoader: FontLoader {
+        source: Qt.resolvedUrl("../assets/fonts/ChakraPetch-SemiBold.ttf")
+    }
+    readonly property string readout: readoutLoader.status === FontLoader.Ready ? readoutLoader.name : mono
+    readonly property string instrument: instrumentLoader.status === FontLoader.Ready ? instrumentLoader.name : font
     readonly property int body: ShellState.setting("fontSize", 14)
     // Secondary sizes follow the chosen text size so large text scales everywhere.
     readonly property int label: Math.max(12, body - 1)

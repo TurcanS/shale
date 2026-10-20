@@ -1,14 +1,18 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import "../core"
 import "../core/day.js" as DayText
+import "../core/station.js" as Station
 import "../services"
 import "../components" as C
 
 // The Day hub: the bar's Day pill grows into it. Every part of the shape is a function of one number, progress
 // (0: the pill, 1: the open hub), so a reversal at any moment needs no special case.
+// It is drawn as a field station's recorder: instrument plates, a drum that traces today, expected events and work
+// orders.
 Item {
     id: hub
     property real progress: 0
@@ -30,10 +34,14 @@ Item {
     property date drawerMonth: new Date()
     property real now: Date.now()
     property var weather: null
+    // Today's activity (activity.day), traced on the drum.
+    property var activity: null
+    readonly property bool recording: ShellState.setting("activityTracking", "ask") === "on"
     // The last deleted item and where it stood, for Undo.
     property var lastDeleted: null
     // The to-do list's row to select once the list has reloaded after a change.
     property int pendingRow: -1
+    readonly property int headerHeight: 84
     signal dismissed()
     signal pillClicked()
     function settle(from, to, t) {
@@ -72,15 +80,114 @@ Item {
         opacity: shown
         transform: Translate { y: Theme.reduced ? 0 : (1 - piece.shown) * 6 }
     }
+    // An instrument plate: a screwed-on panel with its name stamped in the top left.
+    component Plate: Piece {
+        id: plate
+        property string label: ""
+        property string note: ""
+        property color noteColor: Theme.muted
+        default property alias content: body.data
+        Rectangle {
+            anchors.fill: parent
+            radius: 6
+            color: Theme.panel
+            border.width: 1
+            border.color: Theme.border
+            // A lighter top edge, as on a machined plate.
+            Rectangle {
+                x: 6
+                y: 1
+                width: parent.width - 12
+                height: 1
+                color: Qt.rgba(1, 1, 1, 0.04)
+            }
+            Repeater {
+                model: 2
+                Rectangle {
+                    required property int index
+                    x: index ? parent.width - 11 : 6
+                    y: 6
+                    width: 5
+                    height: 5
+                    radius: 2.5
+                    color: Theme.raised
+                }
+            }
+        }
+        StationText {
+            x: 16
+            y: 11
+            text: plate.label
+        }
+        StationText {
+            anchors.right: parent.right
+            anchors.rightMargin: 16
+            y: 11
+            text: plate.note
+            color: plate.noteColor
+        }
+        Item {
+            id: body
+            anchors.fill: parent
+            anchors.topMargin: 28
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            anchors.bottomMargin: 10
+        }
+    }
+    // The small stamped capitals that name every instrument and reading.
+    component StationText: Text {
+        font.family: Theme.instrument
+        font.pixelSize: Theme.caption
+        font.capitalization: Font.AllUppercase
+        font.letterSpacing: 1.6
+        color: Theme.muted
+    }
+    // A hardware key: raised, pressed in when chosen; the accent edge shows keyboard focus.
+    component StationKey: AbstractButton {
+        id: key
+        property bool lit: false
+        implicitHeight: 30
+        implicitWidth: Math.max(40, keyText.implicitWidth + 20)
+        Layout.fillWidth: true
+        focusPolicy: Qt.StrongFocus
+        hoverEnabled: true
+        Accessible.role: Accessible.Button
+        Accessible.name: text
+        contentItem: Text {
+            id: keyText
+            text: key.text
+            font.family: Theme.instrument
+            font.pixelSize: Theme.label
+            color: key.lit ? Theme.accent : Theme.text
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 4
+            color: key.down ? Theme.background : key.hovered ? Theme.hover : Theme.raised
+            border.width: key.activeFocus ? 1.5 : 1
+            border.color: key.activeFocus ? Theme.accent : Theme.border
+            // The key's lower lip; it disappears while pressed.
+            Rectangle {
+                visible: !key.down
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: 1
+                height: 2
+                radius: 2
+                color: Theme.background
+            }
+        }
+    }
     readonly property real grow: clamp((progress - 0.2) / 0.8)
-    component FocusLength: C.Button {
+    component FocusLength: StationKey {
         id: length
         required property int minutes
         visible: !Focus.active
-        flat: true
         text: String(minutes)
-        Accessible.name: "Focus for " + minutes + " minutes"
-        Layout.fillWidth: true
+        Accessible.name: "Quiet period, focus for " + minutes + " minutes"
         KeyNavigation.tab: todoList
         KeyNavigation.backtab: nextList
         onClicked: Focus.start(length.minutes)
@@ -100,6 +207,11 @@ Item {
         return reminders.concat(timers).sort((a, b) => a.at - b.at).slice(0, 5);
     }
     readonly property var parsed: DayText.parse(capture.text, now)
+    // Today runs from local midnight to the next one (23 or 25 hours on the days the clocks change).
+    readonly property real dayStart: new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()).getTime()
+    readonly property real dayEnd: new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate() + 1).getTime()
+    readonly property int dayOfYear: Math.round((dayStart - new Date(new Date(now).getFullYear(), 0, 1).getTime()) / 86400000) + 1
+    readonly property real recordedSeconds: activity ? activity.active + activity.watching : 0
 
     function focusCapture() {
         (peek ? peekField : capture).forceActiveFocus();
@@ -160,7 +272,7 @@ Item {
             if (error)
                 return;
             hub.lastDeleted = {item: removed, row: item.kind === "todo" && !item.doneAt ? row : -1};
-            ShellState.message((removed.kind === "todo" ? "To-do" : "Reminder") + " deleted · " + removed.text, "info", {label: "Undo", run: () => hub.undo()});
+            ShellState.message((removed.kind === "todo" ? "Work order" : "Event") + " deleted · " + removed.text, "info", {label: "Undo", run: () => hub.undo()});
         });
     }
     // Adds the deleted item back: done ones stay done, open to-dos return to their place.
@@ -201,11 +313,19 @@ Item {
                 hub.weather = result;
         });
     }
+    function loadActivity() {
+        Backend.request("activity.day", {date: Day.today()}, (result, error) => hub.activityLoaded(result, error));
+    }
+    function activityLoaded(result, error) {
+        if (!error)
+            activity = result;
+    }
     onOpeningChanged: {
         if (opening) {
             now = Date.now();
             Day.refresh();
             loadWeather();
+            loadActivity();
         } else {
             drawer = false;
             capture.text = "";
@@ -217,6 +337,13 @@ Item {
         repeat: true
         running: hub.opening
         onTriggered: hub.now = Date.now()
+    }
+    // The drum moves on once a minute while the hub is open.
+    Timer {
+        interval: 60000
+        repeat: true
+        running: hub.opening && !hub.peek
+        onTriggered: hub.loadActivity()
     }
     Connections {
         target: Day
@@ -253,7 +380,8 @@ Item {
         radius: hub.settle(Theme.radiusSmall, Theme.panelRadius, hub.grow)
         topLeftRadius: hub.edge ? hub.settle(radius, 0, hub.grow) : radius
         topRightRadius: topLeftRadius
-        color: Theme.panel
+        // The station's floor; the plates sit on it.
+        color: hub.peek ? Theme.panel : Theme.background
         // A hairline edge separates the hub from dark windows once it has left the bar.
         border.width: hub.grow > 0 ? 1 : 0
         border.color: Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, hub.grow)
@@ -292,7 +420,7 @@ Item {
                 C.Field {
                     id: peekField
                     Layout.fillWidth: true
-                    placeholderText: "Add a to-do, or \"in 20m stretch\""
+                    placeholderText: "New work order, or \"in 20m stretch\""
                     Keys.onEscapePressed: hub.stepBack()
                     Keys.onReturnPressed: hub.submit(peekField)
                     Keys.onEnterPressed: hub.submit(peekField)
@@ -300,7 +428,7 @@ Item {
                 }
                 C.Label {
                     readonly property var parsed: DayText.parse(peekField.text, hub.now)
-                    text: parsed ? DayText.describe(parsed, hub.now) : "Enter adds · Escape closes"
+                    text: parsed ? DayText.describe(parsed, hub.now) : "Enter files it · Escape closes"
                     color: parsed && parsed.error ? Theme.warning : Theme.muted
                     font.pixelSize: Theme.small
                     elide: Text.ElideRight
@@ -310,75 +438,243 @@ Item {
         }
         ColumnLayout {
             visible: !hub.peek
-            x: Theme.panelPadding
-            y: Theme.panelPadding
-            width: hub.openWidth - 2 * Theme.panelPadding
-            height: hub.openHeight - 2 * Theme.panelPadding
-            spacing: Theme.gapM
-            Piece {
-                order: 0
-                Layout.preferredHeight: 40
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: Theme.gapM
-                    C.Label {
-                        text: Qt.formatDateTime(new Date(hub.now), ShellState.timeFormat)
-                        font.family: Theme.mono
-                        font.pixelSize: Theme.heading
-                        Layout.fillWidth: true
+            x: Theme.gapM
+            y: Theme.gapM
+            width: hub.openWidth - 2 * Theme.gapM
+            height: hub.openHeight - 2 * Theme.gapM
+            spacing: Theme.gapS
+            RowLayout {
+                Layout.fillWidth: true
+                // A layout inside a layout fills the height by default; the header keeps its own.
+                Layout.fillHeight: false
+                Layout.preferredHeight: hub.headerHeight
+                spacing: Theme.gapS
+                Plate {
+                    order: 0
+                    label: "Station · local"
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: 236
+                    Layout.fillHeight: true
+                    // Phosphor glow: a blurred copy under the sharp digits; trimmed with the other effects.
+                    MultiEffect {
+                        visible: !Theme.lowPower
+                        source: readout
+                        anchors.fill: readout
+                        autoPaddingEnabled: true
+                        blurEnabled: true
+                        blur: 0.7
+                        blurMax: 16
+                        opacity: 0.8
                     }
-                    C.Button {
-                        id: dateButton
-                        flat: true
-                        glyph: "calendar"
-                        // Tab cycles inside the hub; it would otherwise move on to the bar's buttons underneath.
-                        KeyNavigation.tab: nextList
-                        KeyNavigation.backtab: capture
-                        text: Qt.formatDateTime(new Date(hub.now), "ddd d MMM")
-                        selected: hub.drawer
-                        hint: "Calendar"
-                        Accessible.name: "Calendar, " + Qt.formatDateTime(new Date(hub.now), "dddd d MMMM")
-                        onClicked: hub.toggleDrawer()
+                    Row {
+                        id: readout
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -2
+                        spacing: 5
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: Qt.formatDateTime(new Date(hub.now), ShellState.timeFormat)
+                        Repeater {
+                            model: Qt.formatDateTime(new Date(hub.now), ShellState.timeFormat).split(":")
+                            Row {
+                                id: part
+                                required property string modelData
+                                required property int index
+                                spacing: 5
+                                // Doto's own colon reads as a dagger at this size; two dots on its grid replace it.
+                                Column {
+                                    visible: part.index > 0
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 9
+                                    Repeater {
+                                        model: 2
+                                        Rectangle {
+                                            width: 4
+                                            height: 4
+                                            color: Theme.accent
+                                        }
+                                    }
+                                }
+                                Text {
+                                    text: part.modelData
+                                    font.family: Theme.readout
+                                    font.pixelSize: 36
+                                    color: Theme.accent
+                                }
+                            }
+                        }
                     }
+                }
+                Plate {
+                    order: 0
+                    Layout.fillHeight: true
                     RowLayout {
-                        visible: !!hub.weather
-                        spacing: Theme.gapXs
-                        C.Icon {
-                            name: hub.weather ? hub.weather.current.icon : "cloud"
-                            color: Theme.muted
+                        anchors.fill: parent
+                        anchors.topMargin: -17
+                        spacing: Theme.gapM
+                        // The day of the year opens the calendar drawer.
+                        AbstractButton {
+                            id: dateButton
+                            padding: 0
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 112
+                            focusPolicy: Qt.StrongFocus
+                            hoverEnabled: true
+                            // Tab cycles inside the hub; it would otherwise move on to the bar's buttons underneath.
+                            KeyNavigation.tab: nextList
+                            KeyNavigation.backtab: capture
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Calendar, layer " + hub.dayOfYear + ", " + Qt.formatDateTime(new Date(hub.now), "dddd d MMMM")
+                            onClicked: hub.toggleDrawer()
+                            background: Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                radius: 4
+                                color: hub.drawer ? Theme.selection : dateButton.hovered ? Theme.hover : "transparent"
+                                border.width: dateButton.activeFocus ? 1.5 : 0
+                                border.color: Theme.accent
+                            }
+                            // Columns, not layouts: a layout spreads its spare height, which set the three readings at
+                            // different heights.
+                            contentItem: Column {
+                                topPadding: 6
+                                spacing: 8
+                                StationText {
+                                    text: "Layer"
+                                }
+                                Text {
+                                    text: hub.dayOfYear + "  <font color=\"" + Theme.muted + "\" size=\"2\">" + Qt.formatDateTime(new Date(hub.now), "ddd d") + "</font>"
+                                    textFormat: Text.StyledText
+                                    font.family: Theme.instrument
+                                    font.pixelSize: Theme.heading - 4
+                                    color: Theme.text
+                                }
+                            }
                         }
-                        C.Label {
-                            text: hub.weather && hub.weather.current.temperature !== null ? hub.weather.current.temperature + "°" : ""
-                            color: Theme.muted
+                        Column {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            topPadding: 6
+                            spacing: 8
+                            StationText {
+                                text: "Atmos"
+                            }
+                            Row {
+                                spacing: Theme.gapXs
+                                C.Icon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: !!hub.weather
+                                    name: hub.weather ? hub.weather.current.icon : "cloud"
+                                    color: Theme.muted
+                                }
+                                Text {
+                                    text: hub.weather && hub.weather.current.temperature !== null ? hub.weather.current.temperature + "°" : "—"
+                                    font.family: Theme.instrument
+                                    font.pixelSize: Theme.heading - 4
+                                    color: Theme.text
+                                }
+                            }
+                        }
+                        Column {
+                            Layout.preferredWidth: 104
+                            Layout.alignment: Qt.AlignTop
+                            topPadding: 6
+                            spacing: 8
+                            StationText {
+                                text: "Recorded"
+                            }
+                            Text {
+                                text: hub.recording && hub.activity ? Station.duration(hub.recordedSeconds) : "—"
+                                font.family: Theme.instrument
+                                font.pixelSize: Theme.heading - 4
+                                color: Theme.text
+                            }
                         }
                     }
                 }
             }
-            // The large Line comes with step 5; this keeps its place.
-            Piece {
+            // The drum: today from 00 to 24, traced from what was recorded, with the stylus at now and the events
+            // still to come marked ahead of it.
+            Plate {
+                id: drumPlate
                 order: 1
-                Layout.preferredHeight: 16
+                Layout.preferredHeight: 128
+                label: "Drum · 00 – 24"
+                note: !hub.recording ? "Recorder off" : "● Recording"
+                noteColor: hub.recording ? Theme.accent : Theme.muted
+                Canvas {
+                    id: drum
+                    anchors.fill: parent
+                    anchors.bottomMargin: 14
+                    readonly property var inputs: [hub.activity, hub.now, hub.nextRows, hub.recording, Theme.accent, Theme.lowPower, width, height]
+                    onInputsChanged: requestPaint()
+                    onPaint: Station.paint(getContext("2d"), {
+                        width: width,
+                        height: height,
+                        segments: hub.recording && hub.activity ? hub.activity.segments : [],
+                        dayStart: hub.dayStart,
+                        dayEnd: hub.dayEnd,
+                        now: hub.now,
+                        items: hub.nextRows,
+                        accent: Theme.accent,
+                        grid: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08),
+                        ahead: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.25),
+                        event: Theme.accent2,
+                        stylus: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.45),
+                        glow: !Theme.lowPower,
+                        font: "10px \"" + Theme.instrument + "\""
+                    })
+                }
+                Repeater {
+                    model: 9
+                    Text {
+                        required property int index
+                        x: Math.round(index / 8 * drum.width) - (index === 8 ? implicitWidth : index ? implicitWidth / 2 : 0)
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: -4
+                        text: String(index * 3).padStart(2, "0")
+                        font.family: Theme.instrument
+                        font.pixelSize: Theme.caption - 1
+                        color: Theme.disabled
+                    }
+                }
+                // Tracking is off: say so where the trace would be, with the way to turn it on. The backing keeps the
+                // flat line from running through the words.
                 Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
-                    height: 10
-                    radius: 5
-                    color: Theme.surface
+                    visible: !hub.recording
+                    anchors.centerIn: drum
+                    width: offRow.implicitWidth + 2 * Theme.gapM
+                    height: offRow.implicitHeight + Theme.gapS
+                    radius: 4
+                    color: Theme.panel
+                    RowLayout {
+                        id: offRow
+                        anchors.centerIn: parent
+                        spacing: Theme.gapM
+                        C.Label {
+                            text: "Nothing is being recorded."
+                            color: Theme.muted
+                        }
+                        StationKey {
+                            text: "Open Activity"
+                            Layout.fillWidth: false
+                            onClicked: ShellState.open("activity")
+                        }
+                    }
                 }
             }
-            Piece {
-                order: 2
+            RowLayout {
+                Layout.fillWidth: true
                 Layout.fillHeight: true
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: Theme.gapL
+                spacing: Theme.gapS
+                Plate {
+                    order: 2
+                    label: "Expected events"
+                    Layout.fillWidth: false
+                    Layout.preferredWidth: 236
+                    Layout.fillHeight: true
                     ColumnLayout {
-                        Layout.preferredWidth: 220
-                        Layout.fillHeight: true
+                        anchors.fill: parent
                         spacing: Theme.gapS
-                        C.SectionHeader {
-                            text: "NEXT UP"
-                        }
                         ListView {
                             id: nextList
                             KeyNavigation.tab: Focus.active ? endFocus : focus25
@@ -386,11 +682,11 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
-                            spacing: 2
+                            spacing: 0
                             activeFocusOnTab: true
                             keyNavigationEnabled: true
                             model: hub.nextRows
-                            Accessible.name: "Next up"
+                            Accessible.name: "Expected events"
                             Accessible.role: Accessible.List
                             Keys.onDeletePressed: {
                                 const item = hub.nextRows[currentIndex];
@@ -406,59 +702,71 @@ Item {
                                 required property var modelData
                                 required property int index
                                 width: ListView.view.width
-                                height: 32
-                                radius: Theme.radiusSmall
+                                height: 38
+                                radius: 3
                                 color: ListView.isCurrentItem && nextList.activeFocus ? Theme.selection : "transparent"
                                 Accessible.role: Accessible.ListItem
                                 Accessible.name: hub.timeText(modelData.at) + " " + modelData.text
+                                Rectangle {
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width
+                                    height: 1
+                                    color: Theme.surface
+                                }
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: Theme.gapS
-                                    anchors.rightMargin: Theme.gapS
+                                    anchors.leftMargin: Theme.gapXs
+                                    anchors.rightMargin: Theme.gapXs
                                     spacing: Theme.gapS
-                                    C.Icon {
-                                        name: nextRow.modelData.kind === "timer" ? "timer" : nextRow.modelData.repeat ? "repeat" : "bell"
-                                        size: Theme.iconSmall
-                                        color: Theme.muted
-                                    }
-                                    C.Label {
+                                    Text {
                                         text: nextRow.modelData.kind === "timer" ? Focus.clockText(Math.max(0, Math.ceil((nextRow.modelData.at - Focus.now) / 1000)))
-                                                                                  : hub.timeText(nextRow.modelData.at)
-                                        font.family: Theme.mono
-                                        font.pixelSize: Theme.small
-                                        color: Theme.muted
+                                                                                  : (Station.countdown(nextRow.modelData.at, hub.now) || Qt.formatDateTime(new Date(nextRow.modelData.at), "ddd"))
+                                        font.family: Theme.instrument
+                                        font.pixelSize: Theme.body
+                                        color: Theme.accent2
+                                        Layout.preferredWidth: 52
                                     }
-                                    C.Label {
-                                        text: nextRow.modelData.text
-                                        elide: Text.ElideRight
+                                    ColumnLayout {
+                                        spacing: 0
                                         Layout.fillWidth: true
+                                        C.Label {
+                                            text: nextRow.modelData.text
+                                            elide: Text.ElideRight
+                                            font.pixelSize: Theme.label
+                                            Layout.fillWidth: true
+                                        }
+                                        StationText {
+                                            text: nextRow.modelData.kind === "timer" ? "Timer" : (nextRow.modelData.repeat ? "Repeats · " : "") + hub.timeText(nextRow.modelData.at)
+                                            font.letterSpacing: 0.8
+                                        }
                                     }
                                 }
                             }
                         }
                         C.Label {
                             visible: hub.nextRows.length === 0
-                            text: "No reminders. Start one with a time, like \"in 20m stretch\"."
+                            text: "No events expected. Start one with a time, like \"in 20m stretch\"."
                             color: Theme.muted
                             font.pixelSize: Theme.small
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            verticalAlignment: Text.AlignTop
                         }
-                        // Quick-start for a Focus session, or the running one.
+                        // Focus as a quiet period: no events reach you while it runs.
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.gapXs
-                            C.Icon {
-                                name: "focus"
-                                color: Theme.muted
+                            StationText {
+                                text: "Quiet"
+                                Layout.rightMargin: Theme.gapXs
                             }
-                            // In the Tab cycle after Next up; Left and Right move between the lengths.
-                            C.Button {
+                            // In the Tab cycle after the events; Left and Right move between the lengths.
+                            StationKey {
                                 id: endFocus
                                 visible: Focus.active
-                                flat: true
-                                text: "End focus · " + Focus.minutesText(Focus.remainingSeconds)
-                                Layout.fillWidth: true
+                                lit: true
+                                text: "End · " + Focus.minutesText(Focus.remainingSeconds) + " left"
                                 KeyNavigation.tab: todoList
                                 KeyNavigation.backtab: nextList
                                 onClicked: Focus.end(true)
@@ -481,20 +789,15 @@ Item {
                             }
                         }
                     }
+                }
+                Plate {
+                    order: 3
+                    label: "Work orders"
+                    note: hub.todoRows.length ? Day.todos.length + " open" : ""
+                    Layout.fillHeight: true
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: Theme.gapS
-                        C.SectionHeader {
-                            text: "TO-DO"
-                            C.Label {
-                                visible: hub.todoRows.length > 0
-                                text: hub.doneToday.length + " / " + hub.todoRows.length
-                                font.family: Theme.mono
-                                font.pixelSize: Theme.small
-                                color: Theme.muted
-                            }
-                        }
+                        anchors.fill: parent
+                        spacing: Theme.gapXs
                         ListView {
                             id: todoList
                             KeyNavigation.tab: capture
@@ -502,11 +805,11 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             clip: true
-                            spacing: 2
+                            spacing: 1
                             activeFocusOnTab: true
                             keyNavigationEnabled: true
                             model: hub.todoRows
-                            Accessible.name: "To-do"
+                            Accessible.name: "Work orders"
                             Accessible.role: Accessible.List
                             Keys.onPressed: event => {
                                 const item = hub.todoRows[currentIndex];
@@ -529,8 +832,8 @@ Item {
                                 required property int index
                                 readonly property bool done: !!modelData.doneAt
                                 width: ListView.view.width
-                                height: 34
-                                radius: Theme.radiusSmall
+                                height: 27
+                                radius: 3
                                 color: ListView.isCurrentItem && todoList.activeFocus ? Theme.selection : rowHover.hovered ? Theme.hover : "transparent"
                                 Accessible.role: Accessible.CheckBox
                                 Accessible.name: modelData.text
@@ -548,23 +851,18 @@ Item {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.gapS
                                     anchors.rightMargin: Theme.gapS
-                                    spacing: Theme.gapS
-                                    // Done is shown by the check mark and the strike, not by colour alone.
+                                    spacing: Theme.gapS + 2
+                                    // A status lamp: an empty ring while open, lit once cleared. Done also reads from
+                                    // the strike and the CLEARED stamp, not from colour alone.
                                     Rectangle {
-                                        Layout.preferredWidth: 18
-                                        Layout.preferredHeight: 18
+                                        Layout.preferredWidth: 10
+                                        Layout.preferredHeight: 10
                                         radius: 5
-                                        color: todoRow.done ? Theme.accent : "transparent"
+                                        color: todoRow.done ? Theme.success : "transparent"
                                         border.width: todoRow.done ? 0 : 1.5
                                         border.color: Theme.muted
-                                        C.Icon {
-                                            anchors.centerIn: parent
-                                            visible: todoRow.done
-                                            name: "check"
-                                            size: Theme.iconSmall
-                                            color: Theme.background
-                                        }
                                         TapHandler {
+                                            margin: 8
                                             onTapped: hub.toggle(todoRow.modelData, todoRow.index)
                                         }
                                     }
@@ -572,15 +870,22 @@ Item {
                                         text: todoRow.modelData.text
                                         color: todoRow.done ? Theme.muted : Theme.text
                                         font.strikeout: todoRow.done
+                                        font.pixelSize: Theme.label
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
+                                    }
+                                    StationText {
+                                        visible: todoRow.done
+                                        text: "Cleared " + Qt.formatDateTime(new Date(todoRow.modelData.doneAt || 0), ShellState.timeFormat)
+                                        color: Theme.success
+                                        font.letterSpacing: 1.2
                                     }
                                 }
                             }
                         }
                         C.Label {
                             visible: hub.todoRows.length === 0
-                            text: "Nothing planned. Type below."
+                            text: "No work orders. The station is calm."
                             color: Theme.muted
                             Layout.fillWidth: true
                             Layout.fillHeight: true
@@ -592,17 +897,35 @@ Item {
                             KeyNavigation.tab: dateButton
                             KeyNavigation.backtab: todoList
                             Layout.fillWidth: true
-                            placeholderText: "Add a to-do, or \"in 20m stretch\""
+                            implicitHeight: 32
+                            leftPadding: 26
+                            font.family: Theme.mono
+                            font.pixelSize: Theme.label
+                            placeholderText: "new work order, or \"in 20m stretch\""
                             Keys.onEscapePressed: hub.stepBack()
                             Keys.onReturnPressed: hub.submit(capture)
                             Keys.onEnterPressed: hub.submit(capture)
                             onTextChanged: hub.now = Date.now()
+                            background: Rectangle {
+                                radius: 4
+                                color: Theme.background
+                                border.width: 1
+                                border.color: capture.activeFocus ? Theme.accent : Theme.border
+                                Text {
+                                    x: 11
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: ">"
+                                    font.family: Theme.mono
+                                    font.pixelSize: Theme.label
+                                    color: Theme.accent
+                                }
+                            }
                         }
                         // How the text was understood, before Enter adds it; a refusal says why.
                         C.Label {
-                            text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : "Enter adds · Tab moves · Space checks · Delete removes"
+                            text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : "Enter files · Tab moves · Space clears · Delete removes"
                             color: hub.parsed && hub.parsed.error ? Theme.warning : Theme.muted
-                            font.pixelSize: Theme.small
+                            font.pixelSize: Theme.caption
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
@@ -610,16 +933,19 @@ Item {
                 }
             }
         }
-        // The calendar drawer slides in over the columns and leaves the header in view.
+        // The calendar drawer slides in over the lower plates and leaves the header in view.
         Rectangle {
             id: drawerPanel
-            readonly property int below: Theme.panelPadding + 40 + Theme.gapM
+            readonly property int below: Theme.gapM + hub.headerHeight + Theme.gapS
             y: below
             width: 320
-            height: hub.openHeight - below - Theme.panelPadding
-            x: hub.drawer ? hub.openWidth - width - Theme.panelPadding : hub.openWidth + 8
+            height: hub.openHeight - below - Theme.gapM
+            x: hub.drawer ? hub.openWidth - width - Theme.gapM : hub.openWidth + 8
             visible: x < hub.openWidth
+            radius: 6
             color: Theme.panel
+            border.width: 1
+            border.color: Theme.border
             Behavior on x {
                 NumberAnimation {
                     duration: Theme.enter
@@ -630,6 +956,7 @@ Item {
             MonthView {
                 id: month
                 anchors.fill: parent
+                anchors.margins: Theme.gapS
                 month: hub.drawerMonth
                 today: new Date(hub.now)
                 activeFocusOnTab: true
