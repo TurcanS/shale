@@ -314,14 +314,17 @@ Scope {
                         Layout.fillWidth: true
                         spacing: 1
                         C.Label {
-                            text: digestWindow.retained ? "While you focused · " + digestWindow.retained.minutes + " min" : ""
+                            text: digestWindow.retained ? "While quiet · " + digestWindow.retained.minutes + " min" : ""
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
                         C.Caption {
                             readonly property int total: digestWindow.retained ? digestWindow.retained.total : 0
-                            text: total + (total === 1 ? " notification" : " notifications") + " from " + digestWindow.groups.length + (digestWindow.groups.length === 1 ? " app" : " apps")
+                            // Reminders are counted apart as events, as the station calls them.
+                            readonly property int events: digestWindow.retained ? digestWindow.retained.events || 0 : 0
+                            text: (total - events) + (total - events === 1 ? " signal" : " signals") + (events ? ", " + events + (events === 1 ? " event" : " events") : "")
+                                  + " from " + digestWindow.groups.length + (digestWindow.groups.length === 1 ? " app" : " apps")
                             Layout.fillWidth: true
                         }
                     }

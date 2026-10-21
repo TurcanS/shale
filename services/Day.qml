@@ -1,9 +1,12 @@
 pragma Singleton
 import QtQuick
+import Quickshell.Io
 import "../core"
+import "../core/day.js" as Capture
 
 // To-dos and reminders, kept by the helper (helpers/day.py). One timer aims at the next due reminder; whatever falls
-// due is handed out once through `fired`, for the reminder delivery to show.
+// due is handed out once through `fired` and delivered as a signal from "Reminders", which stays in the signal log
+// until it is handled. Quiet holds it like any other signal, so the digest lists it.
 QtObject {
     id: root
     // The local day `items` describes, as YYYY-MM-DD.
@@ -17,9 +20,13 @@ QtObject {
     // When the next reminder is due (epoch ms); 0 when none is.
     property real fireAt: 0
     property bool loaded: false
-    // Set by the reminder delivery. Until something shows what fires, nothing is fired, or reminders would be marked
-    // as handled unseen.
-    property bool deliver: false
+    // Nothing is fired until the settings are in: a reminder that breaks through Quiet needs to know Quiet is on.
+    readonly property bool deliver: Object.keys(ShellState.settings).length > 0
+    // Fired reminders not yet snoozed, cleared or dismissed, oldest first, as {id, text, at, away, signal, arrivedAt}.
+    // Kept for this session only: a restart leaves them in the signal log, without their keys.
+    property var arrived: []
+    // Something arrived just now: the capsule shakes once and the island grows.
+    signal arrival(var item)
     // Each fired item once. `away` is true when it was missed while the shell was off, asleep or locked, and `at`
     // is the time it was due.
     signal fired(var items)
@@ -86,10 +93,55 @@ QtObject {
     }
     function fire() {
         Backend.request("day.fire", {}, (result, error) => {
-            if (!error && result.length)
+            if (!error && result.length) {
                 root.fired(result);
+                result.forEach(item => root.announce(item));
+            }
             root.refresh();
         });
+    }
+    function announce(item) {
+        const now = Date.now();
+        const said = Capture.arrival(item, now);
+        const keys = Capture.choices(item, now);
+        // A reminder that fires again (a snooze, a repeat) replaces its older signal.
+        const older = arrived.find(event => event.id === item.id);
+        if (older)
+            Services.dismissNotification(older.signal);
+        const id = Services.post({appName: "Reminders", summary: said.summary, body: said.body, header: said.header,
+                                  event: true, breaksQuiet: !!item.breaksFocus, actions: keys.map(key => ({identifier: key.identifier, text: key.text}))});
+        const entry = {id: item.id, text: item.text, at: item.at, away: !!item.away, repeat: item.repeat || null, breaksQuiet: !!item.breaksFocus,
+                       signal: id, arrivedAt: now, choices: keys};
+        arrived = arrived.filter(event => event.id !== item.id).concat([entry]);
+        arrival(entry);
+    }
+    // Snooze, Tomorrow or Clear on an arrived event, from its signal or the island. Snooze counts from the click, not
+    // from the arrival: a key pressed half an hour later must not land in the past.
+    function handle(id, identifier) {
+        const event = arrived.find(item => item.id === id);
+        if (!event)
+            return;
+        arrived = arrived.filter(item => item.id !== id);
+        Services.dismissNotification(event.signal);
+        const key = Capture.choices(event, Date.now()).find(choice => choice.identifier === identifier);
+        if (key && key.until > 0) {
+            snooze(id, key.until);
+        } else if (identifier === "clear") {
+            // A repeating reminder moved on to its next time when it fired; only a one-off is checked off.
+            if (!event.repeat)
+                change("day.done", {id: id});
+        }
+    }
+    property Connections signalLog: Connections {
+        target: Services
+        function onLocalInvoked(id, identifier) {
+            const event = root.arrived.find(item => item.signal === id);
+            if (event)
+                root.handle(event.id, identifier);
+        }
+        function onLocalDismissed(id) {
+            root.arrived = root.arrived.filter(item => item.signal !== id);
+        }
     }
 
     // Never more than a minute ahead: the timer stands still during suspend, so a reminder that fell due while
@@ -120,6 +172,14 @@ QtObject {
     }
     onDeliverChanged: start()
     Component.onCompleted: start()
+    property IpcHandler ipc: IpcHandler {
+        target: "day"
+        function status(): string {
+            return JSON.stringify({fireAt: root.fireAt, arrived: root.arrived.map(item => ({id: item.id, text: item.text, at: item.at, away: item.away})),
+                                   signals: Services.notifications.filter(n => n.appName === "Reminders").length,
+                                   popups: Services.popupIds.filter(id => root.arrived.some(item => item.signal === id)).length});
+        }
+    }
     property Connections backendState: Connections {
         target: Backend
         function onReadyChanged() {

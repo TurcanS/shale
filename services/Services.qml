@@ -298,8 +298,24 @@ QtObject {
         if (!showPopup(n))
             dropTransient(n.id);
     }
+    // The shell's own signals (reminders) need no D-Bus round trip to itself. Their actions are {identifier, text};
+    // choosing one, or dismissing the signal, is handed back through localInvoked and localDismissed. One marked
+    // `breaksQuiet` pops up through Quiet and Do not disturb, but not over the lock or a fullscreen window.
+    signal localInvoked(int id, string identifier)
+    signal localDismissed(int id)
+    function post(fields) {
+        const id = Math.min(0, ...notifications.map(n => n.id)) - 1;
+        const record = Object.assign({summary: "", body: "", appName: "Application", appIcon: "", image: "", urgency: NotificationUrgency.Normal,
+                                      actions: [], transient: false}, fields, {id: id, original: null, local: true, timestamp: Date.now()});
+        notifications = [record].concat(notifications);
+        while (notifications.length > 200)
+            dismissNotification(notifications[notifications.length - 1].id);
+        // A reminder waits for you: its popup stays until it is handled or makes room for a newer one.
+        showPopup({id: id, urgency: record.urgency, expireTimeout: 0, breaksQuiet: !!record.breaksQuiet});
+        return id;
+    }
     function showPopup(n) {
-        if (locked || ((dnd || fullscreen) && n.urgency !== NotificationUrgency.Critical))
+        if (locked || (((dnd && !n.breaksQuiet) || fullscreen) && n.urgency !== NotificationUrgency.Critical))
             return false;
         if (popupIds.indexOf(n.id) === -1 && popupIds.length >= 3) {
             // Make room by retiring the oldest popup that nobody is reading and that is not critical.
@@ -350,6 +366,8 @@ QtObject {
         hidePopup(id);
         if (record && record.original)
             record.original.dismiss();
+        if (record && record.local)
+            localDismissed(id);
     }
     function dismissAllNotifications() {
         for (const item of notifications.slice())
@@ -372,6 +390,11 @@ QtObject {
     }
     function invokeNotification(id, index) {
         const record = notifications.find(item => item.id === id);
+        if (record && record.local && record.actions[index]) {
+            localInvoked(id, record.actions[index].identifier);
+            dismissNotification(id);
+            return;
+        }
         if (!record || !record.original || !record.actions[index])
             return;
         record.actions[index].invoke();

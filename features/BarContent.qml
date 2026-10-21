@@ -326,7 +326,10 @@ Item {
                 return Station.countdown(shownEvent.at, nowMs) + " " + text;
             }
             readonly property bool quiet: Focus.active
-            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  QUIET " + Focus.clockText(Focus.remainingSeconds) : soon ? "  ·  " + soon : "")
+            // An event that arrived stays on the capsule until it is snoozed, cleared or dismissed; the newest shows.
+            readonly property var arrived: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
+            readonly property string arrivedText: arrived ? "▲ " + (arrived.text.length > 24 ? arrived.text.slice(0, 23) + "…" : arrived.text) : ""
+            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  QUIET " + Focus.clockText(Focus.remainingSeconds) : arrived ? "  ·  " + arrivedText : soon ? "  ·  " + soon : "")
             // Open to-dos due today, as a small count on the pill; amber with a mark when one is already late.
             readonly property int dueToday: Day.todos.filter(item => item.dueAt && new Date(item.dueAt).toDateString() === clock.date.toDateString()).length
             readonly property int overdue: Day.todos.filter(item => item.dueAt && item.dueAt < clockButton.nowMs).length
@@ -378,16 +381,33 @@ Item {
                 }
             }
             Component.onDestruction: if (bar.dayAnchor === clockButton) bar.dayAnchor = null
+            // One shake when an event arrives, unless Quiet holds it.
+            Connections {
+                target: Day
+                function onArrival(item) {
+                    if (!Theme.reduced && !Theme.lowPower && (!Focus.active || item.breaksQuiet))
+                        shake.restart();
+                }
+            }
+            SequentialAnimation {
+                id: shake
+                NumberAnimation { target: shakeShift; property: "x"; to: 3; duration: 50 }
+                NumberAnimation { target: shakeShift; property: "x"; to: -3; duration: 75 }
+                NumberAnimation { target: shakeShift; property: "x"; to: 2; duration: 75 }
+                NumberAnimation { target: shakeShift; property: "x"; to: 0; duration: 100; easing.type: Easing.OutCubic }
+            }
             contentItem: Row {
                 spacing: 8
+                transform: Translate { id: shakeShift }
                 // The recording lamp is lit while Activity records; with an event inside the hour it turns to the
-                // event's colour and breathes in the last five minutes. Quiet puts it out: nothing gets through.
+                // event's colour and breathes in the last five minutes, and stays lit in it once the event arrived.
+                // Quiet puts it out: nothing gets through.
                 C.Lamp {
                     anchors.verticalCenter: parent.verticalCenter
                     size: 7
-                    lit: clockButton.recording && !clockButton.quiet || (!!clockButton.soon && !clockButton.quiet)
-                    color: clockButton.soon ? Theme.accent2 : Theme.accent
-                    breathing: clockButton.eventIn >= 0 && clockButton.eventIn <= 300000
+                    lit: !clockButton.quiet && (clockButton.recording || !!clockButton.soon || !!clockButton.arrived)
+                    color: clockButton.soon || clockButton.arrived ? Theme.accent2 : Theme.accent
+                    breathing: !clockButton.arrived && clockButton.eventIn >= 0 && clockButton.eventIn <= 300000
                 }
                 C.Label {
                     anchors.verticalCenter: parent.verticalCenter
@@ -402,6 +422,7 @@ Item {
             }
             // The hover card: the next three events and what is open.
             hint: Qt.formatDateTime(clock.date, "dddd, d MMMM yyyy")
+                + (Day.arrived.length ? "\n" + Day.arrived.map(item => "Arrived  " + item.text).join("\n") : "")
                 + (clockButton.upcoming.length ? "\n" + clockButton.upcoming.map(item => Station.countdown(item.at, clockButton.nowMs) + "  " + item.text).join("\n") : "")
                 + (clockButton.recording && todayLine.activity ? "\nRecorded " + Station.duration(todayLine.recorded) : "")
                 + "\n" + clockButton.openText + (clockButton.overdue ? ", " + clockButton.overdue + " late" : "")

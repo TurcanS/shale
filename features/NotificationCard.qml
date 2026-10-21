@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
@@ -11,6 +12,8 @@ Rectangle {
     property bool popup: false
     // In grouped history the section header already names the app.
     readonly property bool grouped: !popup
+    // A reminder from the shell itself is an event plate: a stamped header with the time it was due, keys below.
+    readonly property bool event: !!notification.event
     property bool expanded: false
     property double now: Date.now()
     readonly property bool clickable: Services.defaultActionIndex(notification) >= 0 || popup
@@ -89,8 +92,8 @@ Rectangle {
         width: 3
         height: 20
         radius: 1.5
-        color: Theme.danger
-        visible: root.notification.urgency === 2
+        color: root.event ? Theme.accent2 : Theme.danger
+        visible: root.notification.urgency === 2 || root.event
     }
     HoverHandler {
         onHoveredChanged: if (root.popup) Services.pausePopup(root.notification.id, hovered)
@@ -135,8 +138,17 @@ Rectangle {
                 size: 18
                 color: Theme.muted
             }
+            C.StationText {
+                visible: root.event
+                text: root.notification.header || ""
+                color: Theme.accent2
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+            }
             C.Label {
                 id: headerTitle
+                visible: !root.event
                 text: root.grouped ? root.notification.summary : (root.notification.appName || "Notification")
                 color: root.grouped ? Theme.text : Theme.muted
                 font.pixelSize: root.grouped ? Theme.body : Theme.small
@@ -166,7 +178,7 @@ Rectangle {
         }
         C.Label {
             id: summary
-            visible: !root.grouped
+            visible: !root.grouped || root.event
             text: root.notification.summary
             font.weight: Font.DemiBold
             wrapMode: Text.WordWrap
@@ -238,7 +250,16 @@ Rectangle {
             Layout.fillWidth: true
             spacing: Theme.gapS
             Repeater {
-                model: parent.buttons
+                model: root.event ? parent.buttons : []
+                C.StationKey {
+                    required property var modelData
+                    text: modelData.action.text
+                    width: Math.min(implicitWidth, parent.width)
+                    onClicked: Services.invokeNotification(root.notification.id, modelData.index)
+                }
+            }
+            Repeater {
+                model: root.event ? [] : parent.buttons
                 C.Button {
                     required property var modelData
                     text: modelData.action.text || "Open"

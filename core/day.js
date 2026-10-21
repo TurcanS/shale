@@ -145,3 +145,31 @@ function describe(parsed, now) {
                : NAMES[due.getDay()].slice(0, 3) + " " + due.getDate() + " " + MONTHS[due.getMonth()];
     return "Reminder · " + when + " " + time + " · " + parsed.text;
 }
+
+// What a fired reminder says as a signal: the stamped header with the time it was due, and its text. One missed
+// while the shell was off, asleep or locked says so, with the day when it was not today.
+function arrival(item, now) {
+    const due = new Date(item.at);
+    const today = new Date(now);
+    const sameDay = due.toDateString() === today.toDateString();
+    const time = two(due.getHours()) + ":" + two(due.getMinutes());
+    return {
+        header: (item.away ? "WHILE YOU WERE AWAY · " : "EVENT ARRIVED · ") + (sameDay ? "" : NAMES[due.getDay()].slice(0, 3) + " ") + time,
+        summary: item.text,
+        body: item.away ? "Due " + (sameDay ? "at " : NAMES[due.getDay()] + " ") + time : ""
+    };
+}
+
+// The keys on an arrived event, with the time each snooze moves it to. Tomorrow keeps the clock time it was due.
+function choices(item, now) {
+    const due = new Date(item.at);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(due.getHours(), due.getMinutes(), 0, 0);
+    return [
+        {identifier: "snooze10", text: "Snooze 10 min", until: now + 600000},
+        {identifier: "snooze60", text: "1 h", until: now + 3600000},
+        {identifier: "tomorrow", text: "Tomorrow", until: tomorrow.getTime()},
+        {identifier: "clear", text: "Clear", until: 0}
+    ];
+}

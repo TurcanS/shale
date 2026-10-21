@@ -6,8 +6,8 @@ import "../core/island.js" as Queue
 import "../services"
 import "../components" as C
 
-// The capsule grows a card for a few seconds when something live happens: Quiet starting or hovered, a timer in its
-// last seconds, a new track, an order cleared. One at a time by importance; a second live thing shows as a small
+// The capsule grows a card for a few seconds when something live happens: an event arriving, Quiet starting or
+// hovered, a timer in its last seconds, a new track, an order cleared. One at a time by importance; a second live thing shows as a small
 // bubble beside it. The card opens from the pill's own rectangle, so a reversal needs no special case.
 Item {
     id: island
@@ -19,14 +19,16 @@ Item {
     property bool hovered: false
     property real now: Date.now()
     property var queue: []
-    readonly property var picked: Queue.pick(queue, now, blocked, hovered)
+    // The pointer on the card keeps it open too, so its keys can be reached.
+    readonly property var picked: Queue.pick(queue, now, blocked, hovered || cardHover.hovered)
     readonly property var current: picked.current
     readonly property var bubble: current ? picked.bubble : null
     readonly property alias card: card
     // The last activity shown, kept while the card closes so its content does not vanish mid-fade.
     property var shown: null
     readonly property string kind: shown ? shown.kind : ""
-    readonly property int cardWidth: 280
+    readonly property var event: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
+    readonly property int cardWidth: kind === "event" ? 400 : 280
     readonly property int cardHeight: 52
     property real reveal: current ? 1 : 0
     Behavior on reveal {
@@ -87,6 +89,16 @@ Item {
         function onCleared() {
             island.push("cleared", 1000, false, false);
         }
+        // Six seconds, longer while the pointer is on it; it stays live (the bubble) until handled. Quiet holds it,
+        // unless it is one that breaks through.
+        function onArrival(item) {
+            if (!Focus.active || item.breaksQuiet)
+                island.push("event", 6000, true, true);
+        }
+        function onArrivedChanged() {
+            if (!Day.arrived.length)
+                island.queue = Queue.drop(island.queue, "event");
+        }
     }
     Component.onCompleted: if (Focus.active) push("quiet", 0, true, true)
     Rectangle {
@@ -104,6 +116,9 @@ Item {
         border.width: 1
         border.color: Theme.border
         opacity: Theme.reduced ? island.reveal : Math.min(1, island.reveal * 3)
+        HoverHandler {
+            id: cardHover
+        }
         // What is live sets the colour of the card's left edge, as an app does on a notification card.
         Rectangle {
             x: 1
@@ -111,7 +126,7 @@ Item {
             width: 3
             height: parent.height - 16
             radius: 1.5
-            color: island.kind === "quiet" ? Theme.accent : island.kind === "timer" ? Theme.accent2 : island.kind === "media" ? Theme.activityApps[1] : Theme.text
+            color: island.kind === "quiet" ? Theme.accent : island.kind === "timer" || island.kind === "event" ? Theme.accent2 : island.kind === "media" ? Theme.activityApps[1] : Theme.text
             opacity: Math.max(0, (island.reveal - 0.6) / 0.4)
         }
         // A lit top edge and two screws, as on the hub's plates.
@@ -149,7 +164,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 2
                     C.StationText {
-                        text: island.kind === "quiet" ? "Quiet" : island.kind === "timer" ? "Timer"
+                        color: island.kind === "event" ? Theme.accent2 : Theme.muted
+                        text: island.kind === "event" ? (!island.event ? "Event" : (island.event.away ? "While you were away" : "Event arrived")
+                                                          + " · " + Qt.formatDateTime(new Date(island.event.at), "HH:mm")
+                                                          + (Day.arrived.length > 1 ? " · " + Day.arrived.length + " events" : ""))
+                            : island.kind === "quiet" ? "Quiet" : island.kind === "timer" ? "Timer"
                             : island.kind === "media" ? "Now playing" : "Cleared"
                     }
                     C.Readout {
@@ -163,6 +182,8 @@ Item {
                                 return Focus.clockText(Focus.remainingSeconds);
                             if (kind === "timer")
                                 return Focus.nextTimer ? Focus.clockText(Math.max(0, Math.ceil((Focus.nextTimer.endsAt - island.now) / 1000))) + (Focus.nextTimer.label ? "  " + Focus.nextTimer.label : "") : "Done";
+                            if (kind === "event")
+                                return island.event ? "▲ " + island.event.text : "";
                             if (kind === "media")
                                 return NowPlaying.player ? (NowPlaying.player.trackTitle || "") + (NowPlaying.player.trackArtist ? " · " + NowPlaying.player.trackArtist : "") : "";
                             return "Order cleared";
@@ -179,6 +200,17 @@ Item {
                         } else if (Focus.nextTimer) {
                             Focus.cancelTimer(Focus.nextTimer.id);
                         }
+                    }
+                }
+                // Snooze 10 min · 1 h · Clear; Tomorrow is on the signal and in the hub.
+                Repeater {
+                    model: island.kind === "event" && island.event ? island.event.choices.filter(choice => choice.identifier !== "tomorrow") : []
+                    C.StationKey {
+                        required property var modelData
+                        Layout.fillWidth: false
+                        text: modelData.identifier === "snooze10" ? "10 min" : modelData.text
+                        Accessible.name: modelData.identifier === "snooze10" ? "Snooze 10 minutes" : modelData.identifier === "snooze60" ? "Snooze 1 hour" : "Clear the event"
+                        onClicked: Day.handle(island.event.id, modelData.identifier)
                     }
                 }
                 C.StationKey {
@@ -211,7 +243,7 @@ Item {
         C.Readout {
             anchors.centerIn: parent
             font.pixelSize: Theme.caption
-            text: island.bubble ? (island.bubble.kind === "quiet" ? "Q" : island.bubble.kind === "media" ? "♪" : island.bubble.kind === "timer" ? "T" : "") : ""
+            text: island.bubble ? (island.bubble.kind === "event" ? "▲" : island.bubble.kind === "quiet" ? "Q" : island.bubble.kind === "media" ? "♪" : island.bubble.kind === "timer" ? "T" : "") : ""
         }
     }
 }

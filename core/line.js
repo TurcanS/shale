@@ -50,7 +50,7 @@ function frontState(segments, now) {
     return last && now - last.end < 150000 ? last.state : "idle";
 }
 
-// Marks for today's items, as {x, kind, text, at}. A fleck is a completed order, a tick a to-do with a time, a stone
+// Marks for today's items, as {id, x, kind, text, at}. A fleck is a completed order, a tick a to-do with a time, a stone
 // a reminder; `fired` stones are filled.
 function marks(items, todos, dayStart, dayEnd, width) {
     const result = [];
@@ -73,7 +73,7 @@ function marks(items, todos, dayStart, dayEnd, width) {
         }
         if (!kind || at < dayStart || at >= dayEnd)
             continue;
-        result.push({x: position(at, dayStart, dayEnd, width), kind: kind, text: item.text, at: at, fired: !!item.firedAt});
+        result.push({id: item.id, x: position(at, dayStart, dayEnd, width), kind: kind, text: item.text, at: at, fired: !!item.firedAt});
     }
     return result;
 }

@@ -18,7 +18,7 @@ QtObject {
     readonly property int remainingSeconds: active ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0
     readonly property real progress: active && endsAt > startedAt ? Math.max(0, Math.min(1, (endsAt - now) / (endsAt - startedAt))) : 0
     readonly property int lastMinutes: ShellState.setting("focusMinutes", 25)
-    // {minutes, total, groups: [{appName, appIcon, count, latest}]} after a session that let something in; null otherwise.
+    // {minutes, total, events, groups: [{appName, appIcon, count, latest}]} after a session that let something in; null otherwise.
     property var digest: null
     // [{id, label, endsAt, seconds}], soonest first.
     property var timers: []
@@ -80,7 +80,7 @@ QtObject {
                     groups[n.appName] = {appName: n.appName, appIcon: n.appIcon || "", count: 0, latest: n.summary || n.body || ""};
                 groups[n.appName].count++;
             }
-            digest = {minutes: minutes, total: missed.length,
+            digest = {minutes: minutes, total: missed.length, events: missed.filter(n => n.event).length,
                       groups: Object.values(groups).sort((a, b) => b.count - a.count || a.appName.localeCompare(b.appName))};
         } else {
             digest = null;

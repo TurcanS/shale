@@ -172,6 +172,22 @@ Item {
                 color: fleck ? Theme.text : stone ? (modelData.fired ? Theme.accent2 : "transparent") : Theme.accent2
                 border.width: stone ? 1 : 0
                 border.color: Theme.accent2
+                // A stone whose event just arrived pulses three times. The marks are rebuilt on every refresh, so
+                // a new delegate picks up a pulse already under way and never starts it again later.
+                readonly property var arrived: stone ? Day.arrived.find(event => event.id === modelData.id) : undefined
+                function pulseIfNew() {
+                    if (arrived && !Theme.reduced && !Theme.lowPower && Date.now() - arrived.arrivedAt < 2400)
+                        pulse.restart();
+                }
+                onArrivedChanged: pulseIfNew()
+                Component.onCompleted: pulseIfNew()
+                SequentialAnimation on scale {
+                    id: pulse
+                    running: false
+                    loops: 3
+                    NumberAnimation { to: 1.8; duration: 300; easing.type: Easing.OutCubic }
+                    NumberAnimation { to: 1; duration: 500; easing.type: Easing.InOutQuad }
+                }
             }
         }
         // The Front: bright while active, amber-leaning while watching, dim while idle.
