@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import "../core"
 import "../core/day.js" as DayText
 import "../core/station.js" as Station
+import "../core/logbook.js" as Book
 import "../services"
 import "../components" as C
 
@@ -59,14 +60,14 @@ Item {
             return;
         drawer = false;
         logbook = true;
-        bookMotion.duration = Theme.reduced ? 0 : Theme.lowPower ? 200 : 380;
+        bookMotion.duration = Book.stageMotion(true, Theme.reduced, Theme.lowPower, Theme.leave).duration;
         bookMotion.to = 1;
         bookMotion.restart();
         pages.focusNow();
     }
     function closeLogbook() {
         logbook = false;
-        bookMotion.duration = Theme.leave + (Theme.reduced ? 0 : 60);
+        bookMotion.duration = Book.stageMotion(false, Theme.reduced, Theme.lowPower, Theme.leave).duration;
         bookMotion.to = 0;
         bookMotion.restart();
         focusCapture();

@@ -192,3 +192,11 @@ function view(kind, argument, orders, now) {
     }
     return [];
 }
+
+// How long the hub takes to grow on into the Logbook, and the overshoot on its width: none when motion is reduced,
+// shorter without overshoot in power saver. `leave` is Theme.leave, which is already 0 when motion is reduced.
+function stageMotion(opening, reduced, lowPower, leave) {
+    if (opening)
+        return {duration: reduced ? 0 : lowPower ? 200 : 380, overshoot: !reduced && !lowPower};
+    return {duration: leave + (reduced ? 0 : 60), overshoot: false};
+}
