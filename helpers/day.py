@@ -255,6 +255,10 @@ class DayStore:
         if "shift_started" not in [row[1] for row in self.db.execute("PRAGMA table_info(days)")]:
             self.db.execute("ALTER TABLE days ADD COLUMN shift_started INTEGER")
             self.db.commit()
+        self.db.execute("CREATE TABLE IF NOT EXISTS quiet_log (start INTEGER PRIMARY KEY, end INTEGER NOT NULL)")
+        if "shift_reminded" not in [row[1] for row in self.db.execute("PRAGMA table_info(days)")]:
+            self.db.execute("ALTER TABLE days ADD COLUMN shift_reminded INTEGER")
+        self.db.commit()
         self._record()
 
     def _migrate(self, version):
@@ -871,9 +875,10 @@ class DayStore:
     # The shift and momentum (docs 15 sections 6 and 7).
 
     def _day(self, date):
-        row = self.db.execute("SELECT target, note, stand_down, shift_started FROM days WHERE date = ?", (date,)).fetchone()
+        row = self.db.execute("SELECT target, note, stand_down, shift_started, shift_reminded FROM days WHERE date = ?", (date,)).fetchone()
         return {"date": date, "target": row[0] if row else None, "note": row[1] if row else None,
-                "standDown": bool(row[2]) if row else False, "shiftStarted": row[3] if row else None}
+                "standDown": bool(row[2]) if row else False, "shiftStarted": row[3] if row else None,
+                "shiftReminded": row[4] if row else None}
 
     def _set_day(self, date, **columns):
         self.db.execute("INSERT OR IGNORE INTO days (date) VALUES (?)", (date,))
@@ -910,6 +915,25 @@ class DayStore:
         day = self._date(date)
         moment = dt.datetime.fromtimestamp((now if now is not None else self.now()) / 1000)
         return {"due": shift.shift_due(moment, day, start, self._day(date)["shiftStarted"]), "day": self._day(date)}
+
+    def shift_reminder(self, date, end, now=None):
+        """True once a day, from the shift end time on: the reminder is due, and is marked as given."""
+        day = self._date(date)
+        moment = dt.datetime.fromtimestamp((now if now is not None else self.now()) / 1000)
+        if not shift.reminder_due(moment, day, end, self._day(date)["shiftReminded"]):
+            return {"due": False}
+        self._set_day(date, shift_reminded=self.now())
+        return {"due": True}
+
+    def quiet_log(self, start, end):
+        """Keeps one Quiet session (keyed by its start, so a resumed session replaces its earlier end)."""
+        start, end = check_time(start, "start"), check_time(end, "end")
+        if start is None or end is None or end <= start or end - start > 24 * 3600 * 1000:
+            raise ValueError("Choose a valid Quiet period.")
+        self.db.execute("INSERT OR REPLACE INTO quiet_log (start, end) VALUES (?, ?)", (start, end))
+        self.db.execute("DELETE FROM quiet_log WHERE start < ?", (start - 420 * 86400000,))
+        self.db.commit()
+        return {"logged": True}
 
     def shift_start(self, date, target=None):
         """Marks the shift start as done (or skipped) and keeps the day's target when one is given."""
@@ -989,6 +1013,12 @@ class DayStore:
         span = (today - dt.timedelta(days=weeks * 7 - 1))
         per_day = [{"date": (span + dt.timedelta(days=n)).isoformat(), "cleared": cleared.get(span + dt.timedelta(days=n), 0),
                     "bySite": by_site.get(span + dt.timedelta(days=n), {})} for n in range(weeks * 7)]
+        quiet = {}
+        for q_start, q_end in self.db.execute("SELECT start, end FROM quiet_log WHERE end >= ?", (low,)):
+            for day, seconds in shift.split_days(dt.datetime.fromtimestamp(q_start / 1000), dt.datetime.fromtimestamp(q_end / 1000)).items():
+                quiet[day] = quiet.get(day, 0) + seconds
+        for entry in per_day:
+            entry["quietMinutes"] = round(quiet.get(dt.date.fromisoformat(entry["date"]), 0) / 60)
         count = cleared.get(today, 0)
         return {"date": date, "enabled": daily > 0, "cleared": count, "target": today_target,
                 "onTarget": None if daily <= 0 else (today_target > 0 and count >= today_target),
@@ -1036,6 +1066,10 @@ class DayStore:
             return self.carry_apply(p.get("date"), p.get("choices"))
         if method == "day.carry.auto":
             return self.carry_auto(p.get("date"))
+        if method == "day.shift.reminder":
+            return self.shift_reminder(p.get("date"), p.get("end", "18:00"), p.get("now"))
+        if method == "day.quiet.log":
+            return self.quiet_log(p.get("start"), p.get("end"))
         if method == "day.momentum":
             return self.momentum(p.get("date"), p.get("daily", 5), p.get("weekly", 25), p.get("daysOff", []), p.get("weekStart", 0))
         if method == "day.report":

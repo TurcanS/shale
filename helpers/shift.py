@@ -45,3 +45,20 @@ def days_on_target(today, cleared, targets, daily, days_off, stand_down):
 def week_start(day, first):
     """The first day of the week containing `day`; `first` is a weekday number (Monday is 0)."""
     return day - dt.timedelta(days=(day.weekday() - first) % 7)
+
+
+def reminder_due(now, date, end, reminded):
+    """Whether the shift-end reminder fires: once a day, from the end time on, until it has been given."""
+    return reminded is None and now.date() == date and now.hour * 60 + now.minute >= parse_clock(end)
+
+
+def split_days(start, end):
+    """Seconds of the span [start, end] (datetimes) on each local day it touches, as {date: seconds}."""
+    result = {}
+    cursor = start
+    while cursor < end:
+        midnight = dt.datetime.combine(cursor.date() + dt.timedelta(days=1), dt.time())
+        stop = min(end, midnight)
+        result[cursor.date()] = result.get(cursor.date(), 0) + (stop - cursor).total_seconds()
+        cursor = stop
+    return result

@@ -87,6 +87,7 @@ FocusScope {
             General: [
                 {label: "24-hour clock", key: "clock24h", defaultValue: true},
                 {label: "Check for updates", key: "updateCheck", defaultValue: true, description: "Asks GitHub every 12 hours. The control center shows what a new version changes."},
+                {label: "Remind me at shift end", key: "shiftReminder", description: "A signal at the time below, asking you to file the shift report"},
                 {label: "Carry over at shift start", key: "autoCarry", description: "Moves yesterday's uncleared orders with no time to today by itself"}
             ],
             Motion: [
@@ -127,7 +128,7 @@ FocusScope {
             Bar: ["hideFullscreen", "barMedia", "trackChangeCard", "hiddenOutputs", "barLayout", "barStyle", "clockFormat", "clockSeconds",
                   "workspaceStyle", "workspaceSlots", "trayIcons", "batteryPercent"],
             "Control center": ["controlLayout"],
-            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck", "dailyTarget", "weeklyTarget", "daysOff", "shiftStart", "autoCarry"],
+            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck", "dailyTarget", "weeklyTarget", "daysOff", "shiftStart", "autoCarry", "shiftReminder", "shiftEnd"],
             Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
             Notifications: ["persistNotifications", "focusMinutes"],
             Audio: ["amplification", "mediaRemaining"],
@@ -491,6 +492,13 @@ FocusScope {
                         model: ["04:00", "05:00", "06:00", "07:00", "08:00"].map(time => ({key: time, text: time}))
                         current: ShellState.setting("shiftStart", "05:00")
                         onActivated: key => ShellState.setSetting("shiftStart", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Shift ends at"
+                        description: "When the reminder is given, if it is on"
+                        model: ["16:00", "17:00", "18:00", "19:00", "20:00"].map(time => ({key: time, text: time}))
+                        current: ShellState.setting("shiftEnd", "18:00")
+                        onActivated: key => ShellState.setSetting("shiftEnd", key)
                     }
                     C.ChoiceRow {
                         label: "Weather units"

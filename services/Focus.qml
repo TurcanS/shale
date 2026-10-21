@@ -71,6 +71,9 @@ QtObject {
             recorded = finished;
         }
         const minutes = Math.max(1, Math.round((finished - started) / 60000));
+        // Kept per day for the shift report; keyed by the start, so resuming an ended session replaces its end.
+        if (finished - started >= 60000)
+            Backend.request("day.quiet.log", {start: started, end: finished}, () => {});
         const missed = Services.notifications.filter(n => !n.transient && n.timestamp >= started);
         if (missed.length) {
             const groups = {};

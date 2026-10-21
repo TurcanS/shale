@@ -35,6 +35,7 @@ Item {
         return names.sort();
     }
     readonly property int peak: Math.max(1, ...(momentum && momentum.perDay ? momentum.perDay.map(day => day.cleared) : [1]))
+    readonly property int quietPeak: Math.max(1, ...(momentum && momentum.perDay ? momentum.perDay.map(day => day.quietMinutes || 0) : [1]))
     signal changed()
 
     function load() {
@@ -252,11 +253,30 @@ Item {
                     }
                 }
             }
-            C.Label {
+            C.StationText {
+                text: "Quiet minutes per day · last 4 weeks"
                 visible: report.momentum !== null
-                text: "Quiet minutes per day join this chart when Quiet can be started on an order (step 10)."
-                color: Theme.disabled
-                font.pixelSize: Theme.small
+            }
+            Row {
+                visible: report.momentum !== null
+                spacing: 3
+                Repeater {
+                    model: report.momentum && report.momentum.perDay ? report.momentum.perDay : []
+                    Item {
+                        id: quiet
+                        required property var modelData
+                        width: 14
+                        height: 50
+                        Accessible.name: quiet.modelData.date + ": " + quiet.modelData.quietMinutes + " minutes of Quiet"
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: 14
+                            height: quiet.modelData.quietMinutes > 0 ? Math.max(2, quiet.modelData.quietMinutes * 46 / report.quietPeak) : 0
+                            color: Theme.accent
+                            opacity: 0.6
+                        }
+                    }
+                }
             }
         }
     }

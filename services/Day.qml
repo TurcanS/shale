@@ -89,6 +89,16 @@ QtObject {
         if (was && was.date === result.date && result.onTarget && !was.onTarget)
             targetReached();
     }
+    // The reminder at the shift end time (off by default): a signal from "Shift", given once a day, held by Quiet like any
+    // other. Nothing is given when targets are off.
+    function checkShiftEnd() {
+        if (!deliver || ShellState.locked || !targets || !ShellState.setting("shiftReminder", false))
+            return;
+        Backend.request("day.shift.reminder", {date: today(), end: ShellState.setting("shiftEnd", "18:00")}, (result, error) => {
+            if (!error && result.due)
+                Services.post({appName: "Shift", summary: "Shift end", body: "File the shift report in the Logbook (Super+Shift+L, then G S).", event: false});
+        });
+    }
     function loadShift() {
         Backend.request("day.shift.state", {date: today(), start: ShellState.setting("shiftStart", "05:00")}, (result, error) => {
             root.shiftDue = !error && Book.shiftShows(result.due, root.targets);
@@ -267,6 +277,7 @@ QtObject {
         onTriggered: {
             if (root.date !== root.today())
                 root.refresh();
+            root.checkShiftEnd();
             if (root.deliver && root.fireAt > 0 && Date.now() >= root.fireAt && !ShellState.locked)
                 root.fire();
             else
