@@ -171,14 +171,13 @@ FocusScope {
         if (!current || current.doneAt)
             return;
         const ids = Day.todos.map(order => order.id);
-        const from = ids.indexOf(current.id);
         // The neighbour in this list, not in the whole set of orders.
         const same = flat.filter(order => !order.doneAt && ids.indexOf(order.id) >= 0);
-        const at = same.findIndex(order => order.id === current.id);
-        const other = same[at + delta];
-        if (from < 0 || !other)
+        const other = same[same.findIndex(order => order.id === current.id) + delta];
+        if (!other || ids.indexOf(current.id) < 0)
             return;
-        ids.splice(ids.indexOf(other.id) + (delta > 0 ? 0 : 0), 0, ids.splice(from, 1)[0]);
+        ids.splice(ids.indexOf(current.id), 1);
+        ids.splice(ids.indexOf(other.id) + (delta > 0 ? 1 : 0), 0, current.id);
         Day.reorder(ids);
     }
     // Shift+Right in Ahead moves an order to the next day (Shift+Left to the one before), keeping its time.
