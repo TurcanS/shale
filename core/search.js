@@ -182,6 +182,17 @@ function focusQuery(text) {
     return seconds >= 60 && minutes <= 240 ? minutes : null;
 }
 
+// "check water" → the routines whose name contains "water" (case and accents folded), those not yet checked in first;
+// [] for anything else. `routines` is Day.routines.
+function checkQuery(text, routines) {
+    const match = /^\s*check\s*(.*?)\s*$/i.exec(String(text || ""));
+    if (!match || !/^\s*check(\s|$)/i.test(String(text || "")))
+        return [];
+    const term = fold(match[1]);
+    return routines.filter(routine => fold(routine.name).indexOf(term) >= 0)
+        .sort((a, b) => Number(a.checkedToday) - Number(b.checkedToday) || a.name.localeCompare(b.name));
+}
+
 // Things the launcher can do besides opening apps. Session actions that end the session open the session
 // menu, whose hold-to-confirm buttons stay the only way to log out, restart or shut down.
 var ACTIONS = [

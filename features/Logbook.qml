@@ -646,10 +646,14 @@ FocusScope {
                                 Accessible.name: "Block " + modelData.text + ", " + modelData.minutes + " minutes"
                                 DragHandler {
                                     id: drag
+                                    // Where the drag has got to: the handler resets its translation when it lets go.
+                                    property real moved: 0
                                     yAxis.enabled: false
+                                    onTranslationChanged: if (active) moved = translation.x
                                     onActiveChanged: {
                                         if (!active) {
-                                            book.dragBlock(bar.modelData.id, day.index, drag.translation.x, strip.columnWidth + Theme.gapXs);
+                                            book.dragBlock(bar.modelData.id, day.index, drag.moved, strip.columnWidth + Theme.gapXs);
+                                            drag.moved = 0;
                                             bar.x = 3 + (day.width - 6) * bar.modelData.from / 1440;
                                         }
                                     }

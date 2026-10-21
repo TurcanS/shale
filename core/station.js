@@ -130,25 +130,26 @@ function paint(ctx, drum) {
     }
     // Blocks: hatched spans under the event marks, from the time to the end of the duration.
     const spans = blocks(drum.blocks || [], drum.dayStart, drum.dayEnd, drum.now, width);
+    const top = Math.round(height * 0.55), bottom = Math.round(height * 0.9);
     for (let i = 0; i < spans.length; i++) {
         const block = spans[i];
         ctx.save();
         ctx.beginPath();
-        ctx.rect(block.x, height * 0.55, block.width, height * 0.35);
+        ctx.rect(block.x, top, block.width, bottom - top);
         ctx.clip();
         ctx.fillStyle = drum.blockFill;
-        ctx.fillRect(block.x, height * 0.55, block.width, height * 0.35);
+        ctx.fillRect(block.x, top, block.width, bottom - top);
         ctx.strokeStyle = drum.event;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let x = block.x - height; x < block.x + block.width; x += 5) {
-            ctx.moveTo(x, height * 0.9);
-            ctx.lineTo(x + height * 0.35, height * 0.55);
+        for (let x = block.x - (bottom - top); x < block.x + block.width; x += 5) {
+            ctx.moveTo(x, bottom);
+            ctx.lineTo(x + (bottom - top), top);
         }
         ctx.stroke();
         ctx.restore();
         ctx.strokeStyle = drum.event;
-        ctx.strokeRect(block.x + 0.5, height * 0.55, Math.max(1, block.width - 1), height * 0.35);
+        ctx.strokeRect(block.x + 0.5, top + 0.5, Math.max(1, block.width - 1), bottom - top - 1);
     }
     // The stylus: a guide from the top and the pen on the line.
     ctx.strokeStyle = drum.stylus;

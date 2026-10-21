@@ -105,6 +105,11 @@ FocusScope {
         if (timer)
             return [{kind: "timer", key: "timer", name: "Start a " + Focus.minutesText(timer.seconds) + " timer" + (timer.label ? " · " + timer.label : ""),
                      subtitle: "Counts down in the bar and chimes when done", fallback: "timer", seconds: timer.seconds, label: timer.label}];
+        const checks = Search.checkQuery(query, Day.routines);
+        if (checks.length)
+            return checks.map(routine => ({kind: "check", key: "check:" + routine.id, routine: routine, fallback: "check",
+                                           name: (routine.checkedToday ? "Take back the check: " : "Check in: ") + routine.name,
+                                           subtitle: "Routine · " + (routine.streak > 0 ? routine.streak + (routine.unit === "weeks" ? " week" : " day") + " streak" : "no streak yet")}));
         const minutes = Search.focusQuery(query);
         if (minutes)
             return [{kind: "focus", key: "focus", name: "Focus for " + minutes + " min", subtitle: "Holds notifications, then sums them up",
@@ -312,6 +317,8 @@ FocusScope {
             Focus.addTimer(item.seconds, item.label);
         } else if (item.kind === "focus") {
             Focus.start(item.minutes);
+        } else if (item.kind === "check") {
+            Day.checkRoutine(item.routine.id, !item.routine.checkedToday);
         } else if (item.kind === "run") {
             if (!runCommand(item.command, modifiers & Qt.ShiftModifier))
                 return;

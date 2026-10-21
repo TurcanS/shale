@@ -703,28 +703,9 @@ Item {
                             Layout.fillHeight: true
                             verticalAlignment: Text.AlignTop
                         }
-                        // Instrument checks: a small key for each routine due today, lit once checked in. Only on days one is due.
-                        Flow {
-                            visible: Day.routinesDue.length > 0
+                        // Instrument checks, on days a routine is due.
+                        ChecksRow {
                             Layout.fillWidth: true
-                            spacing: Theme.gapXs
-                            StationText {
-                                text: "Checks"
-                                width: parent.width
-                            }
-                            Repeater {
-                                model: Day.routinesDue
-                                StationKey {
-                                    id: check
-                                    required property var modelData
-                                    lit: modelData.checkedToday
-                                    Layout.fillWidth: false
-                                    implicitHeight: 24
-                                    text: (modelData.checkedToday ? "● " : "○ ") + (modelData.name.length > 12 ? modelData.name.slice(0, 11) + "…" : modelData.name)
-                                    Accessible.name: "Check in " + modelData.name + (modelData.checkedToday ? ", done today" : "")
-                                    onClicked: Day.checkRoutine(modelData.id, !modelData.checkedToday)
-                                }
-                            }
                         }
                         // Focus as a quiet period: no events reach you while it runs.
                         RowLayout {
