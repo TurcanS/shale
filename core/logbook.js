@@ -206,3 +206,28 @@ function stageMotion(opening, reduced, lowPower, leave) {
 function shiftShows(due, targetsOn) {
     return Boolean(due) && Boolean(targetsOn);
 }
+
+// Each day of Ahead's strip with the orders that are blocks (a time and a duration) as bars: {id, text, from, minutes},
+// `from` in minutes after midnight, for bars that sit at their time in the column.
+function blockBars(days) {
+    return days.map(day => day.orders.filter(order => !order.allDay && order.dueAt !== null && order.dueAt !== undefined && order.durationMin > 0)
+                    .map(order => {
+                        const at = new Date(order.dueAt);
+                        return {id: order.id, text: order.text, from: at.getHours() * 60 + at.getMinutes(), minutes: order.durationMin};
+                    }));
+}
+
+// A block moved by `minutes` (Alt+Up/Down is 15) and/or `days` (Alt+Left/Right is 1), on the wall clock, so a daylight-saving
+// change does not shift it. Never before the start of its own day when moved by minutes alone.
+function moveBlock(dueAt, minutes, days) {
+    const date = new Date(dueAt);
+    const day = date.getDate();
+    date.setDate(day + (days || 0));
+    date.setMinutes(date.getMinutes() + (minutes || 0));
+    return date.getTime();
+}
+
+// The day column a block lands in when it is dragged `dx` pixels from column `from` (clamped to the strip).
+function dropColumn(from, dx, columnWidth, columns) {
+    return Math.max(0, Math.min(columns - 1, from + Math.round(dx / columnWidth)));
+}

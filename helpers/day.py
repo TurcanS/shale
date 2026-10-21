@@ -16,6 +16,7 @@ import sqlite3
 import time
 
 from activity import day_bounds
+import routines
 import shift
 
 
@@ -256,6 +257,11 @@ class DayStore:
             self.db.execute("ALTER TABLE days ADD COLUMN shift_started INTEGER")
             self.db.commit()
         self.db.execute("CREATE TABLE IF NOT EXISTS quiet_log (start INTEGER PRIMARY KEY, end INTEGER NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS routine_alerts (routine_id INTEGER NOT NULL, date TEXT NOT NULL, UNIQUE(routine_id, date))")
+        for table, column in (("quiet_log", "order_id INTEGER"), ("routines", "times INTEGER"), ("routines", "alert INTEGER NOT NULL DEFAULT 0"),
+                              ("routines", "created_at INTEGER")):
+            if column.split()[0] not in [row[1] for row in self.db.execute("PRAGMA table_info(" + table + ")")]:
+                self.db.execute("ALTER TABLE " + table + " ADD COLUMN " + column)
         if "shift_reminded" not in [row[1] for row in self.db.execute("PRAGMA table_info(days)")]:
             self.db.execute("ALTER TABLE days ADD COLUMN shift_reminded INTEGER")
         self.db.commit()
@@ -925,12 +931,18 @@ class DayStore:
         self._set_day(date, shift_reminded=self.now())
         return {"due": True}
 
-    def quiet_log(self, start, end):
-        """Keeps one Quiet session (keyed by its start, so a resumed session replaces its earlier end)."""
+    def quiet_log(self, start, end, order_id=None):
+        """Keeps one Quiet session (keyed by its start, so a resumed session replaces its earlier end). One started on an
+        order logs its seconds on it: the order's total is always the sum of its sessions."""
         start, end = check_time(start, "start"), check_time(end, "end")
         if start is None or end is None or end <= start or end - start > 24 * 3600 * 1000:
             raise ValueError("Choose a valid Quiet period.")
-        self.db.execute("INSERT OR REPLACE INTO quiet_log (start, end) VALUES (?, ?)", (start, end))
+        if order_id is not None:
+            self.get(order_id)
+        self.db.execute("INSERT OR REPLACE INTO quiet_log (start, end, order_id) VALUES (?, ?, ?)", (start, end, order_id))
+        for (linked,) in self.db.execute("SELECT DISTINCT order_id FROM quiet_log WHERE order_id IS NOT NULL").fetchall():
+            self.db.execute("UPDATE items SET quiet_seconds = (SELECT COALESCE(SUM(end - start), 0) / 1000 FROM quiet_log WHERE order_id = ?) "
+                            "WHERE id = ?", (linked, linked))
         self.db.execute("DELETE FROM quiet_log WHERE start < ?", (start - 420 * 86400000,))
         self.db.commit()
         return {"logged": True}
@@ -1034,6 +1046,113 @@ class DayStore:
         left = self._select("items.done_at IS NULL AND items.due_at IS NOT NULL AND items.due_at < ?", (end,), "items.due_at, items.id")
         return {"date": date, "cleared": done, "open": left, "day": self._day(date)}
 
+    # Routines (docs 15 section 8).
+
+    def _routine(self, routine_id):
+        row = self.db.execute("SELECT id, name, rule, times, minute, alert, position, created_at FROM routines WHERE id = ? AND archived = 0",
+                              (routine_id,)).fetchone()
+        if not row:
+            raise ValueError("That routine does not exist.")
+        return row
+
+    def routine_add(self, p):
+        name = check_name(p.get("name"), "routine")
+        rule, times = p.get("rule"), routines.times_a_week(p.get("rule"))
+        if times is None:
+            check_rule(rule)
+        minute = check_number(p.get("minute"), 0, 1439, "time")
+        alert = check_flag(p.get("alert", False), "alert choice")
+        if alert and minute is None:
+            raise ValueError("An alert needs a time.")
+        position = self.db.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM routines").fetchone()[0]
+        routine_id = self.db.execute("INSERT INTO routines (name, rule, times, minute, alert, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                     (name, rule, times, minute, int(alert), position, self.now())).lastrowid
+        self.db.commit()
+        return routine_id
+
+    def routine_update(self, p):
+        row = self._routine(p.get("id"))
+        name = check_name(p["name"], "routine") if "name" in p else row[1]
+        minute = check_number(p["minute"], 0, 1439, "time") if "minute" in p else row[4]
+        alert = check_flag(p["alert"], "alert choice") if "alert" in p else bool(row[5])
+        if alert and minute is None:
+            raise ValueError("An alert needs a time.")
+        self.db.execute("UPDATE routines SET name = ?, minute = ?, alert = ? WHERE id = ?", (name, minute, int(alert), row[0]))
+        self.db.commit()
+        return row[0]
+
+    def routine_delete(self, routine_id):
+        self._routine(routine_id)
+        self.db.execute("UPDATE routines SET archived = 1 WHERE id = ?", (routine_id,))
+        self.db.commit()
+        return routine_id
+
+    def routine_check(self, routine_id, date, checked):
+        """Checks a routine in (or takes the check back) for a day."""
+        self._routine(routine_id)
+        self._date(date)
+        if checked:
+            self.db.execute("INSERT OR IGNORE INTO routine_checks (routine_id, date, at) VALUES (?, ?, ?)", (routine_id, date, self.now()))
+        else:
+            self.db.execute("DELETE FROM routine_checks WHERE routine_id = ? AND date = ?", (routine_id, date))
+        self.db.commit()
+        return {"id": routine_id, "date": date, "checked": bool(checked)}
+
+    def routine_list(self, date, days_off=(), first=0, weeks=26):
+        """Every routine with what is due on `date`, its streaks and its heat map. A dated rule is due on the days it
+        names; 'N times a week' is due all week until it has N checks. Days off and a stand-down pause streaks."""
+        today = self._date(date)
+        if not all(isinstance(day, int) and 0 <= day <= 6 for day in days_off) or not isinstance(first, int) or not 0 <= first <= 6:
+            raise ValueError("Choose weekdays from Monday to Sunday.")
+        stand = {self._date(row[0]) for row in self.db.execute("SELECT date FROM days WHERE stand_down = 1")}
+        begin = shift.week_start(today, first)
+
+        def skip(day):
+            return day.weekday() in days_off or day in stand
+        result = []
+        for row in self.db.execute("SELECT id FROM routines WHERE archived = 0 ORDER BY position, id").fetchall():
+            routine_id, name, rule, times, minute, alert, position, created = self._routine(row[0])
+            checked = {self._date(day[0]) for day in self.db.execute("SELECT date FROM routine_checks WHERE routine_id = ?", (routine_id,))}
+            start = dt.datetime.fromtimestamp((created or self.now()) / 1000).date()
+            start = min([start] + sorted(checked)[:1])
+            week = sum(1 for day in checked if begin <= day <= today)
+            if times:
+                current, best = routines.week_streak(today, start, checked, times, first)
+                due, unit = week < times and not skip(today), "weeks"
+            else:
+                parsed = check_rule(rule)
+                anchor = dt.datetime.fromtimestamp((created or self.now()) / 1000).date()
+                current, best = routines.day_streak(today, start, checked, lambda day: on_rule(day, parsed, anchor), skip)
+                due, unit = on_rule(today, parsed, anchor) and not skip(today), "days"
+            result.append({"id": routine_id, "name": name, "rule": rule, "times": times, "minute": minute, "alert": bool(alert),
+                           "dueToday": due or today in checked, "checkedToday": today in checked, "weekChecks": week,
+                           "streak": current, "best": best, "unit": unit,
+                           "history": sorted(day.isoformat() for day in checked if day >= today - dt.timedelta(days=weeks * 7))})
+        return result
+
+    def routine_alerts(self, date, now=None):
+        """Routines with an alert whose time has come, not yet checked in or alerted today; each is given once."""
+        today = self._date(date)
+        moment = dt.datetime.fromtimestamp((now if now is not None else self.now()) / 1000)
+        if moment.date() != today:
+            return []
+        given = []
+        for row in self.db.execute("SELECT id FROM routines WHERE archived = 0 AND alert = 1 AND minute IS NOT NULL AND minute <= ?",
+                                   (moment.hour * 60 + moment.minute,)).fetchall():
+            routine_id, name, rule, times, minute, alert, position, created = self._routine(row[0])
+            if self.db.execute("SELECT 1 FROM routine_checks WHERE routine_id = ? AND date = ?", (routine_id, date)).fetchone():
+                continue
+            if self.db.execute("SELECT 1 FROM routine_alerts WHERE routine_id = ? AND date = ?", (routine_id, date)).fetchone():
+                continue
+            if not times:
+                anchor = dt.datetime.fromtimestamp((created or self.now()) / 1000).date()
+                if not on_rule(today, check_rule(rule), anchor):
+                    continue
+            self.db.execute("INSERT INTO routine_alerts (routine_id, date) VALUES (?, ?)", (routine_id, date))
+            given.append({"id": routine_id, "name": name})
+        self.db.commit()
+        return given
+
     def handle(self, method, p):
         """The day.* methods of the helper protocol."""
         if method == "day.list":
@@ -1069,11 +1188,23 @@ class DayStore:
         if method == "day.shift.reminder":
             return self.shift_reminder(p.get("date"), p.get("end", "18:00"), p.get("now"))
         if method == "day.quiet.log":
-            return self.quiet_log(p.get("start"), p.get("end"))
+            return self.quiet_log(p.get("start"), p.get("end"), p.get("orderId"))
         if method == "day.momentum":
             return self.momentum(p.get("date"), p.get("daily", 5), p.get("weekly", 25), p.get("daysOff", []), p.get("weekStart", 0))
         if method == "day.report":
             return self.report(p.get("date"))
+        if method == "day.routines.list":
+            return self.routine_list(p.get("date"), p.get("daysOff", []), p.get("weekStart", 0))
+        if method == "day.routines.add":
+            return self.routine_add(p)
+        if method == "day.routines.update":
+            return self.routine_update(p)
+        if method == "day.routines.delete":
+            return self.routine_delete(p.get("id"))
+        if method == "day.routines.check":
+            return self.routine_check(p.get("id"), p.get("date"), check_flag(p.get("checked", True), "check"))
+        if method == "day.routines.alerts":
+            return self.routine_alerts(p.get("date"), p.get("now"))
         if method == "day.next":
             return self.next()
         if method == "day.fire":

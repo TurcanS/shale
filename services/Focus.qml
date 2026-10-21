@@ -13,6 +13,9 @@ QtObject {
     // Where Activity's record of this session already ends: a session resumed with Undo recorded its first part
     // when it ended, and only the rest is recorded when it ends again.
     property real recordedUntil: 0
+    // The work order this session was started on (0 for none): its minutes are logged on it, and the capsule names it.
+    property int orderId: 0
+    property string orderText: ""
     property real now: Date.now()
     readonly property bool active: endsAt > 0
     readonly property int remainingSeconds: active ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0
@@ -34,13 +37,15 @@ QtObject {
         return (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(rest).padStart(2, "0");
     }
 
-    function start(minutes) {
+    function start(minutes, order, text) {
         const length = Math.max(1, Math.min(240, Math.round(Number(minutes) || lastMinutes)));
         now = Date.now();
         if (!active) {
             startedAt = now;
             recordedUntil = 0;
             digest = null;
+            orderId = order || 0;
+            orderText = order ? String(text || "") : "";
         }
         endsAt = now + length * 60000;
         if ([25, 50, 90].indexOf(length) >= 0)
@@ -58,13 +63,15 @@ QtObject {
     function end(early) {
         if (!active)
             return;
-        const started = startedAt, ends = endsAt;
+        const started = startedAt, ends = endsAt, linked = orderId, linkedText = orderText;
         const finished = Math.min(Date.now(), ends);
         const from = Math.max(started, recordedUntil);
         let recorded = recordedUntil;
         startedAt = 0;
         endsAt = 0;
         recordedUntil = 0;
+        orderId = 0;
+        orderText = "";
         persist();
         if (ShellState.setting("activityTracking", "ask") === "on" && finished - from >= 60000) {
             Backend.request("activity.focus", {start: from, end: finished});
@@ -73,7 +80,7 @@ QtObject {
         const minutes = Math.max(1, Math.round((finished - started) / 60000));
         // Kept per day for the shift report; keyed by the start, so resuming an ended session replaces its end.
         if (finished - started >= 60000)
-            Backend.request("day.quiet.log", {start: started, end: finished}, () => {});
+            Backend.request("day.quiet.log", linked ? {start: started, end: finished, orderId: linked} : {start: started, end: finished}, () => {});
         const missed = Services.notifications.filter(n => !n.transient && n.timestamp >= started);
         if (missed.length) {
             const groups = {};
@@ -91,23 +98,29 @@ QtObject {
                 ShellState.message(minutes + " min of focus · Nothing missed", "success");
         }
         if (early)
-            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends, recorded)});
+            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends, recorded, linked, linkedText)});
         else
             chime();
     }
-    function resume(started, ends, recorded) {
+    function resume(started, ends, recorded, order, text) {
         if (active || ends <= Date.now())
             return;
         digest = null;
         startedAt = started;
         endsAt = ends;
         recordedUntil = recorded || 0;
+        orderId = order || 0;
+        orderText = text || "";
         now = Date.now();
         persist();
     }
     function persist() {
-        ShellState.setSetting("focusSession", !active ? {} : recordedUntil > startedAt ? {started: startedAt, ends: endsAt, recorded: recordedUntil}
-                                                                                       : {started: startedAt, ends: endsAt});
+        const session = {started: startedAt, ends: endsAt};
+        if (recordedUntil > startedAt)
+            session.recorded = recordedUntil;
+        if (orderId)
+            Object.assign(session, {order: orderId, orderText: orderText});
+        ShellState.setSetting("focusSession", active ? session : {});
     }
 
     property int timerSerial: 0
@@ -169,6 +182,8 @@ QtObject {
             root.startedAt = session.started;
             root.endsAt = session.ends;
             root.recordedUntil = session.recorded || 0;
+            root.orderId = session.order || 0;
+            root.orderText = session.orderText || "";
             root.now = current;
         } else if (session && session.ends)
             ShellState.setSetting("focusSession", {}); // ended while the shell was down

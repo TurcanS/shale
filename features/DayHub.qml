@@ -130,6 +130,8 @@ Item {
         const timers = Focus.timers.map(timer => ({kind: "timer", id: timer.id, at: timer.endsAt, text: timer.label || Focus.minutesText(timer.seconds) + " timer"}));
         return reminders.concat(timers).sort((a, b) => a.at - b.at).slice(0, 5);
     }
+    // Orders with a time and a duration, as blocks on the drum.
+    readonly property var blockRows: Day.items.filter(item => item.durationMin > 0 && !item.allDay && !item.doneAt)
     readonly property var parsed: DayText.parse(capture.text, now)
     // Today runs from local midnight to the next one (23 or 25 hours on the days the clocks change).
     readonly property real dayStart: new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()).getTime()
@@ -551,7 +553,7 @@ Item {
                     id: drum
                     anchors.fill: parent
                     anchors.bottomMargin: 14
-                    readonly property var inputs: [hub.activity, hub.now, hub.nextRows, hub.recording, Theme.accent, Theme.lowPower, width, height]
+                    readonly property var inputs: [hub.activity, hub.now, hub.nextRows, hub.blockRows, hub.recording, Theme.accent, Theme.lowPower, width, height]
                     onInputsChanged: requestPaint()
                     onPaint: Station.paint(getContext("2d"), {
                         width: width,
@@ -561,6 +563,8 @@ Item {
                         dayEnd: hub.dayEnd,
                         now: hub.now,
                         items: hub.nextRows,
+                        blocks: hub.blockRows,
+                        blockFill: Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, 0.12),
                         accent: Theme.accent,
                         grid: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08),
                         ahead: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.25),
@@ -698,6 +702,29 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             verticalAlignment: Text.AlignTop
+                        }
+                        // Instrument checks: a small key for each routine due today, lit once checked in. Only on days one is due.
+                        Flow {
+                            visible: Day.routinesDue.length > 0
+                            Layout.fillWidth: true
+                            spacing: Theme.gapXs
+                            StationText {
+                                text: "Checks"
+                                width: parent.width
+                            }
+                            Repeater {
+                                model: Day.routinesDue
+                                StationKey {
+                                    id: check
+                                    required property var modelData
+                                    lit: modelData.checkedToday
+                                    Layout.fillWidth: false
+                                    implicitHeight: 24
+                                    text: (modelData.checkedToday ? "● " : "○ ") + (modelData.name.length > 12 ? modelData.name.slice(0, 11) + "…" : modelData.name)
+                                    Accessible.name: "Check in " + modelData.name + (modelData.checkedToday ? ", done today" : "")
+                                    onClicked: Day.checkRoutine(modelData.id, !modelData.checkedToday)
+                                }
+                            }
                         }
                         // Focus as a quiet period: no events reach you while it runs.
                         RowLayout {

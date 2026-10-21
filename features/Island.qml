@@ -187,7 +187,7 @@ Item {
                         text: {
                             const kind = island.kind;
                             if (kind === "quiet")
-                                return Focus.clockText(Focus.remainingSeconds);
+                                return Focus.clockText(Focus.remainingSeconds) + (Focus.orderText ? "  " + Focus.orderText : "");
                             if (kind === "timer")
                                 return Focus.nextTimer ? Focus.clockText(Math.max(0, Math.ceil((Focus.nextTimer.endsAt - island.now) / 1000))) + (Focus.nextTimer.label ? "  " + Focus.nextTimer.label : "") : "Done";
                             if (kind === "event")

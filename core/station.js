@@ -36,6 +36,20 @@ function marks(items, dayStart, dayEnd, now, width) {
     return ahead.map((item, i) => ({x: xs[i], text: item.text.toUpperCase(), room: (i + 1 < xs.length ? xs[i + 1] : width) - xs[i] - 10}));
 }
 
+// The time-blocked orders (a time and a duration) still running or ahead today, as spans on the drum: x and width in
+// pixels (never thinner than 3), with the title and how much room it has.
+function blocks(orders, dayStart, dayEnd, now, width) {
+    const span = dayEnd - dayStart;
+    return orders.filter(order => !order.doneAt && !order.allDay && order.dueAt >= dayStart && order.dueAt < dayEnd && order.durationMin > 0
+                         && order.dueAt + order.durationMin * 60000 > now)
+        .sort((a, b) => a.dueAt - b.dueAt)
+        .map(order => {
+            const x = Math.round((order.dueAt - dayStart) / span * width);
+            const end = Math.min(width, Math.round((order.dueAt + order.durationMin * 60000 - dayStart) / span * width));
+            return {x: x, width: Math.max(3, end - x), text: order.text, id: order.id};
+        });
+}
+
 // "T−0:25" while an event is under a day away, "Now" once it is due; past a day, "" (the weekday says more).
 function countdown(at, now) {
     const minutes = Math.ceil((at - now) / 60000);
@@ -113,6 +127,28 @@ function paint(ctx, drum) {
             label = label.slice(0, -2) + "…";
         ctx.fillStyle = drum.event;
         ctx.fillText(label, mark.x + 4, 10);
+    }
+    // Blocks: hatched spans under the event marks, from the time to the end of the duration.
+    const spans = blocks(drum.blocks || [], drum.dayStart, drum.dayEnd, drum.now, width);
+    for (let i = 0; i < spans.length; i++) {
+        const block = spans[i];
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(block.x, height * 0.55, block.width, height * 0.35);
+        ctx.clip();
+        ctx.fillStyle = drum.blockFill;
+        ctx.fillRect(block.x, height * 0.55, block.width, height * 0.35);
+        ctx.strokeStyle = drum.event;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = block.x - height; x < block.x + block.width; x += 5) {
+            ctx.moveTo(x, height * 0.9);
+            ctx.lineTo(x + height * 0.35, height * 0.55);
+        }
+        ctx.stroke();
+        ctx.restore();
+        ctx.strokeStyle = drum.event;
+        ctx.strokeRect(block.x + 0.5, height * 0.55, Math.max(1, block.width - 1), height * 0.35);
     }
     // The stylus: a guide from the top and the pen on the line.
     ctx.strokeStyle = drum.stylus;

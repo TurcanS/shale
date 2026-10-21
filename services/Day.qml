@@ -34,6 +34,9 @@ QtObject {
     readonly property bool targets: momentum !== null && momentum.enabled
     // The shift start is due: once a day, after the shift start time, until it was done or skipped.
     property bool shiftDue: false
+    // Routines with what is due today, their streaks and heat maps (helpers/day.py routine_list).
+    property var routines: []
+    readonly property var routinesDue: routines.filter(routine => routine.dueToday)
     // The daily target was just reached: the island stamps ON TARGET.
     signal targetReached()
     // Nothing is fired until the settings are in: a reminder that breaks through Quiet needs to know Quiet is on.
@@ -64,6 +67,7 @@ QtObject {
             root.loaded = true;
         });
         root.loadMomentum();
+        root.loadRoutines();
         if (root.logbook)
             root.loadLogbook();
         Backend.request("day.next", {}, (result, error) => {
@@ -97,6 +101,42 @@ QtObject {
         Backend.request("day.shift.reminder", {date: today(), end: ShellState.setting("shiftEnd", "18:00")}, (result, error) => {
             if (!error && result.due)
                 Services.post({appName: "Shift", summary: "Shift end", body: "File the shift report in the Logbook (Super+Shift+L, then G S).", event: false});
+        });
+    }
+    function loadRoutines() {
+        Backend.request("day.routines.list", {date: today(), daysOff: ShellState.setting("daysOff", []), weekStart: (ShellState.firstDayOfWeek + 6) % 7},
+                        (result, error) => root.routinesLoaded(result, error));
+    }
+    function routinesLoaded(result, error) {
+        if (!error)
+            routines = result;
+    }
+    function routineChange(method, params, callback) {
+        Backend.request(method, params, (result, error) => {
+            if (!error)
+                root.loadRoutines();
+            if (callback)
+                callback(result, error);
+        });
+    }
+    function checkRoutine(id, checked, callback) {
+        routineChange("day.routines.check", {id: id, date: today(), checked: checked}, callback);
+    }
+    // `fields` is {name, rule | TIMES=n, minute, alert}.
+    function addRoutine(fields, callback) {
+        routineChange("day.routines.add", fields, callback);
+    }
+    function removeRoutine(id, callback) {
+        routineChange("day.routines.delete", {id: id}, callback);
+    }
+    // A routine with an alert whose time has come and that is not checked in yet is given once, as a signal.
+    function checkRoutineAlerts() {
+        if (!deliver || ShellState.locked)
+            return;
+        Backend.request("day.routines.alerts", {date: today()}, (result, error) => {
+            if (error)
+                return;
+            result.forEach(routine => Services.post({appName: "Checks", summary: routine.name, body: "Routine check due"}));
         });
     }
     function loadShift() {
@@ -278,6 +318,7 @@ QtObject {
             if (root.date !== root.today())
                 root.refresh();
             root.checkShiftEnd();
+            root.checkRoutineAlerts();
             if (root.deliver && root.fireAt > 0 && Date.now() >= root.fireAt && !ShellState.locked)
                 root.fire();
             else

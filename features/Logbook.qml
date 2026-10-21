@@ -30,9 +30,11 @@ FocusScope {
     property string prompt: ""
     property var asking: null
     property bool goPending: false
-    readonly property bool typing: capture.activeFocus || searchField.activeFocus || promptField.activeFocus || sheet.editing
+    readonly property bool typing: capture.activeFocus || searchField.activeFocus || promptField.activeFocus || sheet.editing || (!!routinesPage && routinesPage.typing)
     signal dismissed()
 
+    // The routines view while it is shown (a plain var: a Loader's item is only known as an object).
+    readonly property var routinesPage: routinesView.item
     readonly property var source: kind === "filter" || kind === "search" ? found : Day.orders
     readonly property var groups: Book.view(kind, argument, source, now)
     readonly property var flat: Book.flat(groups)
@@ -62,7 +64,7 @@ FocusScope {
         if (Day.tags.length)
             list.push({header: true, label: "Tags"});
         Day.tags.forEach(tag => list.push({label: "@" + tag.name, kind: "tag", argument: tag.name, count: tag.count}));
-        list.push({header: true, label: ""}, {label: "Shift report", kind: "report", argument: null, count: 0}, {label: "Cleared", kind: "cleared", argument: null, count: 0});
+        list.push({header: true, label: ""}, {label: "Routines", kind: "routines", argument: null, count: Day.routinesDue.filter(routine => routine.checkedToday).length + "/" + Day.routinesDue.length}, {label: "Shift report", kind: "report", argument: null, count: 0}, {label: "Cleared", kind: "cleared", argument: null, count: 0});
         return list;
     }
     readonly property string title: {
@@ -83,6 +85,8 @@ FocusScope {
             return "Search · " + searchField.text;
         case "report":
             return "Shift report";
+        case "routines":
+            return "Instrument checks";
         }
         return "Cleared";
     }
@@ -186,6 +190,27 @@ FocusScope {
         ids.splice(ids.indexOf(current.id), 1);
         ids.splice(ids.indexOf(other.id) + (delta > 0 ? 1 : 0), 0, current.id);
         Day.reorder(ids);
+    }
+    // Alt+Up/Down move a block by 15 minutes, Alt+Left/Right by a day (also by drag in Ahead).
+    function moveCurrent(minutes, days) {
+        if (!current || current.dueAt === null || current.dueAt === undefined)
+            return;
+        Day.update(current.id, {dueAt: Book.moveBlock(current.dueAt, minutes, days)});
+    }
+    function dragBlock(id, fromColumn, dx, columnWidth) {
+        const order = Day.orders.find(item => item.id === id);
+        const to = Book.dropColumn(fromColumn, dx, columnWidth, 7);
+        if (order && to !== fromColumn)
+            Day.update(id, {dueAt: Book.moveBlock(order.dueAt, 0, to - fromColumn)});
+    }
+    // Starts Quiet on the order under the cursor (25 minutes, the minutes are logged on it), or ends the Quiet that runs.
+    function quiet() {
+        if (Focus.active) {
+            Focus.end(true);
+            return;
+        }
+        if (current)
+            Focus.start(25, current.id, current.text);
     }
     // Shift+Right in Ahead moves an order to the next day (Shift+Left to the one before), keeping its time.
     function shiftDay(delta) {
@@ -306,6 +331,8 @@ FocusScope {
     // A focus scope hands focus to the field that last had it, so each field is let go first: the keys of the views
     // only work while none of them is being typed in.
     function release() {
+        if (routinesPage)
+            routinesPage.release();
         capture.focus = false;
         searchField.focus = false;
         promptField.focus = false;
@@ -360,6 +387,12 @@ FocusScope {
         if (book.typing)
             return;
         event.accepted = true;
+        if (book.kind === "routines" && !book.goPending && event.key !== Qt.Key_G && event.key !== Qt.Key_Slash) {
+            if (routinesPage && routinesPage.handle(event))
+                return;
+            event.accepted = false;
+            return;
+        }
         // The report has no rows: only the go-to and search keys apply there.
         if (book.kind === "report" && !book.goPending && event.key !== Qt.Key_G && event.key !== Qt.Key_Slash) {
             event.accepted = false;
@@ -374,12 +407,16 @@ FocusScope {
         }
         if (book.goPending) {
             book.goPending = false;
-            const view = {[Qt.Key_T]: "today", [Qt.Key_A]: "ahead", [Qt.Key_I]: "intake", [Qt.Key_C]: "cleared", [Qt.Key_S]: "report"}[event.key];
+            const view = {[Qt.Key_T]: "today", [Qt.Key_A]: "ahead", [Qt.Key_I]: "intake", [Qt.Key_C]: "cleared", [Qt.Key_S]: "report", [Qt.Key_R]: "routines"}[event.key];
             if (view)
                 book.open(view);
             return;
         }
-        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+        if ((event.modifiers & Qt.AltModifier) && [Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right].indexOf(event.key) >= 0) {
+            book.moveCurrent(event.key === Qt.Key_Up ? -15 : event.key === Qt.Key_Down ? 15 : 0, event.key === Qt.Key_Left ? -1 : event.key === Qt.Key_Right ? 1 : 0);
+        } else if (event.key === Qt.Key_F) {
+            book.quiet();
+        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
             const delta = event.key === Qt.Key_Up ? -1 : 1;
             if (ctrl)
                 book.reorder(delta);
@@ -557,24 +594,30 @@ FocusScope {
                     onClicked: book.board = !book.board
                 }
             }
-            // Ahead: the seven days as a strip, each with its count.
+            // Ahead: the seven days as a strip, each with its count and its blocks as bars at their time of day; a bar
+            // can be dragged to another day.
             Row {
+                id: strip
                 visible: book.kind === "ahead"
                 Layout.fillWidth: true
                 spacing: Theme.gapXs
+                readonly property real columnWidth: (main.width - 2 * Theme.gapM - 6 * Theme.gapXs) / 7
+                readonly property var bars: book.kind === "ahead" ? Book.blockBars(book.groups) : []
                 Repeater {
                     model: book.kind === "ahead" ? book.groups : []
                     Rectangle {
                         id: day
                         required property var modelData
-                        width: (main.width - 2 * Theme.gapM - 6 * Theme.gapXs) / 7
-                        height: 38
+                        required property int index
+                        width: strip.columnWidth
+                        height: 64
                         radius: 4
                         color: Theme.panel
                         border.width: 1
                         border.color: Theme.border
                         Column {
-                            anchors.centerIn: parent
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: 4
                             C.StationText {
                                 text: day.modelData.label
                                 anchors.horizontalCenter: parent.horizontalCenter
@@ -584,6 +627,33 @@ FocusScope {
                                 font.family: Theme.instrument
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 color: day.modelData.orders.length ? Theme.text : Theme.disabled
+                            }
+                        }
+                        // Blocks: x is the time of day, the width the duration (at least 4 px).
+                        Repeater {
+                            model: strip.bars[day.index] || []
+                            Rectangle {
+                                id: bar
+                                required property var modelData
+                                required property int index
+                                x: 3 + (day.width - 6) * modelData.from / 1440
+                                y: 42 + bar.index * 5
+                                width: Math.max(4, (day.width - 6) * modelData.minutes / 1440)
+                                height: 4
+                                radius: 1
+                                color: Theme.accent2
+                                visible: bar.index < 4
+                                Accessible.name: "Block " + modelData.text + ", " + modelData.minutes + " minutes"
+                                DragHandler {
+                                    id: drag
+                                    yAxis.enabled: false
+                                    onActiveChanged: {
+                                        if (!active) {
+                                            book.dragBlock(bar.modelData.id, day.index, drag.translation.x, strip.columnWidth + Theme.gapXs);
+                                            bar.x = 3 + (day.width - 6) * bar.modelData.from / 1440;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -599,7 +669,7 @@ FocusScope {
             // List view.
             ListView {
                 id: list
-                visible: !book.board && book.kind !== "report"
+                visible: !book.board && book.kind !== "report" && book.kind !== "routines"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -661,6 +731,16 @@ FocusScope {
                     onChanged: Day.refresh()
                 }
             }
+            Loader {
+                id: routinesView
+                active: book.kind === "routines"
+                visible: active
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceComponent: LogbookRoutines {
+                    now: book.now
+                }
+            }
             // Board view of a site: the sections as columns.
             Row {
                 id: boardRow
@@ -713,7 +793,7 @@ FocusScope {
                 }
             }
             C.Label {
-                visible: book.rows.length === 0 && !book.board && book.kind !== "report"
+                visible: book.rows.length === 0 && !book.board && book.kind !== "report" && book.kind !== "routines"
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
                 horizontalAlignment: Text.AlignHCenter
@@ -749,7 +829,7 @@ FocusScope {
             // Capture, with the recognised tokens highlighted.
             C.Field {
                 id: capture
-                visible: book.kind !== "report"
+                visible: book.kind !== "report" && book.kind !== "routines"
                 Layout.fillWidth: true
                 implicitHeight: 32
                 font.family: Theme.mono
@@ -767,7 +847,7 @@ FocusScope {
             }
             Text {
                 Layout.fillWidth: true
-                visible: capture.text !== "" && book.kind !== "report"
+                visible: capture.text !== "" && book.kind !== "report" && book.kind !== "routines"
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 font.family: Theme.mono
@@ -783,7 +863,7 @@ FocusScope {
                 Layout.fillWidth: true
                 spacing: Theme.gapM
                 Repeater {
-                    model: ["Q new", "/ search", "G then T A I C S go", "↑↓ move", "Space clear", "E sheet", "D due", "1-4 magnitude", "# site", "@ tag", "Ctrl+↑↓ reorder", "Ctrl+Z undo", "Del delete", "B board", "Esc back"]
+                    model: ["Q new", "/ search", "G then T A I C S R go", "↑↓ move", "Space clear", "E sheet", "D due", "1-4 magnitude", "# site", "@ tag", "Ctrl+↑↓ reorder", "Alt+arrows move a block", "F quiet", "Ctrl+Z undo", "Del delete", "B board", "Esc back"]
                     C.Label {
                         required property string modelData
                         text: modelData
