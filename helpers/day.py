@@ -1,32 +1,59 @@
-"""To-dos and reminders: a small local store, queried by day.
+"""Work orders and reminders: a small local store, queried by day.
 
-Times are epoch milliseconds. A repeating reminder is one row whose due time advances when it fires or is done;
-repeats keep the local wall-clock time, so a daylight-saving change moves them correctly. The shell sends only
-structured items: capture text is parsed in core/day.js.
+Times are epoch milliseconds. A repeating order is one row whose due time advances when it is cleared (a reminder
+from version 1 also when it fires); repeats keep the local wall-clock time, so a daylight-saving change moves them
+correctly. Every clearing is kept as a completion. The shell sends only structured items: capture text is parsed in
+core/day.js and filter queries in core/filters.js.
 """
+import calendar
+import contextlib
 import datetime as dt
+import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
 
 from activity import day_bounds
 
 
-SCHEMA = 1
-TEXT_LIMIT = 200
+SCHEMA = 2
+TEXT_LIMIT = 500
+NOTES_LIMIT = 10000
+NAME_LIMIT = 60
+ALERT_LIMIT = 20
+HISTORY = 50            # undoable changes kept
 AWAY_MS = 60000         # a reminder delivered later than this was missed: "While you were away"
 LAST_MS = 253402300799999  # 9999-12-31, the last time datetime can show
 KINDS = ("todo", "reminder")
-COLUMNS = ("id", "kind", "text", "created_at", "due_at", "repeat", "done_at", "fired_at", "snoozed_until",
-           "breaks_focus", "position")
-# Snake case in the database, camel case for the shell, as the other helper methods answer.
-NAMES = {"id": "id", "kind": "kind", "text": "text", "created_at": "createdAt", "due_at": "dueAt", "repeat": "repeat",
-         "done_at": "doneAt", "fired_at": "firedAt", "snoozed_until": "snoozedUntil", "breaks_focus": "breaksFocus",
-         "position": "position"}
-# When a reminder is next due: a snooze takes over from the due time until it fires.
-AT = "COALESCE(snoozed_until, due_at)"
-PENDING = "kind='reminder' AND done_at IS NULL AND (fired_at IS NULL OR fired_at < " + AT + ")"
+ITEM_COLUMNS = ("id", "kind", "text", "created_at", "due_at", "done_at", "position", "notes", "site_id", "section_id",
+                "parent_id", "priority", "deadline_at", "all_day", "duration_min", "rule", "rule_from_done",
+                "quiet_seconds")
+ALERT_COLUMNS = ("id", "item_id", "at", "before_min", "fired_at", "snoozed_until", "breaks_focus")
+# The rows Undo can put back; each table has an integer `id`.
+TRACKED = ("items", "alerts", "sites", "sections", "tags", "item_tags", "completions", "filters")
+STARTERS = (("Quick wins", "no date & !has notes & !p1"), ("Waiting", "@waiting"),
+            ("This week, urgent", "ahead 7 & (p1 | p2)"))
+# A version 1 reminder's delivery fields are those of its first alert; it is next due when that alert says.
+FIRST = "(SELECT {} FROM alerts WHERE alerts.item_id = items.id ORDER BY alerts.id LIMIT 1)"
+AT = "COALESCE(" + FIRST.format("snoozed_until") + ", items.due_at)"
+WHEN = "COALESCE(a.snoozed_until, a.at, i.due_at - a.before_min * 60000)"
+PENDING = "i.done_at IS NULL AND " + WHEN + " IS NOT NULL AND (a.fired_at IS NULL OR a.fired_at < " + WHEN + ")"
+SELECT = ("SELECT " + ", ".join("items." + column for column in ITEM_COLUMNS) + ", sites.name, sections.name, "
+          "(SELECT COUNT(*) FROM items sub WHERE sub.parent_id = items.id AND sub.done_at IS NULL) FROM items "
+          "LEFT JOIN sites ON sites.id = items.site_id LEFT JOIN sections ON sections.id = items.section_id")
+
+# Repeat rules are a small subset of iCalendar's RRULE. Weekday codes in date.weekday() order.
+WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+FREQS = ("DAILY", "WEEKLY", "MONTHLY", "YEARLY")
+V1_RULES = {"daily": "FREQ=DAILY", "weekdays": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"}
+
+
+def camel(name):
+    """Snake case in the database, camel case for the shell, as the other helper methods answer."""
+    head, *rest = name.split("_")
+    return head + "".join(part.title() for part in rest)
 
 
 def check_repeat(repeat):
@@ -35,6 +62,133 @@ def check_repeat(repeat):
     if isinstance(repeat, str) and len(repeat) == 8 and repeat.startswith("weekly:") and repeat[7] in "0123456":
         return repeat
     raise ValueError("Choose every day, every weekday or one day of the week.")
+
+
+def v1_rule(repeat):
+    """The rule for a version 1 repeat; its day numbers count from Sunday (0), as JavaScript's getDay() does."""
+    repeat = check_repeat(repeat)
+    if repeat is None:
+        return None
+    return V1_RULES.get(repeat) or "FREQ=WEEKLY;BYDAY=" + WEEKDAYS[(int(repeat[7]) + 6) % 7]
+
+
+def v1_repeat(rule):
+    """What the hub, which still speaks version 1, calls the rule; None for rules it cannot show."""
+    for repeat, known in V1_RULES.items():
+        if rule == known:
+            return repeat
+    match = re.fullmatch("FREQ=WEEKLY;BYDAY=(MO|TU|WE|TH|FR|SA|SU)", rule or "")
+    return "weekly:" + str((WEEKDAYS.index(match.group(1)) + 1) % 7) if match else None
+
+
+def number(text, low, high):
+    if not re.fullmatch(r"-?\d{1,4}", text) or not low <= int(text) <= high:
+        raise ValueError("Choose a valid repeat.")
+    return int(text)
+
+
+def check_rule(rule):
+    """The parts of a rule string, or ValueError for anything outside the subset."""
+    if not isinstance(rule, str) or len(rule) > 200:
+        raise ValueError("Choose a valid repeat.")
+    parts = {}
+    for part in rule.split(";"):
+        key, sep, value = part.partition("=")
+        if not sep or key in parts:
+            raise ValueError("Choose a valid repeat.")
+        parts[key] = value
+    freq = parts.pop("FREQ", None)
+    if freq not in FREQS:
+        raise ValueError("Choose a valid repeat.")
+    parsed = {"freq": freq, "interval": 1, "days": [], "monthday": None, "month": None, "until": None, "count": None}
+    for key, value in parts.items():
+        if key == "INTERVAL":
+            parsed["interval"] = number(value, 1, 99)
+        elif key == "BYDAY" and freq in ("WEEKLY", "MONTHLY"):
+            for entry in value.split(","):
+                match = re.fullmatch(r"(-1|[1-4])?(MO|TU|WE|TH|FR|SA|SU)", entry)
+                # Weekly days are plain; a monthly day is one weekday with its place in the month ("last fri").
+                if not match or (freq == "WEEKLY") != (match.group(1) is None):
+                    raise ValueError("Choose a valid repeat.")
+                parsed["days"].append((int(match.group(1)) if match.group(1) else None, match.group(2)))
+            if freq == "MONTHLY" and len(parsed["days"]) != 1:
+                raise ValueError("Choose a valid repeat.")
+        elif key == "BYMONTHDAY" and freq in ("MONTHLY", "YEARLY"):
+            parsed["monthday"] = number(value, -1, 31)
+            if parsed["monthday"] == 0:
+                raise ValueError("Choose a valid repeat.")
+        elif key == "BYMONTH" and freq == "YEARLY":
+            parsed["month"] = number(value, 1, 12)
+        elif key == "UNTIL" and re.fullmatch(r"\d{8}", value):
+            try:
+                parsed["until"] = dt.date(int(value[:4]), int(value[4:6]), int(value[6:]))
+            except ValueError:
+                raise ValueError("Choose a valid repeat.") from None
+        elif key == "COUNT":
+            parsed["count"] = number(value, 1, 999)
+        else:
+            raise ValueError("Choose a valid repeat.")
+    if (parsed["until"] and parsed["count"]) or (parsed["days"] and parsed["monthday"]):
+        raise ValueError("Choose a valid repeat.")
+    return parsed
+
+
+def on_rule(date, rule, anchor):
+    """Whether the series that started on `anchor` has an occurrence on `date` (not before `anchor`)."""
+    if rule["freq"] == "DAILY":
+        return (date - anchor).days % rule["interval"] == 0
+    if rule["freq"] == "WEEKLY":
+        weeks = ((date - anchor).days + anchor.weekday() - date.weekday()) // 7
+        days = [code for _, code in rule["days"]] or [WEEKDAYS[anchor.weekday()]]
+        return weeks % rule["interval"] == 0 and WEEKDAYS[date.weekday()] in days
+    if rule["freq"] == "MONTHLY":
+        if ((date.year - anchor.year) * 12 + date.month - anchor.month) % rule["interval"]:
+            return False
+    elif (date.year - anchor.year) % rule["interval"] or date.month != (rule["month"] or anchor.month):
+        return False
+    last = calendar.monthrange(date.year, date.month)[1]
+    if rule["days"]:
+        place, code = rule["days"][0]
+        if WEEKDAYS[date.weekday()] != code:
+            return False
+        return date.day + 7 > last if place == -1 else (date.day - 1) // 7 + 1 == place
+    monthday = rule["monthday"] or anchor.day
+    return date.day == (last if monthday == -1 else monthday)
+
+
+def wall_time(date, wall):
+    """mktime places a wall time that a daylight-saving jump skipped just after the jump."""
+    return int(time.mktime((date.year, date.month, date.day, wall.hour, wall.minute, wall.second, 0, 0, -1)) * 1000)
+
+
+def later(date, freq, interval):
+    if freq in ("DAILY", "WEEKLY"):
+        return date + dt.timedelta(days=interval * (7 if freq == "WEEKLY" else 1))
+    months = date.month - 1 + interval * (12 if freq == "YEARLY" else 1)
+    year, month = date.year + months // 12, months % 12 + 1
+    return dt.date(year, month, min(date.day, calendar.monthrange(year, month)[1]))
+
+
+def occurrence(due, rule, after, done=None):
+    """The first time of the series after `after`, at the due time's local wall-clock time; None when it has ended.
+    With `done`, the series counts from the day it was cleared instead ("every! 3 days")."""
+    rule = check_rule(rule) if isinstance(rule, str) else rule
+    wall = dt.datetime.fromtimestamp(due / 1000)
+    if done is not None:
+        date = later(dt.datetime.fromtimestamp(done / 1000).date(), rule["freq"], rule["interval"])
+        return wall_time(date, wall) if not rule["until"] or date <= rule["until"] else None
+    anchor = wall.date()
+    date = max(anchor, dt.datetime.fromtimestamp(after / 1000).date())
+    # Long enough for a 29 February that comes only every eighth year at the largest interval.
+    for _ in range(366 * 8 * rule["interval"]):
+        if rule["until"] and date > rule["until"]:
+            return None
+        if on_rule(date, rule, anchor):
+            moment = wall_time(date, wall)
+            if moment > after:
+                return moment
+        date += dt.timedelta(days=1)
+    return None
 
 
 def check_time(value, name):
@@ -54,27 +208,34 @@ def check_text(value):
     return text
 
 
-def matches(date, repeat):
-    if repeat == "daily":
-        return True
-    if repeat == "weekdays":
-        return date.weekday() < 5
-    # Day numbers count from Sunday (0), as JavaScript's getDay() does.
-    return date.isoweekday() % 7 == int(repeat[7])
+def check_notes(value):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or len(value) > NOTES_LIMIT:
+        raise ValueError("Keep notes under " + str(NOTES_LIMIT) + " characters.")
+    return value
 
 
-def occurrence(due, repeat, after):
-    """The first time of the series after `after`: the due time's local wall-clock time on the next matching day.
-    mktime places a wall time that a daylight-saving jump skipped just after the jump."""
-    wall = dt.datetime.fromtimestamp(due / 1000)
-    date = max(wall.date(), dt.datetime.fromtimestamp(after / 1000).date())
-    for _ in range(9):
-        if matches(date, repeat):
-            moment = int(time.mktime((date.year, date.month, date.day, wall.hour, wall.minute, wall.second, 0, 0, -1)) * 1000)
-            if moment > after:
-                return moment
-        date += dt.timedelta(days=1)
-    raise ValueError("Choose a valid repeat.")
+def check_name(value, what):
+    name = " ".join(value.split()) if isinstance(value, str) else ""
+    # A slash separates a site from its section in "#Home/Garden".
+    if not name or len(name) > NAME_LIMIT or "/" in name and what != "tag":
+        raise ValueError("Choose a " + what + " name of up to " + str(NAME_LIMIT) + " characters, without a slash.")
+    return name
+
+
+def check_flag(value, what):
+    if type(value) is not bool:
+        raise ValueError("Choose a valid " + what + ".")
+    return value
+
+
+def check_number(value, low, high, what, empty=True):
+    if value is None and empty:
+        return None
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError("Choose a valid " + what + ".")
+    return value
 
 
 class DayStore:
@@ -88,160 +249,619 @@ class DayStore:
         if version > SCHEMA:
             self.db.close()
             raise ValueError("The to-do list was saved by a newer version of the shell.")
-        # Each step brings an older file up to the next version; every step can run again safely.
-        self.db.executescript("""
-            CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY,
+        self._migrate(version)
+        self._record()
+
+    def _migrate(self, version):
+        """Each step brings an older file up to the next version, in one transaction."""
+        self.db.execute("BEGIN")
+        try:
+            self.db.execute("""CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY,
                 kind TEXT NOT NULL CHECK(kind IN ('todo','reminder')), text TEXT NOT NULL,
                 created_at INTEGER NOT NULL, due_at INTEGER, repeat TEXT, done_at INTEGER, fired_at INTEGER,
                 snoozed_until INTEGER, breaks_focus INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0,
-                CHECK(kind = 'todo' OR due_at IS NOT NULL), CHECK(repeat IS NULL OR kind = 'reminder'));
-            CREATE INDEX IF NOT EXISTS items_due ON items(due_at);
-            CREATE INDEX IF NOT EXISTS items_done ON items(done_at);
-        """)
-        self.db.execute("PRAGMA user_version = " + str(SCHEMA))
+                CHECK(kind = 'todo' OR due_at IS NOT NULL), CHECK(repeat IS NULL OR kind = 'reminder'))""")
+            self.db.execute("CREATE INDEX IF NOT EXISTS items_due ON items(due_at)")
+            self.db.execute("CREATE INDEX IF NOT EXISTS items_done ON items(done_at)")
+            if version < 2:
+                self._version2()
+            self.db.execute("PRAGMA user_version = " + str(SCHEMA))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            self.db.close()
+            raise
+
+    def _version2(self):
+        """Orders: the version 1 columns stay, so the hub keeps working; repeat, fired_at, snoozed_until and
+        breaks_focus are emptied as they move to `rule` and `alerts`. Each reminder becomes an order with one alert at
+        its time."""
+        have = {row[1] for row in self.db.execute("PRAGMA table_info(items)")}
+        for column in ("notes TEXT", "site_id INTEGER", "section_id INTEGER", "parent_id INTEGER",
+                       "priority INTEGER NOT NULL DEFAULT 1", "deadline_at INTEGER", "all_day INTEGER NOT NULL DEFAULT 0",
+                       "duration_min INTEGER", "rule TEXT", "rule_from_done INTEGER NOT NULL DEFAULT 0",
+                       "quiet_seconds INTEGER NOT NULL DEFAULT 0"):
+            if column.split()[0] not in have:
+                self.db.execute("ALTER TABLE items ADD COLUMN " + column)
+        for statement in (
+                "CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, "
+                "color TEXT, position INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS sections (id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL, "
+                "name TEXT NOT NULL COLLATE NOCASE, position INTEGER NOT NULL DEFAULT 0, "
+                "archived INTEGER NOT NULL DEFAULT 0, UNIQUE(site_id, name))",
+                "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE)",
+                "CREATE TABLE IF NOT EXISTS item_tags (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, "
+                "tag_id INTEGER NOT NULL, UNIQUE(item_id, tag_id))",
+                "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, at INTEGER, "
+                "before_min INTEGER, fired_at INTEGER, snoozed_until INTEGER, breaks_focus INTEGER NOT NULL DEFAULT 0, "
+                "CHECK((at IS NULL) != (before_min IS NULL)))",
+                "CREATE INDEX IF NOT EXISTS alerts_item ON alerts(item_id)",
+                "CREATE TABLE IF NOT EXISTS completions (id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, "
+                "done_at INTEGER NOT NULL, due_at INTEGER)",
+                "CREATE INDEX IF NOT EXISTS completions_done ON completions(done_at)",
+                "CREATE TABLE IF NOT EXISTS routines (id INTEGER PRIMARY KEY, name TEXT NOT NULL, rule TEXT, "
+                "minute INTEGER, position INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS routine_checks (id INTEGER PRIMARY KEY, routine_id INTEGER NOT NULL, "
+                "date TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE(routine_id, date))",
+                "CREATE TABLE IF NOT EXISTS days (date TEXT PRIMARY KEY, target INTEGER, cleared INTEGER NOT NULL "
+                "DEFAULT 0, note TEXT, stand_down INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS filters (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, "
+                "query TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, label TEXT NOT NULL, at INTEGER NOT NULL, "
+                "undone INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS changes (id INTEGER PRIMARY KEY, step INTEGER NOT NULL, tbl TEXT NOT NULL, "
+                "row_id INTEGER NOT NULL, old TEXT, new TEXT)"):
+            self.db.execute(statement)
+        rows = self.db.execute("SELECT id, kind, repeat, fired_at, snoozed_until, breaks_focus FROM items "
+                               "WHERE kind = 'reminder' OR repeat IS NOT NULL").fetchall()
+        for item_id, kind, repeat, fired, snoozed, breaks in rows:
+            if kind == "reminder" and not self.db.execute("SELECT 1 FROM alerts WHERE item_id = ?", (item_id,)).fetchone():
+                self.db.execute("INSERT INTO alerts (item_id, before_min, fired_at, snoozed_until, breaks_focus) "
+                                "VALUES (?, 0, ?, ?, ?)", (item_id, fired, snoozed, breaks))
+            self.db.execute("UPDATE items SET rule = COALESCE(?, rule), repeat = NULL, fired_at = NULL, "
+                            "snoozed_until = NULL, breaks_focus = 0 WHERE id = ?", (v1_rule(repeat), item_id))
+        if not self.db.execute("SELECT 1 FROM filters").fetchone():
+            self.db.executemany("INSERT INTO filters (name, query, position) VALUES (?, ?, ?)",
+                                [(name, query, position) for position, (name, query) in enumerate(STARTERS)])
+
+    def _record(self):
+        """Temporary triggers log every row a change writes, old and new, under the current history step; nothing is
+        logged while no step is open (migration, delivering alerts, Undo itself)."""
+        self.db.execute("CREATE TEMP TABLE recording (step INTEGER)")
+        self.db.execute("INSERT INTO recording VALUES (NULL)")
+        for table in TRACKED:
+            columns = [row[1] for row in self.db.execute("PRAGMA main.table_info(" + table + ")")]
+
+            def state(ref):
+                return "json_object(" + ", ".join("'" + column + "', " + ref + "." + column for column in columns) + ")"
+            for event, row, old, new in (("INSERT", "NEW", "NULL", state("NEW")), ("UPDATE", "OLD", state("OLD"), state("NEW")),
+                                         ("DELETE", "OLD", state("OLD"), "NULL")):
+                self.db.execute("CREATE TEMP TRIGGER " + table + "_" + event.lower() + " AFTER " + event + " ON main." + table +
+                                " WHEN (SELECT step FROM recording) IS NOT NULL BEGIN INSERT INTO changes "
+                                "(step, tbl, row_id, old, new) VALUES ((SELECT step FROM recording), '" + table + "', " +
+                                row + ".id, " + old + ", " + new + "); END")
         self.db.commit()
+
+    @contextlib.contextmanager
+    def _change(self, label):
+        """One undoable change. A new change ends what Redo could bring back; a refused one leaves no trace."""
+        try:
+            self.db.execute("DELETE FROM changes WHERE step IN (SELECT id FROM history WHERE undone = 1)")
+            self.db.execute("DELETE FROM history WHERE undone = 1")
+            step = self.db.execute("INSERT INTO history (label, at) VALUES (?, ?)", (label, self.now())).lastrowid
+            self.db.execute("UPDATE recording SET step = ?", (step,))
+            yield
+            self.db.execute("UPDATE recording SET step = NULL")
+            if not self.db.execute("SELECT 1 FROM changes WHERE step = ?", (step,)).fetchone():
+                self.db.execute("DELETE FROM history WHERE id = ?", (step,))
+            self.db.execute("DELETE FROM history WHERE id NOT IN (SELECT id FROM history ORDER BY id DESC LIMIT ?)", (HISTORY,))
+            self.db.execute("DELETE FROM changes WHERE step NOT IN (SELECT id FROM history)")
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def now(self):
         return int(self.wall() * 1000)
 
-    def _item(self, row):
-        item = {NAMES[name]: value for name, value in zip(COLUMNS, row)}
-        item["breaksFocus"] = bool(item["breaksFocus"])
-        item["at"] = item["snoozedUntil"] or item["dueAt"]
-        return item
+    def _items(self, rows):
+        items = []
+        for row in rows:
+            item = {camel(column): value for column, value in zip(ITEM_COLUMNS, row)}
+            item["allDay"], item["ruleFromDone"] = bool(item["allDay"]), bool(item["ruleFromDone"])
+            item["site"], item["section"], item["openSubOrders"] = row[-3:]
+            items.append(item)
+        ids = [item["id"] for item in items]
+        marks = ",".join("?" * len(ids))
+        alerts, tags = {}, {}
+        for row in self.db.execute("SELECT " + ", ".join(ALERT_COLUMNS) + " FROM alerts WHERE item_id IN (" + marks + ") ORDER BY id", ids):
+            alert = {camel(column): value for column, value in zip(ALERT_COLUMNS, row)}
+            alert["breaksFocus"] = bool(alert["breaksFocus"])
+            alerts.setdefault(alert.pop("itemId"), []).append(alert)
+        for item_id, name in self.db.execute("SELECT item_tags.item_id, tags.name FROM item_tags JOIN tags ON tags.id = item_tags.tag_id "
+                                             "WHERE item_tags.item_id IN (" + marks + ") ORDER BY tags.name COLLATE NOCASE", ids):
+            tags.setdefault(item_id, []).append(name)
+        for item in items:
+            item["alerts"], item["tags"] = alerts.get(item["id"], []), tags.get(item["id"], [])
+            first = item["alerts"][0] if item["alerts"] else {}
+            item["firedAt"], item["snoozedUntil"] = first.get("firedAt"), first.get("snoozedUntil")
+            item["breaksFocus"] = first.get("breaksFocus", False)
+            item["repeat"] = v1_repeat(item["rule"])
+            item["at"] = item["snoozedUntil"] or item["dueAt"]
+        return items
 
-    def _select(self, where, args=(), order=AT + ", id"):
-        rows = self.db.execute("SELECT " + ", ".join(COLUMNS) + " FROM items WHERE " + where + " ORDER BY " + order, args)
-        return [self._item(row) for row in rows]
+    def _select(self, where, args=(), order=AT + ", items.id"):
+        return self._items(self.db.execute(SELECT + " WHERE " + where + " ORDER BY " + order, args).fetchall())
 
     def get(self, item_id):
         if type(item_id) is not int:
             raise ValueError("Choose an item.")
-        found = self._select("id=?", (item_id,))
+        found = self._select("items.id = ?", (item_id,))
         if not found:
             raise ValueError("That item no longer exists.")
         return found[0]
 
-    def add(self, fields):
-        kind = fields.get("kind")
-        if kind not in KINDS:
+    def _named(self, table, name, site=None):
+        """The id of a site, section or tag by name, created when first used."""
+        where, args = ("name = ?", (name,)) if site is None else ("site_id = ? AND name = ?", (site, name))
+        found = self.db.execute("SELECT id FROM " + table + " WHERE " + where, args).fetchone()
+        if found:
+            return found[0]
+        if table == "tags":
+            return self.db.execute("INSERT INTO tags (name) VALUES (?)", (name,)).lastrowid
+        position = self.db.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM " + table + ("" if site is None else " WHERE site_id = ?"),
+                                   () if site is None else (site,)).fetchone()[0]
+        if site is None:
+            return self.db.execute("INSERT INTO sites (name, position) VALUES (?, ?)", (name, position)).lastrowid
+        return self.db.execute("INSERT INTO sections (site_id, name, position) VALUES (?, ?, ?)", (site, name, position)).lastrowid
+
+    def _row(self, table, row_id, what):
+        if type(row_id) is not int:
+            raise ValueError("Choose a " + what + ".")
+        row = self.db.execute("SELECT * FROM " + table + " WHERE id = ?", (row_id,)).fetchone()
+        if not row:
+            raise ValueError("That " + what + " no longer exists.")
+        return row
+
+    def _parent(self, value, item):
+        if value is None:
+            return None
+        parent = self.get(value) if type(value) is int else None
+        if parent is None:
+            raise ValueError("Choose a parent order.")
+        if parent["parentId"] is not None:
+            raise ValueError("Sub-orders go one level deep.")
+        if item and value == item["id"]:
+            raise ValueError("An order cannot be its own sub-order.")
+        if item and self.db.execute("SELECT 1 FROM items WHERE parent_id = ?", (item["id"],)).fetchone():
+            raise ValueError("An order with sub-orders cannot become one.")
+        return value
+
+    def _order(self, fields, item):
+        """The checked columns of an order: `fields` over the current values of `item` (None for a new order)."""
+        old = item or {"kind": fields.get("kind"), "priority": 1, "allDay": False, "ruleFromDone": False, "quietSeconds": 0}
+        if old["kind"] not in KINDS:
             raise ValueError("Choose a to-do or a reminder.")
-        text = check_text(fields.get("text"))
-        due = check_time(fields.get("dueAt"), "time")
-        repeat = check_repeat(fields.get("repeat"))
-        if kind == "reminder" and due is None:
+
+        def pick(key, check, *args):
+            return check(fields[key], *args) if key in fields else old.get(key)
+        values = {
+            "text": check_text(fields.get("text")) if "text" in fields or item is None else item["text"],
+            "notes": pick("notes", check_notes),
+            "due_at": pick("dueAt", check_time, "time"),
+            "all_day": pick("allDay", check_flag, "all-day choice"),
+            "deadline_at": pick("deadlineAt", check_time, "deadline"),
+            "duration_min": pick("durationMin", check_number, 1, 1440, "duration"),
+            "priority": pick("priority", check_number, 1, 4, "magnitude", False),
+            "rule": old.get("rule"),
+            "rule_from_done": pick("ruleFromDone", check_flag, "repeat"),
+            "quiet_seconds": pick("quietSeconds", check_number, 0, 10 ** 9, "recorded time", False),
+            "parent_id": pick("parentId", self._parent, item),
+            "site_id": old.get("siteId"),
+            "section_id": old.get("sectionId"),
+        }
+        if "repeat" in fields:
+            values["rule"] = v1_rule(fields["repeat"])
+            if values["rule"] and old["kind"] != "reminder":
+                raise ValueError("Only reminders can repeat.")
+        if "rule" in fields:
+            values["rule"] = fields["rule"] if fields["rule"] is None or check_rule(fields["rule"]) else None
+        if old["kind"] == "reminder" and values["due_at"] is None:
             raise ValueError("A reminder needs a time.")
-        if repeat and kind != "reminder":
-            raise ValueError("Only reminders can repeat.")
-        if repeat and due is not None and not matches(dt.datetime.fromtimestamp(due / 1000).date(), repeat):
-            due = occurrence(due, repeat, due)
-        position = self.db.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM items WHERE kind='todo'").fetchone()[0]
-        cursor = self.db.execute("INSERT INTO items (kind, text, created_at, due_at, repeat, breaks_focus, position) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                 (kind, text, self.now(), due, repeat, int(fields.get("breaksFocus") is True), position))
-        self.db.commit()
-        return self.get(cursor.lastrowid)
+        if values["rule"] and values["due_at"] is None:
+            raise ValueError("A repeat needs a due date.")
+        if values["rule"]:
+            rule = check_rule(values["rule"])
+            due = values["due_at"]
+            if not on_rule(dt.datetime.fromtimestamp(due / 1000).date(), rule, dt.datetime.fromtimestamp(due / 1000).date()):
+                values["due_at"] = occurrence(due, rule, due)
+                if values["due_at"] is None:
+                    raise ValueError("The repeat ends before it starts.")
+        if "siteId" in fields or "site" in fields:
+            site = fields.get("siteId", fields.get("site"))
+            if site is not None and "siteId" in fields:
+                self._row("sites", site, "site")
+            values["site_id"] = None if site is None else site if "siteId" in fields else self._named("sites", check_name(site, "site"))
+            values["section_id"] = None
+        if "sectionId" in fields or "section" in fields:
+            section = fields.get("sectionId", fields.get("section"))
+            if section is not None and values["site_id"] is None:
+                raise ValueError("Choose a site for the section.")
+            if section is not None and "sectionId" in fields and self._row("sections", section, "section")[1] != values["site_id"]:
+                raise ValueError("That section belongs to another site.")
+            values["section_id"] = (None if section is None else section if "sectionId" in fields
+                                    else self._named("sections", check_name(section, "section"), values["site_id"]))
+        return values
+
+    def _alerts(self, item_id, fields, kind, timing):
+        """A reminder keeps its one alert at its time; an order's alerts are replaced when given."""
+        if kind == "reminder":
+            if not self.db.execute("SELECT 1 FROM alerts WHERE item_id = ?", (item_id,)).fetchone():
+                self.db.execute("INSERT INTO alerts (item_id, before_min) VALUES (?, 0)", (item_id,))
+            if "breaksFocus" in fields:
+                self.db.execute("UPDATE alerts SET breaks_focus = ? WHERE item_id = ?", (int(fields["breaksFocus"] is True), item_id))
+        elif "alerts" in fields:
+            alerts = fields["alerts"]
+            if not isinstance(alerts, list) or len(alerts) > ALERT_LIMIT or not all(isinstance(alert, dict) for alert in alerts):
+                raise ValueError("Choose up to " + str(ALERT_LIMIT) + " alerts.")
+            due, all_day = self.db.execute("SELECT due_at, all_day FROM items WHERE id = ?", (item_id,)).fetchone()
+            self.db.execute("DELETE FROM alerts WHERE item_id = ?", (item_id,))
+            for alert in alerts:
+                at = check_time(alert.get("at"), "alert time")
+                before = check_number(alert.get("beforeMin"), 0, 10080, "alert")
+                if (at is None) == (before is None):
+                    raise ValueError("Choose a time for the alert, or minutes before the due time.")
+                if before is not None and (due is None or all_day):
+                    raise ValueError("An alert before the due time needs a due time.")
+                self.db.execute("INSERT INTO alerts (item_id, at, before_min, breaks_focus) VALUES (?, ?, ?, ?)",
+                                (item_id, at, before, int(alert.get("breaksFocus") is True)))
+        # A new time is a new appointment: it fires again, and an old snooze no longer applies.
+        if timing:
+            self.db.execute("UPDATE alerts SET fired_at = NULL, snoozed_until = NULL WHERE item_id = ? AND before_min IS NOT NULL", (item_id,))
+
+    def _tags(self, item_id, fields):
+        if "tags" not in fields:
+            return
+        tags = fields["tags"]
+        if not isinstance(tags, list) or len(tags) > 50:
+            raise ValueError("Choose up to 50 tags.")
+        ids = [self._named("tags", check_name(tag, "tag")) for tag in tags]
+        self.db.execute("DELETE FROM item_tags WHERE item_id = ?", (item_id,))
+        self.db.executemany("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", [(item_id, tag) for tag in ids])
+
+    def add(self, fields):
+        with self._change("Add"):
+            values = self._order(fields, None)
+            values.update(kind=fields["kind"], created_at=self.now(), position=self.db.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM items WHERE kind = 'todo'").fetchone()[0])
+            item_id = self.db.execute("INSERT INTO items (" + ", ".join(values) + ") VALUES (" + ", ".join("?" * len(values)) + ")",
+                                      tuple(values.values())).lastrowid
+            self._alerts(item_id, fields, values["kind"], False)
+            self._tags(item_id, fields)
+        return self.get(item_id)
 
     def update(self, item_id, fields):
         item = self.get(item_id)
-        text = check_text(fields["text"]) if "text" in fields else item["text"]
-        due = check_time(fields["dueAt"], "time") if "dueAt" in fields else item["dueAt"]
-        repeat = check_repeat(fields["repeat"]) if "repeat" in fields else item["repeat"]
-        breaks = fields["breaksFocus"] is True if "breaksFocus" in fields else item["breaksFocus"]
-        if item["kind"] == "reminder" and due is None:
-            raise ValueError("A reminder needs a time.")
-        if repeat and item["kind"] != "reminder":
-            raise ValueError("Only reminders can repeat.")
-        if repeat and due is not None and not matches(dt.datetime.fromtimestamp(due / 1000).date(), repeat):
-            due = occurrence(due, repeat, due)
-        # A new time is a new appointment: it fires again, and an old snooze no longer applies.
-        timing = due != item["dueAt"] or repeat != item["repeat"]
-        self.db.execute("UPDATE items SET text=?, due_at=?, repeat=?, breaks_focus=?, fired_at=?, snoozed_until=? WHERE id=?",
-                        (text, due, repeat, int(breaks), None if timing else item["firedAt"],
-                         None if timing else item["snoozedUntil"], item_id))
-        self.db.commit()
+        with self._change("Edit"):
+            values = self._order(fields, item)
+            self.db.execute("UPDATE items SET " + ", ".join(column + " = ?" for column in values) + " WHERE id = ?",
+                            (*values.values(), item_id))
+            self._alerts(item_id, fields, item["kind"], values["due_at"] != item["dueAt"] or values["rule"] != item["rule"])
+            self._tags(item_id, fields)
         return self.get(item_id)
+
+    def _clear(self, item):
+        """Clears one order. A repeating one moves on to its next occurrence unless its series has ended."""
+        if item["doneAt"] is not None:
+            return
+        now = self.now()
+        self.db.execute("INSERT INTO completions (item_id, done_at, due_at) VALUES (?, ?, ?)", (item["id"], now, item["dueAt"]))
+        following = None
+        if item["rule"]:
+            rule = check_rule(item["rule"])
+            count = self.db.execute("SELECT COUNT(*) FROM completions WHERE item_id = ?", (item["id"],)).fetchone()[0]
+            if not rule["count"] or count < rule["count"]:
+                following = (occurrence(item["dueAt"], rule, now, done=now) if item["ruleFromDone"]
+                             else occurrence(item["dueAt"], rule, max(now, item["dueAt"])))
+        if following is None:
+            self.db.execute("UPDATE items SET done_at = ? WHERE id = ?", (now, item["id"]))
+        else:
+            self.db.execute("UPDATE items SET due_at = ? WHERE id = ?", (following, item["id"]))
+            self.db.execute("UPDATE alerts SET fired_at = NULL, snoozed_until = NULL WHERE item_id = ?", (item["id"],))
 
     def done(self, item_id):
         item = self.get(item_id)
-        if item["repeat"]:
-            # Done with this occurrence: the series moves on to the next one.
-            after = max(self.now(), item["dueAt"])
-            self.db.execute("UPDATE items SET due_at=?, fired_at=NULL, snoozed_until=NULL WHERE id=?",
-                            (occurrence(item["dueAt"], item["repeat"], after), item_id))
-        elif item["doneAt"] is None:
-            self.db.execute("UPDATE items SET done_at=? WHERE id=?", (self.now(), item_id))
-        self.db.commit()
+        with self._change("Clear"):
+            self._clear(item)
         return self.get(item_id)
 
+    def complete(self, item_id, sub_orders=None):
+        """Clears an order; one with open sub-orders asks first (`ask` is how many) unless `sub_orders` says whether
+        to clear them too."""
+        item = self.get(item_id)
+        children = self._select("items.parent_id = ? AND items.done_at IS NULL", (item_id,), "items.position, items.id")
+        if children and sub_orders is None:
+            return {"item": item, "ask": len(children)}
+        if sub_orders is not None:
+            check_flag(sub_orders, "choice")
+        with self._change("Clear"):
+            for child in children if sub_orders else []:
+                self._clear(child)
+            self._clear(item)
+        return {"item": self.get(item_id), "ask": 0}
+
     def undone(self, item_id):
-        self.get(item_id)
-        self.db.execute("UPDATE items SET done_at=NULL WHERE id=?", (item_id,))
-        self.db.commit()
+        item = self.get(item_id)
+        with self._change("Reopen"):
+            if item["doneAt"] is not None:
+                self.db.execute("DELETE FROM completions WHERE id = (SELECT MAX(id) FROM completions WHERE item_id = ?)", (item_id,))
+            self.db.execute("UPDATE items SET done_at = NULL WHERE id = ?", (item_id,))
         return self.get(item_id)
 
     def delete(self, item_id):
-        """Returns the removed item, so the shell can offer Undo by adding it again."""
+        """Returns the removed item, so the shell can offer Undo by adding it again. Sub-orders go with it."""
         item = self.get(item_id)
-        self.db.execute("DELETE FROM items WHERE id=?", (item_id,))
-        self.db.commit()
+        with self._change("Delete"):
+            ids = [item_id] + [row[0] for row in self.db.execute("SELECT id FROM items WHERE parent_id = ?", (item_id,))]
+            marks = ",".join("?" * len(ids))
+            for table, column in (("alerts", "item_id"), ("item_tags", "item_id"), ("items", "id")):
+                self.db.execute("DELETE FROM " + table + " WHERE " + column + " IN (" + marks + ")", ids)
         return item
 
-    def snooze(self, item_id, until):
+    def snooze(self, item_id, until, alert_id=None):
         item = self.get(item_id)
         until = check_time(until, "snooze time")
-        if item["kind"] != "reminder":
+        if not item["alerts"]:
             raise ValueError("Only reminders can be snoozed.")
         if until is None or until <= self.now():
             raise ValueError("Choose a later time.")
-        # A one-off reminder simply moves; a repeating one keeps its series and is snoozed until it fires.
-        due = item["dueAt"] if item["repeat"] else until
-        self.db.execute("UPDATE items SET due_at=?, snoozed_until=?, done_at=NULL WHERE id=?", (due, until, item_id))
-        self.db.commit()
+        alert = next((alert for alert in item["alerts"] if alert["id"] == alert_id), item["alerts"][0] if alert_id is None else None)
+        if alert is None:
+            raise ValueError("That alert no longer exists.")
+        with self._change("Snooze"):
+            # A one-off reminder simply moves; a repeating one, or an order, keeps its due time and the alert waits.
+            due = until if item["kind"] == "reminder" and not item["rule"] else item["dueAt"]
+            self.db.execute("UPDATE items SET due_at = ?, done_at = NULL WHERE id = ?", (due, item_id))
+            self.db.execute("UPDATE alerts SET snoozed_until = ? WHERE id = ?", (until, alert["id"]))
         return self.get(item_id)
 
     def reorder(self, ids):
         if not isinstance(ids, list) or any(type(item_id) is not int for item_id in ids) or len(set(ids)) != len(ids):
             raise ValueError("Choose the to-dos to order.")
-        todos = {row[0] for row in self.db.execute("SELECT id FROM items WHERE kind='todo'")}
+        todos = {row[0] for row in self.db.execute("SELECT id FROM items WHERE kind = 'todo'")}
         if not set(ids) <= todos:
             raise ValueError("Only to-dos can be ordered.")
-        self.db.executemany("UPDATE items SET position=? WHERE id=?", [(position, item_id) for position, item_id in enumerate(ids)])
-        self.db.commit()
+        with self._change("Reorder"):
+            self.db.executemany("UPDATE items SET position = ? WHERE id = ?", [(position, item_id) for position, item_id in enumerate(ids)])
         return self.todos()
 
     def todos(self):
-        return self._select("kind='todo' AND done_at IS NULL", order="position, id")
+        return self._select("items.kind = 'todo' AND items.done_at IS NULL", order="items.position, items.id")
 
     def list(self, day):
         """What belongs to one local day (due, snoozed to or done on it), plus every open to-do."""
         start, end = day_bounds(day)
-        items = self._select("(" + AT + " >= ? AND " + AT + " < ?) OR (done_at >= ? AND done_at < ?)", (start, end, start, end))
+        items = self._select("(" + AT + " >= ? AND " + AT + " < ?) OR (items.done_at >= ? AND items.done_at < ?)", (start, end, start, end))
         return {"date": day, "start": start, "end": end, "items": items, "todos": self.todos()}
 
+    def orders(self, since=None):
+        """Every open order, and those cleared since `since`: what core/filters.js and the views query."""
+        since = check_time(since, "time")
+        return self._select("items.done_at IS NULL OR items.done_at >= ?", (since or LAST_MS,), "items.position, items.id")
+
+    def search(self, text):
+        """Orders whose title, notes, site, section or tag name contain the text; title matches first, open before
+        cleared, then by due time."""
+        words = text.split() if isinstance(text, str) else []
+        if not words or len(text) > 200:
+            raise ValueError("Type what to search for.")
+        score = []
+        args = []
+        for word in words:
+            like = "%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            score.append("(CASE WHEN items.text LIKE ? ESCAPE '\\' THEN 4 WHEN sites.name LIKE ? ESCAPE '\\' OR sections.name LIKE ? "
+                         "ESCAPE '\\' OR EXISTS (SELECT 1 FROM item_tags JOIN tags ON tags.id = item_tags.tag_id WHERE "
+                         "item_tags.item_id = items.id AND tags.name LIKE ? ESCAPE '\\') THEN 2 WHEN items.notes LIKE ? "
+                         "ESCAPE '\\' THEN 1 ELSE 0 END)")
+            args += [like] * 5
+        # Every word has to match somewhere; the order is by the sum of where each matched.
+        where = " AND ".join(part + " > 0" for part in score)
+        order = "(" + " + ".join(score) + ") DESC, items.done_at IS NOT NULL, items.due_at IS NULL, items.due_at, items.id"
+        return self._select(where, args + args, order)
+
     def next(self):
-        """The item the bar shows next, and when the next reminder is due (the service's timer aims at it)."""
+        """The item the bar shows next, and when the next alert is due (the service's timer aims at it)."""
         now = self.now()
-        pending = self._select(PENDING)
-        timed = self._select("kind='todo' AND done_at IS NULL AND due_at > ?", (now,))
-        upcoming = sorted(pending + timed, key=lambda item: (item["at"], item["id"]))
-        return {"item": upcoming[0] if upcoming else None, "fireAt": pending[0]["at"] if pending else None}
+        pending = self.db.execute("SELECT DISTINCT a.item_id, " + WHEN + " FROM alerts a JOIN items i ON i.id = a.item_id WHERE " +
+                                  PENDING + " ORDER BY 2, a.id").fetchall()
+        items = {item["id"]: item for item in self._select("items.id IN (" + ",".join(str(row[0]) for row in pending) + ")")} if pending else {}
+        upcoming = [dict(items[item_id], at=at) for item_id, at in pending]
+        upcoming += self._select("items.kind = 'todo' AND items.done_at IS NULL AND items.all_day = 0 AND items.due_at > ? "
+                                 "AND NOT EXISTS (SELECT 1 FROM alerts WHERE alerts.item_id = items.id)", (now,))
+        upcoming.sort(key=lambda item: (item["at"], item["id"]))
+        return {"item": upcoming[0] if upcoming else None, "fireAt": pending[0][1] if pending else None}
 
     def fire(self):
-        """Marks every reminder that is due as fired and returns them, each exactly once. One delivered more than a
+        """Marks every alert that is due as fired and returns its item, each exactly once. One delivered more than a
         minute late (the shell was off, asleep or locked) is marked `away`, with the time it was due."""
         now = self.now()
         fired = []
-        for item in self._select(PENDING + " AND " + AT + " <= ?", (now,)):
-            item["away"] = now - item["at"] > AWAY_MS
-            if item["repeat"]:
+        for alert_id, at, item_id in self.db.execute("SELECT a.id, " + WHEN + ", a.item_id FROM alerts a JOIN items i ON i.id = a.item_id "
+                                                     "WHERE " + PENDING + " AND " + WHEN + " <= ? ORDER BY 2, a.id", (now,)).fetchall():
+            item = dict(self.get(item_id), at=at, alertId=alert_id, away=now - at > AWAY_MS)
+            if item["kind"] == "reminder" and item["rule"]:
                 # Missed occurrences are reported once, not one by one: the series resumes after now.
-                self.db.execute("UPDATE items SET due_at=?, fired_at=?, snoozed_until=NULL WHERE id=?",
-                                (occurrence(item["dueAt"], item["repeat"], now), now, item["id"]))
-            else:
-                self.db.execute("UPDATE items SET fired_at=?, snoozed_until=NULL WHERE id=?", (now, item["id"]))
+                following = occurrence(item["dueAt"], item["rule"], now)
+                if following is not None:
+                    self.db.execute("UPDATE items SET due_at = ? WHERE id = ?", (following, item_id))
+            self.db.execute("UPDATE alerts SET fired_at = ?, snoozed_until = NULL WHERE id = ?", (now, alert_id))
             fired.append(item)
         self.db.commit()
         return fired
+
+    def completions(self, start, end):
+        start, end = check_time(start, "start"), check_time(end, "end")
+        if start is None or end is None or end <= start:
+            raise ValueError("Choose a valid period.")
+        rows = self.db.execute("SELECT id, item_id, done_at, due_at FROM completions WHERE done_at >= ? AND done_at < ? ORDER BY done_at",
+                               (start, end))
+        return [{"id": row[0], "itemId": row[1], "doneAt": row[2], "dueAt": row[3]} for row in rows]
+
+    # Sites, sections, tags and saved filters.
+
+    def sites(self):
+        sites = [{"id": row[0], "name": row[1], "color": row[2], "position": row[3], "archived": bool(row[4]), "sections": []}
+                 for row in self.db.execute("SELECT id, name, color, position, archived FROM sites ORDER BY position, id")]
+        by_id = {site["id"]: site for site in sites}
+        for row in self.db.execute("SELECT id, site_id, name, position, archived FROM sections ORDER BY position, id"):
+            if row[1] in by_id:
+                by_id[row[1]]["sections"].append({"id": row[0], "name": row[2], "position": row[3], "archived": bool(row[4])})
+        return sites
+
+    def _edit(self, table, row_id, fields, what, columns):
+        """Renames, recolours, moves or archives a site, section or filter."""
+        row = self._row(table, row_id, what)
+        with self._change("Edit " + what):
+            for key, column in columns:
+                if key not in fields:
+                    continue
+                value = fields[key]
+                if key == "name":
+                    value = check_name(value, what)
+                    clash = self.db.execute("SELECT 1 FROM " + table + " WHERE name = ? AND id <> ?" +
+                                            (" AND site_id = ?" if table == "sections" else ""),
+                                            (value, row_id) + ((row[1],) if table == "sections" else ())).fetchone()
+                    if clash:
+                        raise ValueError("That " + what + " already exists.")
+                elif key == "color":
+                    value = None if value is None else check_name(value, "colour")
+                elif key == "archived":
+                    value = int(check_flag(value, "choice"))
+                elif key == "query":
+                    if not isinstance(value, str) or not value.strip() or len(value) > 500:
+                        raise ValueError("Write the filter's query.")
+                else:
+                    value = check_number(value, 0, 10 ** 6, "position", False)
+                self.db.execute("UPDATE " + table + " SET " + column + " = ? WHERE id = ?", (value, row_id))
+        return row_id
+
+    def handle_sites(self, method, p):
+        if method == "day.sites.list":
+            return self.sites()
+        if method == "day.sites.add":
+            name = check_name(p.get("name"), "site")
+            if self.db.execute("SELECT 1 FROM sites WHERE name = ?", (name,)).fetchone():
+                raise ValueError("That site already exists.")
+            color = None if p.get("color") is None else check_name(p["color"], "colour")
+            with self._change("Add site"):
+                site = self._named("sites", name)
+                self.db.execute("UPDATE sites SET color = ? WHERE id = ?", (color, site))
+            return site
+        if method == "day.sites.update":
+            return self._edit("sites", p.get("id"), p, "site", (("name", "name"), ("color", "color"), ("position", "position"),
+                                                               ("archived", "archived")))
+        if method == "day.sites.delete":
+            # Its orders stay, in Intake.
+            self._row("sites", p.get("id"), "site")
+            with self._change("Delete site"):
+                self.db.execute("UPDATE items SET site_id = NULL, section_id = NULL WHERE site_id = ?", (p["id"],))
+                self.db.execute("DELETE FROM sections WHERE site_id = ?", (p["id"],))
+                self.db.execute("DELETE FROM sites WHERE id = ?", (p["id"],))
+            return p["id"]
+        if method == "day.sections.add":
+            site = self._row("sites", p.get("siteId"), "site")[0]
+            name = check_name(p.get("name"), "section")
+            if self.db.execute("SELECT 1 FROM sections WHERE site_id = ? AND name = ?", (site, name)).fetchone():
+                raise ValueError("That section already exists.")
+            with self._change("Add section"):
+                return self._named("sections", name, site)
+        if method == "day.sections.update":
+            return self._edit("sections", p.get("id"), p, "section", (("name", "name"), ("position", "position"), ("archived", "archived")))
+        if method == "day.sections.delete":
+            self._row("sections", p.get("id"), "section")
+            with self._change("Delete section"):
+                self.db.execute("UPDATE items SET section_id = NULL WHERE section_id = ?", (p["id"],))
+                self.db.execute("DELETE FROM sections WHERE id = ?", (p["id"],))
+            return p["id"]
+        raise ValueError("Unknown day operation.")
+
+    def tags(self):
+        return [{"id": row[0], "name": row[1], "count": row[2]} for row in self.db.execute(
+            "SELECT tags.id, tags.name, (SELECT COUNT(*) FROM item_tags JOIN items ON items.id = item_tags.item_id "
+            "WHERE item_tags.tag_id = tags.id AND items.done_at IS NULL) FROM tags ORDER BY tags.name COLLATE NOCASE")]
+
+    def handle_tags(self, method, p):
+        if method == "day.tags.list":
+            return self.tags()
+        if method == "day.tags.rename":
+            return self._edit("tags", p.get("id"), {"name": p.get("name")}, "tag", (("name", "name"),))
+        if method == "day.tags.delete":
+            self._row("tags", p.get("id"), "tag")
+            with self._change("Delete tag"):
+                self.db.execute("DELETE FROM item_tags WHERE tag_id = ?", (p["id"],))
+                self.db.execute("DELETE FROM tags WHERE id = ?", (p["id"],))
+            return p["id"]
+        raise ValueError("Unknown day operation.")
+
+    def filters(self):
+        return [{"id": row[0], "name": row[1], "query": row[2], "position": row[3]}
+                for row in self.db.execute("SELECT id, name, query, position FROM filters ORDER BY position, id")]
+
+    def handle_filters(self, method, p):
+        """Saved filters; their queries are checked and run by core/filters.js, which the views share."""
+        if method == "day.filters.list":
+            return self.filters()
+        if method == "day.filters.add":
+            name = check_name(p.get("name"), "filter")
+            if self.db.execute("SELECT 1 FROM filters WHERE name = ?", (name,)).fetchone():
+                raise ValueError("That filter already exists.")
+            query = p.get("query")
+            if not isinstance(query, str) or not query.strip() or len(query) > 500:
+                raise ValueError("Write the filter's query.")
+            with self._change("Add filter"):
+                position = self.db.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM filters").fetchone()[0]
+                return self.db.execute("INSERT INTO filters (name, query, position) VALUES (?, ?, ?)", (name, query, position)).lastrowid
+        if method == "day.filters.update":
+            return self._edit("filters", p.get("id"), p, "filter", (("name", "name"), ("query", "query"), ("position", "position")))
+        if method == "day.filters.delete":
+            self._row("filters", p.get("id"), "filter")
+            with self._change("Delete filter"):
+                self.db.execute("DELETE FROM filters WHERE id = ?", (p["id"],))
+            return p["id"]
+        raise ValueError("Unknown day operation.")
+
+    # Undo and Redo across every change kind.
+
+    def _restore(self, table, row_id, state):
+        if table not in TRACKED:
+            raise ValueError("The change history is damaged.")
+        if state is None:
+            self.db.execute("DELETE FROM " + table + " WHERE id = ?", (row_id,))
+            return
+        values = json.loads(state)
+        self.db.execute("INSERT OR REPLACE INTO " + table + " (" + ", ".join(values) + ") VALUES (" + ", ".join("?" * len(values)) + ")",
+                        tuple(values.values()))
+
+    def undo(self, redo=False):
+        """Puts back the rows of the last change (or brings back the last undone one); returns its label."""
+        step = self.db.execute("SELECT id, label FROM history WHERE undone = ? ORDER BY id " + ("ASC" if redo else "DESC") + " LIMIT 1",
+                               (int(redo),)).fetchone()
+        if not step:
+            raise ValueError("Nothing to redo." if redo else "Nothing to undo.")
+        try:
+            for table, row_id, old, new in self.db.execute("SELECT tbl, row_id, old, new FROM changes WHERE step = ? ORDER BY id " +
+                                                          ("ASC" if redo else "DESC"), (step[0],)).fetchall():
+                self._restore(table, row_id, new if redo else old)
+            self.db.execute("UPDATE history SET undone = ? WHERE id = ?", (int(not redo), step[0]))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+        return {"label": step[1], "redo": redo}
+
+    def history(self):
+        return [{"id": row[0], "label": row[1], "at": row[2], "undone": bool(row[3])}
+                for row in self.db.execute("SELECT id, label, at, undone FROM history ORDER BY id DESC")]
 
     def handle(self, method, p):
         """The day.* methods of the helper protocol."""
@@ -250,19 +870,37 @@ class DayStore:
         if method == "day.add":
             return self.add(p)
         if method == "day.update":
-            return self.update(p.get("id"), {key: p[key] for key in ("text", "dueAt", "repeat", "breaksFocus") if key in p})
+            return self.update(p.get("id"), {key: value for key, value in p.items() if key not in ("id", "kind")})
         if method == "day.done":
             return self.done(p.get("id"))
+        if method == "day.complete":
+            return self.complete(p.get("id"), p.get("subOrders"))
         if method == "day.undone":
             return self.undone(p.get("id"))
         if method == "day.delete":
             return self.delete(p.get("id"))
         if method == "day.snooze":
-            return self.snooze(p.get("id"), p.get("until"))
+            return self.snooze(p.get("id"), p.get("until"), p.get("alertId"))
         if method == "day.reorder":
             return self.reorder(p.get("ids"))
         if method == "day.next":
             return self.next()
         if method == "day.fire":
             return self.fire()
+        if method == "day.orders":
+            return self.orders(p.get("since"))
+        if method == "day.search":
+            return self.search(p.get("text"))
+        if method == "day.completions":
+            return self.completions(p.get("start"), p.get("end"))
+        if method in ("day.history.undo", "day.history.redo"):
+            return self.undo(method.endswith("redo"))
+        if method == "day.history.list":
+            return self.history()
+        if method.startswith(("day.sites.", "day.sections.")):
+            return self.handle_sites(method, p)
+        if method.startswith("day.tags."):
+            return self.handle_tags(method, p)
+        if method.startswith("day.filters."):
+            return self.handle_filters(method, p)
         raise ValueError("Unknown day operation.")
