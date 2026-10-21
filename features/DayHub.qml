@@ -24,8 +24,18 @@ Item {
     // The quick-add row: only the field, Enter adds and closes.
     property bool peek: false
     readonly property int fullHeight: 460
-    readonly property int openWidth: peek ? 480 : 640
-    readonly property int openHeight: peek ? Theme.controlLarge + Theme.small + Theme.gapXs + 2 * Theme.gapM + 4 : fullHeight
+    readonly property int hubWidth: peek ? 480 : 640
+    readonly property int hubHeight: peek ? Theme.controlLarge + Theme.small + Theme.gapXs + 2 * Theme.gapM + 4 : fullHeight
+    // The Logbook, the island's third stage: the hub grows on into it (0: the hub, 1: the Logbook). It is its own
+    // number, so a reversal at any moment needs no special case.
+    property bool logbook: false
+    property real book: 0
+    readonly property int bookWidth: Math.min(1080, width - 2 * Theme.gapM)
+    readonly property int bookHeight: 720
+    readonly property int openWidth: Math.round(settle(hubWidth, bookWidth, outCubic(book)))
+    readonly property int openHeight: Math.round(settle(hubHeight, bookHeight, outCubic(book)))
+    // The height the bar's window needs: the Logbook's only while it is out.
+    readonly property int reach: book > 0 || logbook ? bookHeight : fullHeight
     readonly property alias shape: shape
     // Space under the open hub for its shadow, inside the window so the shadow is not cut off.
     readonly property int shadowRoom: 40
@@ -44,6 +54,28 @@ Item {
     readonly property int headerHeight: 84
     signal dismissed()
     signal pillClicked()
+    function openLogbook() {
+        if (peek || !opening)
+            return;
+        drawer = false;
+        logbook = true;
+        bookMotion.duration = Theme.reduced ? 0 : Theme.lowPower ? 200 : 380;
+        bookMotion.to = 1;
+        bookMotion.restart();
+        pages.focusNow();
+    }
+    function closeLogbook() {
+        logbook = false;
+        bookMotion.duration = Theme.leave + (Theme.reduced ? 0 : 60);
+        bookMotion.to = 0;
+        bookMotion.restart();
+        focusCapture();
+    }
+    NumberAnimation {
+        id: bookMotion
+        target: hub
+        property: "book"
+    }
     function settle(from, to, t) {
         return from + (to - from) * t;
     }
@@ -105,7 +137,9 @@ Item {
     }
     // Escape closes the drawer first, then the hub, as the panels do.
     function stepBack() {
-        if (drawer) {
+        if (logbook) {
+            closeLogbook();
+        } else if (drawer) {
             drawer = false;
             capture.forceActiveFocus();
         } else
@@ -217,6 +251,12 @@ Item {
             drawer = false;
             capture.text = "";
             peekField.text = "";
+            if (logbook || book > 0) {
+                logbook = false;
+                bookMotion.duration = Theme.leave;
+                bookMotion.to = 0;
+                bookMotion.restart();
+            }
         }
     }
     Timer {
@@ -275,8 +315,13 @@ Item {
         clip: true
         Keys.onEscapePressed: hub.stepBack()
         Keys.onPressed: event => {
+            if (hub.logbook)
+                return;
             if (event.key === Qt.Key_Z && (event.modifiers & Qt.ControlModifier)) {
                 hub.undo();
+                event.accepted = true;
+            } else if (event.key === Qt.Key_L && !(event.modifiers & ~Qt.ShiftModifier) && !capture.activeFocus && !peekField.activeFocus) {
+                hub.openLogbook();
                 event.accepted = true;
             }
         }
@@ -299,8 +344,8 @@ Item {
             visible: hub.peek
             x: Theme.gapM
             y: Theme.gapM
-            width: hub.openWidth - 2 * Theme.gapM
-            height: hub.openHeight - 2 * Theme.gapM
+            width: hub.hubWidth - 2 * Theme.gapM
+            height: hub.hubHeight - 2 * Theme.gapM
             ColumnLayout {
                 anchors.fill: parent
                 spacing: Theme.gapXs
@@ -324,11 +369,13 @@ Item {
             }
         }
         ColumnLayout {
-            visible: !hub.peek
-            x: Theme.gapM
+            visible: !hub.peek && hub.book < 0.6
+            // Stays where the hub is while the shape widens, and gives way to the Logbook.
+            x: Theme.gapM + Math.max(0, Math.round((shape.width - hub.hubWidth) / 2))
             y: Theme.gapM
-            width: hub.openWidth - 2 * Theme.gapM
-            height: hub.openHeight - 2 * Theme.gapM
+            opacity: 1 - hub.clamp(hub.book / 0.5)
+            width: hub.hubWidth - 2 * Theme.gapM
+            height: hub.hubHeight - 2 * Theme.gapM
             spacing: Theme.gapS
             RowLayout {
                 Layout.fillWidth: true
@@ -809,16 +856,37 @@ Item {
                             }
                         }
                         // How the text was understood, before Enter adds it; a refusal says why.
-                        C.Label {
-                            text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : "Enter files · Tab moves · Space clears · Delete removes"
-                            color: hub.parsed && hub.parsed.error ? Theme.warning : Theme.muted
-                            font.pixelSize: Theme.caption
-                            elide: Text.ElideRight
+                        RowLayout {
                             Layout.fillWidth: true
+                            spacing: Theme.gapS
+                            C.Label {
+                                text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : "Enter files · Tab moves · Space clears · Delete removes"
+                                color: hub.parsed && hub.parsed.error ? Theme.warning : Theme.muted
+                                font.pixelSize: Theme.caption
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            StationKey {
+                                text: "Open logbook · L"
+                                Layout.fillWidth: false
+                                implicitHeight: 22
+                                Accessible.name: "Open the Logbook"
+                                onClicked: hub.openLogbook()
+                            }
                         }
                     }
                 }
             }
+        }
+        Logbook {
+            id: pages
+            visible: hub.book > 0.35
+            opacity: hub.clamp((hub.book - 0.5) / 0.5)
+            x: Math.round((shape.width - width) / 2)
+            width: hub.bookWidth
+            height: hub.bookHeight
+            opening: hub.logbook
+            onDismissed: hub.closeLogbook()
         }
         // The calendar drawer slides in over the lower plates and leaves the header in view.
         Rectangle {
@@ -826,9 +894,9 @@ Item {
             readonly property int below: Theme.gapM + hub.headerHeight + Theme.gapS
             y: below
             width: 320
-            height: hub.openHeight - below - Theme.gapM
-            x: hub.drawer ? hub.openWidth - width - Theme.gapM : hub.openWidth + 8
-            visible: x < hub.openWidth
+            height: hub.hubHeight - below - Theme.gapM
+            x: hub.drawer ? hub.hubWidth - width - Theme.gapM : hub.hubWidth + 8
+            visible: x < hub.hubWidth && hub.book === 0
             radius: 6
             color: Theme.panel
             border.width: 1

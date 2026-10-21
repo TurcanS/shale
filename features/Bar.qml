@@ -13,13 +13,20 @@ PanelWindow {
     IpcHandler {
         target: "bar-" + bar.outputName
         function status(): string {
-            return JSON.stringify({day: bar.dayOpen, dayProgress: bar.dayProgress, control: content.controlActive(""), wifi: content.controlActive("wifi"), audio: content.controlActive("audio"), power: content.controlActive("power"), media: content.controlActive("media"), tray: content.controlActive("tray")});
+            return JSON.stringify({day: bar.dayOpen, dayProgress: bar.dayProgress, logbook: hub.logbook, book: hub.book, control: content.controlActive(""), wifi: content.controlActive("wifi"), audio: content.controlActive("audio"), power: content.controlActive("power"), media: content.controlActive("media"), tray: content.controlActive("tray")});
         }
     }
     IpcHandler {
         target: "day-" + bar.outputName
         function toggle(): void {
             bar.toggleDay(false);
+        }
+    }
+    // Both stages in one movement: from the capsule straight to the Logbook, or on from the hub; again to step back.
+    IpcHandler {
+        target: "logbook-" + bar.outputName
+        function toggle(): void {
+            bar.toggleLogbook();
         }
     }
     anchors {
@@ -34,7 +41,7 @@ PanelWindow {
     }
     // Tall enough for the open Day hub, but transparent and click-through outside the visible shapes; the space kept
     // from windows stays the bar's own 32 px, so opening the hub never moves a window.
-    implicitHeight: hub.fullHeight + hub.shadowRoom
+    implicitHeight: hub.reach + hub.shadowRoom
     color: "transparent"
     mask: Region {
         item: content
@@ -95,6 +102,16 @@ PanelWindow {
         dayMotion.to = 1;
         dayMotion.restart();
         hub.focusCapture();
+    }
+    function toggleLogbook() {
+        if (hub.logbook) {
+            hub.closeLogbook();
+            return;
+        }
+        if (!dayOpen)
+            toggleDay(false);
+        if (dayOpen)
+            hub.openLogbook();
     }
     function closeDay() {
         if (!dayOpen)

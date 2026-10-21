@@ -20,6 +20,13 @@ QtObject {
     // When the next reminder is due (epoch ms); 0 when none is.
     property real fireAt: 0
     property bool loaded: false
+    // The Logbook's data: every open order and those cleared in the last two weeks, the sites with their sections, the
+    // tags and the saved filters. Loaded only while the Logbook is open.
+    property bool logbook: false
+    property var orders: []
+    property var sites: []
+    property var tags: []
+    property var filters: []
     // Nothing is fired until the settings are in: a reminder that breaks through Quiet needs to know Quiet is on.
     readonly property bool deliver: Object.keys(ShellState.settings).length > 0
     // Fired reminders not yet snoozed, cleared or dismissed, oldest first, as {id, text, at, away, signal, arrivedAt}.
@@ -47,6 +54,8 @@ QtObject {
             root.todos = result.todos;
             root.loaded = true;
         });
+        if (root.logbook)
+            root.loadLogbook();
         Backend.request("day.next", {}, (result, error) => {
             if (error)
                 return;
@@ -54,6 +63,50 @@ QtObject {
             root.fireAt = result.fireAt || 0;
             root.aim();
         });
+    }
+    function loadLogbook() {
+        const since = new Date();
+        since.setHours(0, 0, 0, 0);
+        since.setDate(since.getDate() - 14);
+        Backend.request("day.orders", {since: since.getTime()}, (result, error) => {
+            if (!error)
+                root.orders = result;
+        });
+        Backend.request("day.sites.list", {}, (result, error) => {
+            if (!error)
+                root.sites = result;
+        });
+        Backend.request("day.tags.list", {}, (result, error) => {
+            if (!error)
+                root.tags = result;
+        });
+        Backend.request("day.filters.list", {}, (result, error) => {
+            if (!error)
+                root.filters = result;
+        });
+    }
+    onLogbookChanged: {
+        if (logbook)
+            loadLogbook();
+    }
+    // Clearing an order that has open sub-orders answers {ask}: the Logbook then asks and calls this again.
+    function complete(id, subOrders, callback) {
+        const params = subOrders === undefined ? {id: id} : {id: id, subOrders: subOrders};
+        change("day.complete", params, (result, error) => {
+            if (!error && result.ask === 0)
+                root.cleared();
+            if (callback)
+                callback(result, error);
+        });
+    }
+    function undo(callback) {
+        change("day.history.undo", {}, callback);
+    }
+    function redo(callback) {
+        change("day.history.redo", {}, callback);
+    }
+    function search(text, callback) {
+        Backend.request("day.search", {text: text}, callback);
     }
     function change(method, params, callback) {
         Backend.request(method, params, (result, error) => {
@@ -66,6 +119,10 @@ QtObject {
     // `parsed` is what core/day.js parse() returned for the capture text.
     function add(parsed, callback) {
         change("day.add", {kind: parsed.kind, text: parsed.text, dueAt: parsed.dueAt || null, repeat: parsed.repeat || null}, callback);
+    }
+    // A work order with every field of the Logbook's capture (core/day.js capture()).
+    function addOrder(fields, callback) {
+        change("day.add", fields, callback);
     }
     function update(id, fields, callback) {
         change("day.update", Object.assign({id: id}, fields), callback);
