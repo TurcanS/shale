@@ -195,6 +195,7 @@ QtObject {
         }
         function status(): string {
             return JSON.stringify({active: root.active, remainingSeconds: root.remainingSeconds,
+                                   digest: root.digest ? {total: root.digest.total, events: root.digest.events, apps: root.digest.groups.map(g => g.appName)} : null,
                                    timers: root.timers.map(t => ({label: t.label, remainingSeconds: Math.max(0, Math.ceil((t.endsAt - Date.now()) / 1000))}))});
         }
     }
