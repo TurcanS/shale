@@ -345,6 +345,33 @@ Item {
                 onScreen: bar.onScreen
                 open: bar.dayOpen
             }
+            // The day's target as five segments along the top of the pill (the Line holds the bottom); a segment lights as
+            // orders are cleared. Not shown when targets are off or on a day off.
+            Row {
+                id: targetMeter
+                readonly property var m: Day.momentum
+                visible: Day.targets && !!m && !m.dayOff && !ShellState.presentation
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 2
+                spacing: 2
+                Accessible.role: Accessible.ProgressBar
+                Accessible.name: m ? "Target " + m.cleared + " of " + m.target : ""
+                Repeater {
+                    model: 5
+                    Rectangle {
+                        required property int index
+                        width: 8
+                        height: 2
+                        radius: 1
+                        color: targetMeter.m && targetMeter.m.target > 0 && index < Math.floor(Math.min(targetMeter.m.cleared, targetMeter.m.target) * 5 / targetMeter.m.target) ? Theme.accent : Theme.border
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: Theme.fast
+                            }
+                        }
+                    }
+                }
+            }
             onHoveredChanged: bar.dayHovered = hovered
             onUpcomingChanged: eventIndex = Math.min(eventIndex, Math.max(0, upcoming.length - 1))
             TapHandler {

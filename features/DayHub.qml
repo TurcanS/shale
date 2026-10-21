@@ -31,6 +31,8 @@ Item {
     // number, so a reversal at any moment needs no special case.
     property bool logbook: false
     property real book: 0
+    // The shift start (once a day) is over the hub's plates.
+    property bool shifting: false
     readonly property int bookWidth: Math.min(1080, width - 2 * Theme.gapM)
     readonly property int bookHeight: 720
     readonly property int openWidth: Math.round(settle(hubWidth, bookWidth, outCubic(book)))
@@ -55,9 +57,11 @@ Item {
     readonly property int headerHeight: 84
     signal dismissed()
     signal pillClicked()
+    onShiftingChanged: if (shifting) shiftStart.begin()
     function openLogbook() {
         if (peek || !opening)
             return;
+        shifting = false;
         drawer = false;
         logbook = true;
         bookMotion.duration = Book.stageMotion(true, Theme.reduced, Theme.lowPower, Theme.leave).duration;
@@ -246,9 +250,12 @@ Item {
         if (opening) {
             now = Date.now();
             Day.refresh();
+            if (!peek)
+                Day.loadShift();
             loadWeather();
             loadActivity();
         } else {
+            shifting = false;
             drawer = false;
             capture.text = "";
             peekField.text = "";
@@ -275,6 +282,10 @@ Item {
     }
     Connections {
         target: Day
+        function onShiftDueChanged() {
+            if (Day.shiftDue && hub.opening && !hub.peek && !hub.logbook)
+                hub.shifting = true;
+        }
         function onTodosChanged() {
             Qt.callLater(hub.restoreRow);
         }
@@ -877,6 +888,17 @@ Item {
                         }
                     }
                 }
+            }
+        }
+        ShiftStart {
+            id: shiftStart
+            visible: hub.shifting && hub.book === 0
+            x: Math.max(0, Math.round((shape.width - hub.hubWidth) / 2))
+            width: hub.hubWidth
+            height: hub.hubHeight
+            onFinished: {
+                hub.shifting = false;
+                hub.focusCapture();
             }
         }
         Logbook {

@@ -16,6 +16,7 @@ import sqlite3
 import time
 
 from activity import day_bounds
+import shift
 
 
 SCHEMA = 2
@@ -250,6 +251,10 @@ class DayStore:
             self.db.close()
             raise ValueError("The to-do list was saved by a newer version of the shell.")
         self._migrate(version)
+        # Added after the first run of version 2: when the shift start was done or skipped on that day.
+        if "shift_started" not in [row[1] for row in self.db.execute("PRAGMA table_info(days)")]:
+            self.db.execute("ALTER TABLE days ADD COLUMN shift_started INTEGER")
+            self.db.commit()
         self._record()
 
     def _migrate(self, version):
@@ -863,6 +868,134 @@ class DayStore:
         return [{"id": row[0], "label": row[1], "at": row[2], "undone": bool(row[3])}
                 for row in self.db.execute("SELECT id, label, at, undone FROM history ORDER BY id DESC")]
 
+    # The shift and momentum (docs 15 sections 6 and 7).
+
+    def _day(self, date):
+        row = self.db.execute("SELECT target, note, stand_down, shift_started FROM days WHERE date = ?", (date,)).fetchone()
+        return {"date": date, "target": row[0] if row else None, "note": row[1] if row else None,
+                "standDown": bool(row[2]) if row else False, "shiftStarted": row[3] if row else None}
+
+    def _set_day(self, date, **columns):
+        self.db.execute("INSERT OR IGNORE INTO days (date) VALUES (?)", (date,))
+        for column, value in columns.items():
+            self.db.execute("UPDATE days SET " + column + " = ? WHERE date = ?", (value, date))
+        self.db.commit()
+
+    @staticmethod
+    def _date(value):
+        try:
+            return dt.date.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise ValueError("Choose a valid day.") from None
+
+    def day_state(self, date, fields=None):
+        """A day's record; `fields` (target, note, standDown) are saved first. A note keeps up to 500 characters."""
+        self._date(date)
+        if fields:
+            columns = {}
+            if "target" in fields:
+                columns["target"] = None if fields["target"] is None else check_number(fields["target"], 0, 1000, "target", False)
+            if "note" in fields:
+                note = fields["note"]
+                if note is not None and (not isinstance(note, str) or len(note) > 500):
+                    raise ValueError("Keep the day's note under 500 characters.")
+                columns["note"] = note or None
+            if "standDown" in fields:
+                columns["stand_down"] = int(check_flag(fields["standDown"], "stand-down choice"))
+            self._set_day(date, **columns)
+        return self._day(date)
+
+    def shift_state(self, date, start, now=None):
+        """Whether the shift start shows for `date` (once a day, after `start`), and the day's record."""
+        day = self._date(date)
+        moment = dt.datetime.fromtimestamp((now if now is not None else self.now()) / 1000)
+        return {"due": shift.shift_due(moment, day, start, self._day(date)["shiftStarted"]), "day": self._day(date)}
+
+    def shift_start(self, date, target=None):
+        """Marks the shift start as done (or skipped) and keeps the day's target when one is given."""
+        self._date(date)
+        if target is None:
+            self._set_day(date, shift_started=self.now())
+        else:
+            self._set_day(date, shift_started=self.now(), target=check_number(target, 0, 1000, "target", False))
+        return self._day(date)
+
+    def carry_list(self, date):
+        """Open orders that were due before `date` and not cleared: the carry-over screen."""
+        start, _ = day_bounds(date)
+        return self._select("items.done_at IS NULL AND items.parent_id IS NULL AND items.due_at IS NOT NULL AND items.due_at < ?",
+                            (start,), "items.due_at, items.id")
+
+    def carry_apply(self, date, choices):
+        """Applies one choice per order in one undoable step: keep (due today, the time of day kept), move (1 to 7
+        days from today), intake (no site, no date) or drop (deleted)."""
+        self._date(date)
+        if not isinstance(choices, list) or len(choices) > 500:
+            raise ValueError("Choose what to do with each order.")
+        today = dt.date.fromisoformat(date)
+        for choice in choices:
+            if not isinstance(choice, dict) or choice.get("action") not in ("keep", "move", "intake", "drop"):
+                raise ValueError("Choose keep, move, intake or drop.")
+            if choice["action"] == "move":
+                check_number(choice.get("days"), 1, 7, "number of days", False)
+        with self._change("Carry over"):
+            for choice in choices:
+                item = self.get(choice["id"])
+                action = choice["action"]
+                if action == "drop":
+                    self.db.execute("DELETE FROM alerts WHERE item_id = ?", (item["id"],))
+                    self.db.execute("DELETE FROM item_tags WHERE item_id = ?", (item["id"],))
+                    self.db.execute("DELETE FROM items WHERE id = ? OR parent_id = ?", (item["id"], item["id"]))
+                elif action == "intake":
+                    self.db.execute("UPDATE items SET site_id = NULL, section_id = NULL, due_at = NULL, all_day = 0 WHERE id = ?", (item["id"],))
+                elif item["dueAt"] is not None:
+                    target = today + dt.timedelta(days=choice["days"] if action == "move" else 0)
+                    old = dt.datetime.fromtimestamp(item["dueAt"] / 1000)
+                    moved = dt.datetime.combine(target, old.time())
+                    self.db.execute("UPDATE items SET due_at = ? WHERE id = ?", (int(time.mktime(moved.timetuple()) * 1000), item["id"]))
+        return {"carried": len(choices)}
+
+    def momentum(self, date, daily, weekly, days_off=(), first=0, weeks=4):
+        """Targets and streaks as of `date`: today's count and target, the week, days on target, cleared per day (and by
+        site) over `weeks` weeks. `daily` 0 turns targets off: then `onTarget` and `daysOnTarget` are None."""
+        today = self._date(date)
+        daily = check_number(daily, 0, 1000, "daily target", False) or 0
+        weekly = check_number(weekly, 0, 10000, "weekly target", False) or 0
+        if not all(isinstance(day, int) and 0 <= day <= 6 for day in days_off) or not isinstance(first, int) or not 0 <= first <= 6:
+            raise ValueError("Choose weekdays from Monday to Sunday.")
+        horizon = today - dt.timedelta(days=shift.LOOKBACK)
+        low, _ = day_bounds(horizon.isoformat())
+        cleared, by_site = {}, {}
+        for done_at, site in self.db.execute(
+                "SELECT completions.done_at, COALESCE(sites.name, '') FROM completions JOIN items ON items.id = completions.item_id "
+                "LEFT JOIN sites ON sites.id = items.site_id WHERE completions.done_at >= ?", (low,)):
+            day = dt.datetime.fromtimestamp(done_at / 1000).date()
+            cleared[day] = cleared.get(day, 0) + 1
+            by_site.setdefault(day, {})
+            by_site[day][site] = by_site[day].get(site, 0) + 1
+        records = {self._date(row[0]): row for row in self.db.execute("SELECT date, target, stand_down FROM days WHERE date >= ?", (horizon.isoformat(),))}
+        targets = {day: row[1] for day, row in records.items() if row[1] is not None}
+        stand = {day for day, row in records.items() if row[2]}
+        today_target = targets.get(today, daily)
+        begin = shift.week_start(today, first)
+        span = (today - dt.timedelta(days=weeks * 7 - 1))
+        per_day = [{"date": (span + dt.timedelta(days=n)).isoformat(), "cleared": cleared.get(span + dt.timedelta(days=n), 0),
+                    "bySite": by_site.get(span + dt.timedelta(days=n), {})} for n in range(weeks * 7)]
+        count = cleared.get(today, 0)
+        return {"date": date, "enabled": daily > 0, "cleared": count, "target": today_target,
+                "onTarget": None if daily <= 0 else (today_target > 0 and count >= today_target),
+                "weekCleared": sum(n for day, n in cleared.items() if begin <= day <= today), "weekTarget": weekly,
+                "daysOnTarget": shift.days_on_target(today, cleared, targets, daily, set(days_off), stand),
+                "standDown": today in stand, "dayOff": today.weekday() in days_off, "perDay": per_day,
+                "last7": [cleared.get(today - dt.timedelta(days=n), 0) for n in range(6, -1, -1)]}
+
+    def report(self, date):
+        """The shift report's figures: orders cleared on `date`, those due that day still open, and the day's note."""
+        start, end = day_bounds(date)
+        done = self._select("items.done_at >= ? AND items.done_at < ?", (start, end), "items.done_at")
+        left = self._select("items.done_at IS NULL AND items.due_at IS NOT NULL AND items.due_at < ?", (end,), "items.due_at, items.id")
+        return {"date": date, "cleared": done, "open": left, "day": self._day(date)}
+
     def handle(self, method, p):
         """The day.* methods of the helper protocol."""
         if method == "day.list":
@@ -883,6 +1016,20 @@ class DayStore:
             return self.snooze(p.get("id"), p.get("until"), p.get("alertId"))
         if method == "day.reorder":
             return self.reorder(p.get("ids"))
+        if method == "day.days.get":
+            return self.day_state(p.get("date"), {key: p[key] for key in ("target", "note", "standDown") if key in p})
+        if method == "day.shift.state":
+            return self.shift_state(p.get("date"), p.get("start", "05:00"), p.get("now"))
+        if method == "day.shift.start":
+            return self.shift_start(p.get("date"), p.get("target"))
+        if method == "day.carry.list":
+            return self.carry_list(p.get("date"))
+        if method == "day.carry.apply":
+            return self.carry_apply(p.get("date"), p.get("choices"))
+        if method == "day.momentum":
+            return self.momentum(p.get("date"), p.get("daily", 5), p.get("weekly", 25), p.get("daysOff", []), p.get("weekStart", 0))
+        if method == "day.report":
+            return self.report(p.get("date"))
         if method == "day.next":
             return self.next()
         if method == "day.fire":

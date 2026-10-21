@@ -27,6 +27,14 @@ QtObject {
     property var sites: []
     property var tags: []
     property var filters: []
+    // Targets and streaks as of today (helpers/shift.py), or null before the first answer; `enabled` is false when the
+    // daily target is 0, and then nothing of the shift or the meter is shown.
+    property var momentum: null
+    readonly property bool targets: momentum !== null && momentum.enabled
+    // The shift start is due: once a day, after the shift start time, until it was done or skipped.
+    property bool shiftDue: false
+    // The daily target was just reached: the island stamps ON TARGET.
+    signal targetReached()
     // Nothing is fired until the settings are in: a reminder that breaks through Quiet needs to know Quiet is on.
     readonly property bool deliver: Object.keys(ShellState.settings).length > 0
     // Fired reminders not yet snoozed, cleared or dismissed, oldest first, as {id, text, at, away, signal, arrivedAt}.
@@ -54,6 +62,7 @@ QtObject {
             root.todos = result.todos;
             root.loaded = true;
         });
+        root.loadMomentum();
         if (root.logbook)
             root.loadLogbook();
         Backend.request("day.next", {}, (result, error) => {
@@ -63,6 +72,50 @@ QtObject {
             root.fireAt = result.fireAt || 0;
             root.aim();
         });
+    }
+    function settings() {
+        return {date: today(), daily: ShellState.setting("dailyTarget", 5), weekly: ShellState.setting("weeklyTarget", 25),
+                daysOff: ShellState.setting("daysOff", []), weekStart: (ShellState.firstDayOfWeek + 6) % 7};
+    }
+    function loadMomentum() {
+        Backend.request("day.momentum", settings(), (result, error) => root.momentumLoaded(result, error));
+    }
+    function momentumLoaded(result, error) {
+        if (error)
+            return;
+        const was = momentum;
+        momentum = result;
+        if (was && was.date === result.date && result.onTarget && !was.onTarget)
+            targetReached();
+    }
+    function loadShift() {
+        Backend.request("day.shift.state", {date: today(), start: ShellState.setting("shiftStart", "05:00")}, (result, error) => {
+            root.shiftDue = !error && result.due && root.targets;
+        });
+    }
+    // Done or skipped: it shows once a day, so both end it. A target chosen on the last screen is kept for the day.
+    function startShift(target, callback) {
+        const params = target === undefined || target === null ? {date: today()} : {date: today(), target: target};
+        Backend.request("day.shift.start", params, (result, error) => {
+            if (!error)
+                root.shiftDue = false;
+            root.loadMomentum();
+            if (callback)
+                callback(result, error);
+        });
+    }
+    function carryList(callback) {
+        Backend.request("day.carry.list", {date: today()}, callback);
+    }
+    // `choices` is [{id, action: keep|move|intake|drop, days}]; `date` is the day the orders carry over to.
+    function carryApply(choices, date, callback) {
+        change("day.carry.apply", {date: date || today(), choices: choices}, callback);
+    }
+    function setDay(fields, date, callback) {
+        Backend.request("day.days.get", Object.assign({date: date || today()}, fields), callback);
+    }
+    function report(callback) {
+        Backend.request("day.report", {date: today()}, callback);
     }
     function loadLogbook() {
         const since = new Date();
@@ -241,6 +294,14 @@ QtObject {
         target: Backend
         function onReadyChanged() {
             root.start();
+        }
+    }
+    // A new target, days off or week start changes every figure.
+    property Connections settingsState: Connections {
+        target: ShellState
+        function onSettingsChanged() {
+            if (root.loaded)
+                root.loadMomentum();
         }
     }
     property Connections lockState: Connections {

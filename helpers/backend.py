@@ -26,6 +26,7 @@ import wallpaperscom
 import activity
 import art
 import day
+import shift
 import sysmon
 from runtime import runtime_base
 import bluetooth_keep
@@ -65,6 +66,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
             "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto", "shortcuts": {},
+            "dailyTarget": 5, "weeklyTarget": 25, "daysOff": [], "shiftStart": "05:00", "autoCarry": False,
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -292,6 +294,17 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose a floating or edge-to-edge bar.")
     if key == "weekStart" and value not in ("locale", "monday", "sunday", "saturday"):
         raise BackendError("invalid", "Choose the first day of the week.")
+    if key == "dailyTarget" and not 0 <= value <= 100:
+        raise BackendError("invalid", "Choose a daily target from 0 (off) to 100.")
+    if key == "weeklyTarget" and not 0 <= value <= 1000:
+        raise BackendError("invalid", "Choose a weekly target from 0 to 1000.")
+    if key == "daysOff" and not all(type(day) is int and 0 <= day <= 6 for day in value):
+        raise BackendError("invalid", "Choose days off from Monday (0) to Sunday (6).")
+    if key == "shiftStart":
+        try:
+            shift.parse_clock(value)
+        except ValueError as error:
+            raise BackendError("invalid", str(error)) from None
     if key == "terminal" and value != "auto" and value not in (prefix[0] for prefix in Backend.TERMINALS):
         raise BackendError("invalid", "Choose a supported terminal.")
     try:

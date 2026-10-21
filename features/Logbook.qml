@@ -62,7 +62,7 @@ FocusScope {
         if (Day.tags.length)
             list.push({header: true, label: "Tags"});
         Day.tags.forEach(tag => list.push({label: "@" + tag.name, kind: "tag", argument: tag.name, count: tag.count}));
-        list.push({header: true, label: ""}, {label: "Cleared", kind: "cleared", argument: null, count: 0});
+        list.push({header: true, label: ""}, {label: "Shift report", kind: "report", argument: null, count: 0}, {label: "Cleared", kind: "cleared", argument: null, count: 0});
         return list;
     }
     readonly property string title: {
@@ -81,10 +81,17 @@ FocusScope {
             return (argument ? argument.name : "") + (argument ? " · " + argument.query : "");
         case "search":
             return "Search · " + searchField.text;
+        case "report":
+            return "Shift report";
         }
         return "Cleared";
     }
 
+    // Five segments filled by the share of the day's target cleared.
+    function meter(m) {
+        const lit = m.target > 0 ? Math.floor(Math.min(m.cleared, m.target) * 5 / m.target) : 0;
+        return "▮".repeat(lit) + "▯".repeat(5 - lit);
+    }
     function open(view, argument) {
         book.argument = argument === undefined ? null : argument;
         kind = view;
@@ -353,6 +360,11 @@ FocusScope {
         if (book.typing)
             return;
         event.accepted = true;
+        // The report has no rows: only the go-to and search keys apply there.
+        if (book.kind === "report" && !book.goPending && event.key !== Qt.Key_G && event.key !== Qt.Key_Slash) {
+            event.accepted = false;
+            return;
+        }
         if (book.prompt === "ask") {
             if (event.key === Qt.Key_Y || event.key === Qt.Key_N)
                 book.answer(event.key === Qt.Key_Y);
@@ -362,7 +374,7 @@ FocusScope {
         }
         if (book.goPending) {
             book.goPending = false;
-            const view = {[Qt.Key_T]: "today", [Qt.Key_A]: "ahead", [Qt.Key_I]: "intake", [Qt.Key_C]: "cleared"}[event.key];
+            const view = {[Qt.Key_T]: "today", [Qt.Key_A]: "ahead", [Qt.Key_I]: "intake", [Qt.Key_C]: "cleared", [Qt.Key_S]: "report"}[event.key];
             if (view)
                 book.open(view);
             return;
@@ -504,6 +516,15 @@ FocusScope {
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                 }
+                // The day's target as a stamped reading; nothing of it shows when the daily target is 0.
+                C.StationText {
+                    visible: Day.targets
+                    readonly property var m: Day.momentum
+                    color: m && m.onTarget ? Theme.accent : Theme.muted
+                    text: m ? (m.dayOff ? "DAY OFF" : (m.onTarget ? "ON TARGET " : "TARGET ") + m.cleared + "/" + m.target + " " + book.meter(m)
+                               + "  ·  " + m.daysOnTarget + " d on target  ·  week " + m.weekCleared + "/" + m.weekTarget) : ""
+                    Accessible.name: "Daily target"
+                }
                 C.Field {
                     id: searchField
                     visible: book.kind === "search"
@@ -577,7 +598,7 @@ FocusScope {
             // List view.
             ListView {
                 id: list
-                visible: !book.board
+                visible: !book.board && book.kind !== "report"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -628,6 +649,16 @@ FocusScope {
                 ScrollBar.vertical: C.ScrollBar {
                 }
                 onCountChanged: positionViewAtIndex(Math.max(0, book.rows.findIndex(row => !row.header && row.order.id === book.cursorId)), ListView.Contain)
+            }
+            Loader {
+                active: book.kind === "report"
+                visible: active
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceComponent: LogbookReport {
+                    now: book.now
+                    onChanged: Day.refresh()
+                }
             }
             // Board view of a site: the sections as columns.
             Row {
@@ -681,7 +712,7 @@ FocusScope {
                 }
             }
             C.Label {
-                visible: book.rows.length === 0 && !book.board
+                visible: book.rows.length === 0 && !book.board && book.kind !== "report"
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
                 horizontalAlignment: Text.AlignHCenter
@@ -717,6 +748,7 @@ FocusScope {
             // Capture, with the recognised tokens highlighted.
             C.Field {
                 id: capture
+                visible: book.kind !== "report"
                 Layout.fillWidth: true
                 implicitHeight: 32
                 font.family: Theme.mono
@@ -734,7 +766,7 @@ FocusScope {
             }
             Text {
                 Layout.fillWidth: true
-                visible: capture.text !== ""
+                visible: capture.text !== "" && book.kind !== "report"
                 textFormat: Text.StyledText
                 elide: Text.ElideRight
                 font.family: Theme.mono
@@ -750,7 +782,7 @@ FocusScope {
                 Layout.fillWidth: true
                 spacing: Theme.gapM
                 Repeater {
-                    model: ["Q new", "/ search", "G then T A I C go", "↑↓ move", "Space clear", "E sheet", "D due", "1-4 magnitude", "# site", "@ tag", "Ctrl+↑↓ reorder", "Ctrl+Z undo", "Del delete", "B board", "Esc back"]
+                    model: ["Q new", "/ search", "G then T A I C S go", "↑↓ move", "Space clear", "E sheet", "D due", "1-4 magnitude", "# site", "@ tag", "Ctrl+↑↓ reorder", "Ctrl+Z undo", "Del delete", "B board", "Esc back"]
                     C.Label {
                         required property string modelData
                         text: modelData

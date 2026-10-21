@@ -18,6 +18,8 @@ Item {
     property bool blocked: false
     property bool hovered: false
     property real now: Date.now()
+    // The cleared card says ON TARGET instead, when clearing the order met the day's target.
+    property bool stamp: false
     property var queue: []
     // The pointer on the card keeps it open too, so its keys can be reached.
     readonly property var picked: Queue.pick(queue, now, blocked, hovered || cardHover.hovered)
@@ -87,7 +89,13 @@ Item {
     Connections {
         target: Day
         function onCleared() {
+            island.stamp = false;
             island.push("cleared", 1000, false, false);
+        }
+        // Reaching the day's target stamps ON TARGET for a moment longer.
+        function onTargetReached() {
+            island.stamp = true;
+            island.push("cleared", 2200, false, false);
         }
         // Six seconds, longer while the pointer is on it; it stays live (the bubble) until handled. Quiet holds it,
         // unless it is one that breaks through.
@@ -175,7 +183,7 @@ Item {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         font.pixelSize: Theme.body + 3
-                        color: island.kind === "quiet" ? Theme.accent : Theme.text
+                        color: island.kind === "quiet" || island.stamp ? Theme.accent : Theme.text
                         text: {
                             const kind = island.kind;
                             if (kind === "quiet")
@@ -186,7 +194,7 @@ Item {
                                 return island.event ? "▲ " + island.event.text : "";
                             if (kind === "media")
                                 return NowPlaying.player ? (NowPlaying.player.trackTitle || "") + (NowPlaying.player.trackArtist ? " · " + NowPlaying.player.trackArtist : "") : "";
-                            return "Order cleared";
+                            return island.stamp ? "ON TARGET" : "Order cleared";
                         }
                     }
                 }

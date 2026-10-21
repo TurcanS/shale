@@ -86,7 +86,8 @@ FocusScope {
             ],
             General: [
                 {label: "24-hour clock", key: "clock24h", defaultValue: true},
-                {label: "Check for updates", key: "updateCheck", defaultValue: true, description: "Asks GitHub every 12 hours. The control center shows what a new version changes."}
+                {label: "Check for updates", key: "updateCheck", defaultValue: true, description: "Asks GitHub every 12 hours. The control center shows what a new version changes."},
+                {label: "Carry over at shift start", key: "autoCarry", description: "Moves yesterday's uncleared orders with no time to today by itself"}
             ],
             Motion: [
                 {label: "Reduced motion", key: "reducedMotion", description: "Panels and controls change without animating"},
@@ -126,7 +127,7 @@ FocusScope {
             Bar: ["hideFullscreen", "barMedia", "trackChangeCard", "hiddenOutputs", "barLayout", "barStyle", "clockFormat", "clockSeconds",
                   "workspaceStyle", "workspaceSlots", "trayIcons", "batteryPercent"],
             "Control center": ["controlLayout"],
-            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck"],
+            General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck", "dailyTarget", "weeklyTarget", "daysOff", "shiftStart", "autoCarry"],
             Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
             Notifications: ["persistNotifications", "focusMinutes"],
             Audio: ["amplification", "mediaRemaining"],
@@ -463,6 +464,33 @@ FocusScope {
                         model: [{key: "locale", text: "Auto", hint: "As your language and region have it"}, {key: "monday", text: "Mon"}, {key: "sunday", text: "Sun"}, {key: "saturday", text: "Sat"}]
                         current: ShellState.setting("weekStart", "locale")
                         onActivated: key => ShellState.setSetting("weekStart", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Daily target"
+                        description: "Orders to clear each day; 0 turns targets and streaks off"
+                        model: [0, 3, 5, 8, 10].map(count => ({key: count, text: count ? String(count) : "Off"}))
+                        current: ShellState.setting("dailyTarget", 5)
+                        onActivated: key => ShellState.setSetting("dailyTarget", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Weekly target"
+                        model: [15, 25, 40].map(count => ({key: count, text: String(count)}))
+                        current: ShellState.setting("weeklyTarget", 25)
+                        onActivated: key => ShellState.setSetting("weeklyTarget", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Days off"
+                        description: "They pause days on target without breaking it"
+                        model: [{key: "none", text: "None"}, {key: "weekend", text: "Sat, Sun"}, {key: "sunday", text: "Sun"}]
+                        current: ({"": "none", "5,6": "weekend", "6": "sunday"})[ShellState.setting("daysOff", []).join(",")] || "none"
+                        onActivated: key => ShellState.setSetting("daysOff", ({none: [], weekend: [5, 6], sunday: [6]})[key])
+                    }
+                    C.ChoiceRow {
+                        label: "Shift starts at"
+                        description: "The planning screens show once a day after this time"
+                        model: ["04:00", "05:00", "06:00", "07:00", "08:00"].map(time => ({key: time, text: time}))
+                        current: ShellState.setting("shiftStart", "05:00")
+                        onActivated: key => ShellState.setSetting("shiftStart", key)
                     }
                     C.ChoiceRow {
                         label: "Weather units"
