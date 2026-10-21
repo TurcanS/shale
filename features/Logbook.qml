@@ -518,6 +518,7 @@ FocusScope {
                 }
                 // The day's target as a stamped reading; nothing of it shows when the daily target is 0.
                 C.StationText {
+                    objectName: "targetReading"
                     visible: Day.targets
                     readonly property var m: Day.momentum
                     color: m && m.onTarget ? Theme.accent : Theme.muted

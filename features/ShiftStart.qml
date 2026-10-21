@@ -37,6 +37,7 @@ FocusScope {
         Day.logbook = true;
         // Marked as soon as it shows, so it appears exactly once a day however it ends.
         Day.startShift(null);
+        Day.autoCarry();
         Day.carryList((result, error) => shift.listed(result, error));
         forceActiveFocus();
     }

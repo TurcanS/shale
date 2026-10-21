@@ -955,6 +955,14 @@ class DayStore:
                     self.db.execute("UPDATE items SET due_at = ? WHERE id = ?", (int(time.mktime(moved.timetuple()) * 1000), item["id"]))
         return {"carried": len(choices)}
 
+    def carry_auto(self, date):
+        """The automatic carry-over: orders due on an earlier day with no time of day (all-day ones) move to `date`,
+        in one undoable step. Orders with a time are left for the shift start's own screen."""
+        orders = [item for item in self.carry_list(date) if item["allDay"]]
+        if orders:
+            self.carry_apply(date, [{"id": item["id"], "action": "keep"} for item in orders])
+        return {"carried": len(orders)}
+
     def momentum(self, date, daily, weekly, days_off=(), first=0, weeks=4):
         """Targets and streaks as of `date`: today's count and target, the week, days on target, cleared per day (and by
         site) over `weeks` weeks. `daily` 0 turns targets off: then `onTarget` and `daysOnTarget` are None."""
@@ -1026,6 +1034,8 @@ class DayStore:
             return self.carry_list(p.get("date"))
         if method == "day.carry.apply":
             return self.carry_apply(p.get("date"), p.get("choices"))
+        if method == "day.carry.auto":
+            return self.carry_auto(p.get("date"))
         if method == "day.momentum":
             return self.momentum(p.get("date"), p.get("daily", 5), p.get("weekly", 25), p.get("daysOff", []), p.get("weekStart", 0))
         if method == "day.report":

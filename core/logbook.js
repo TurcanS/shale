@@ -200,3 +200,9 @@ function stageMotion(opening, reduced, lowPower, leave) {
         return {duration: reduced ? 0 : lowPower ? 200 : 380, overshoot: !reduced && !lowPower};
     return {duration: leave + (reduced ? 0 : 60), overshoot: false};
 }
+
+// Whether the shift start shows by itself: it is due, and targets are on (with the daily target at 0 nothing of the
+// shift is shown).
+function shiftShows(due, targetsOn) {
+    return Boolean(due) && Boolean(targetsOn);
+}

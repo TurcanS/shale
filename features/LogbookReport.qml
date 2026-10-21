@@ -83,6 +83,14 @@ Item {
         load();
         changed();
     }
+    function toggleStandDown() {
+        Day.setDay({standDown: !(momentum && momentum.standDown)}, undefined, (result, error) => report.standDownSet(error));
+    }
+    function standDownSet(error) {
+        if (error)
+            ShellState.message(error.message, "error");
+        Day.loadMomentum();
+    }
     function cycle(order) {
         const choice = choices[order.id] || {action: "keep", days: 0};
         const order_ = ["keep", "move", "intake", "drop"];
@@ -102,6 +110,17 @@ Item {
                     text: "Shift report · " + Qt.formatDateTime(new Date(report.now), "ddd d MMM")
                     color: Theme.text
                     Layout.fillWidth: true
+                }
+                // A stand-down (a holiday, being ill) pauses days on target without breaking them.
+                C.StationKey {
+                    objectName: "standDown"
+                    visible: !!report.momentum && !!report.momentum.enabled
+                    text: report.momentum && report.momentum.standDown ? "End stand-down" : "Stand down today"
+                    lit: !!report.momentum && !!report.momentum.standDown
+                    Layout.fillWidth: false
+                    implicitHeight: 26
+                    implicitWidth: 130
+                    onClicked: report.toggleStandDown()
                 }
                 C.StationKey {
                     text: "File report"

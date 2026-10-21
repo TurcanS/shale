@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell.Io
 import "../core"
 import "../core/day.js" as Capture
+import "../core/logbook.js" as Book
 
 // To-dos and reminders, kept by the helper (helpers/day.py). One timer aims at the next due reminder; whatever falls
 // due is handed out once through `fired` and delivered as a signal from "Reminders", which stays in the signal log
@@ -90,7 +91,7 @@ QtObject {
     }
     function loadShift() {
         Backend.request("day.shift.state", {date: today(), start: ShellState.setting("shiftStart", "05:00")}, (result, error) => {
-            root.shiftDue = !error && result.due && root.targets;
+            root.shiftDue = !error && Book.shiftShows(result.due, root.targets);
         });
     }
     // Done or skipped: it shows once a day, so both end it. A target chosen on the last screen is kept for the day.
@@ -110,6 +111,12 @@ QtObject {
     // `choices` is [{id, action: keep|move|intake|drop, days}]; `date` is the day the orders carry over to.
     function carryApply(choices, date, callback) {
         change("day.carry.apply", {date: date || today(), choices: choices}, callback);
+    }
+    // With the autoCarry setting on, yesterday's orders with no time move to today by themselves at the shift start.
+    function autoCarry(callback) {
+        if (!ShellState.setting("autoCarry", false))
+            return;
+        change("day.carry.auto", {date: today()}, callback);
     }
     function setDay(fields, date, callback) {
         Backend.request("day.days.get", Object.assign({date: date || today()}, fields), callback);
