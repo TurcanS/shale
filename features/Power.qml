@@ -1,12 +1,14 @@
 import "../components" as C
 import "../core"
+import "../core/station.js" as Station
+import "../services"
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
 FocusScope {
     id: root
-    readonly property string title: "Session"
+    readonly property string title: ShellState.word("powerDown")
     readonly property int panelWidth: 440
     readonly property int panelHeight: Theme.body >= 18 ? 470 : 440
 
@@ -71,7 +73,7 @@ FocusScope {
                 }
 
                 C.Button {
-                    text: "Suspend"
+                    text: ShellState.word("standBy")
                     glyph: "moon"
                     implicitHeight: Theme.controlLarge
                     Layout.fillWidth: true
@@ -82,6 +84,29 @@ FocusScope {
 
             }
 
+            // One line before power down: what is still open. Never blocks.
+            RowLayout {
+                visible: report.text !== ""
+                Layout.fillWidth: true
+                spacing: Theme.gapS
+                C.Label {
+                    id: report
+                    readonly property int open: Day.todos.filter(item => item.dueAt && item.dueAt < new Date().setHours(24, 0, 0, 0)).length
+                    text: Station.powerReport(open, Day.targets, ShellState.setting("stationWords", true))
+                    color: Theme.warning
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                C.Button {
+                    text: "Open report"
+                    implicitHeight: 30
+                    onClicked: {
+                        ShellState.close();
+                        ShellState.logbookRequested(ShellState.targetScreen(), "report", null, 0);
+                    }
+                }
+            }
+
             C.SectionHeader {
                 text: "Hold to end session"
                 Layout.topMargin: Theme.gapS
@@ -89,17 +114,17 @@ FocusScope {
 
             Repeater {
                 model: [{
-                    "title": "Log out",
+                    "title": ShellState.word("signOff"),
                     "glyph": "logout",
                     "action": "logout",
                     "detail": "Close your desktop session"
                 }, {
-                    "title": "Restart",
+                    "title": ShellState.word("restart"),
                     "glyph": "refresh",
                     "action": "reboot",
                     "detail": "Restart your computer"
                 }, {
-                    "title": "Shut down",
+                    "title": ShellState.word("powerDown"),
                     "glyph": "power",
                     "action": "shutdown",
                     "detail": "Power off your computer"

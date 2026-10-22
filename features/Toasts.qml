@@ -74,6 +74,7 @@ Scope {
     PanelWindow {
         id: osdWindow
         readonly property bool level: ShellState.osdValue >= 0
+        readonly property bool station: ShellState.setting("stationWords", true)
         property real reveal: root.target && ShellState.osdVisible && !ShellState.locked ? 1 : 0
         Behavior on reveal { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
         screen: root.screen
@@ -109,8 +110,31 @@ Scope {
                 },
                 Translate { y: Theme.reduced ? 0 : (1 - osdWindow.reveal) * 6 }
             ]
+            // Gauge plate: 20 segments that light up to the level, the last one settling in with a short overshoot.
+            Row {
+                id: gauge
+                visible: osdWindow.level && osdWindow.station
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 5
+                width: 272
+                spacing: 2
+                Repeater {
+                    model: 20
+                    Rectangle {
+                        required property int index
+                        readonly property bool lit: (index + 1) / 20 <= ShellState.osdValue + 0.025 && ShellState.osdValue > 0
+                        width: (272 - 38) / 20
+                        height: 3
+                        radius: 1
+                        color: lit ? (ShellState.osdMuted ? Theme.muted : Theme.accent) : Theme.border
+                        scale: lit ? 1 : 0.8
+                        Behavior on scale { NumberAnimation { duration: Theme.reduced ? 0 : 160; easing.type: Easing.OutBack; easing.overshoot: 2.5 } }
+                    }
+                }
+            }
             Rectangle {
-                visible: osdWindow.level
+                visible: osdWindow.level && !osdWindow.station
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
@@ -149,7 +173,7 @@ Scope {
                     }
                 }
                 C.Label {
-                    text: ShellState.osdLabel
+                    text: osdWindow.station && ShellState.osdMuted ? ShellState.word("muted") : ShellState.osdLabel
                     font.pixelSize: Theme.small
                     color: osdWindow.level ? Theme.muted : Theme.text
                     elide: Text.ElideRight

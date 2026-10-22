@@ -7,12 +7,13 @@ import Quickshell.Io
 import "../core"
 import "../core/paths.js" as Paths
 import "../core/controlItems.js" as ControlItems
+import "../core/station.js" as Station
 import "../services"
 import "../components" as C
 
 FocusScope {
     id: root
-    readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray", update: "Update"})[ShellState.detail] || "Control center"
+    readonly property string title: ({wifi: "Wi-Fi", bluetooth: "Bluetooth", audio: "Sound", power: "Battery & power", media: "Now playing", tray: "System tray", update: "Update"})[ShellState.detail] || ShellState.word("console")
     readonly property bool canGoBack: ShellState.detail !== ""
     // Settings → Control center orders the tiles and buttons and turns parts off.
     readonly property var arrangement: ControlItems.layout(ShellState.setting("controlLayout", {}))
@@ -34,7 +35,7 @@ FocusScope {
                     enabled: Services.bluetoothAvailable};
         }
         const toggle = ({
-                dnd: {text: "Do not disturb", glyph: "bell-off", on: ShellState.setting("dnd", false), subtitle: "Popups hidden", busy: false},
+                dnd: {text: ShellState.word("quiet") === "QUIET" ? "Quiet" : "Do not disturb", glyph: "bell-off", on: ShellState.setting("dnd", false), subtitle: "Popups hidden", busy: false},
                 awake: {text: "Stay awake", glyph: "moon", on: ShellState.presentation, subtitle: "Screen stays on", busy: false},
                 grayscale: {text: "Grayscale", glyph: "palette", on: ShellState.grayscale, subtitle: "Colors off", busy: ShellState.grayscaleBusy},
                 lid: {text: "Lid closed", glyph: "laptop", on: ShellState.lidAwake, subtitle: "Stays awake", busy: ShellState.lidBusy}
@@ -314,6 +315,35 @@ FocusScope {
                     visible: ShellState.detail === ""
                     Layout.fillWidth: true
                     spacing: Theme.gapS
+                    // The status sentence: only what is true now.
+                    C.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.muted
+                        text: Station.status({
+                            quiet: Focus.active || ShellState.setting("dnd", false),
+                            open: Day.todos.length,
+                            nextMinutes: Day.nextItem ? (Day.nextItem.at - Date.now()) / 60000 : null,
+                            recorder: ShellState.setting("activityTracking", "ask") === "on",
+                            station: ShellState.setting("stationWords", true)
+                        })
+                        Accessible.name: text
+                    }
+                    // The recording lamp: lit while the Recorder keeps the day's trace. Asking comes first, in Activity.
+                    C.ListRow {
+                        Layout.fillWidth: true
+                        text: ShellState.word(ShellState.setting("activityTracking", "ask") === "on" ? "recorder" : "recorderOff")
+                        glyph: "record"
+                        selected: ShellState.setting("activityTracking", "ask") === "on"
+                        checkmark: false
+                        hint: selected ? "Turn activity tracking off" : "Turn activity tracking on"
+                        Accessible.name: "Activity tracking"
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.checkable: true
+                        Accessible.checked: selected
+                        onClicked: ShellState.setSetting("activityTracking", selected ? "off" : "on")
+                        trailing: [C.Lamp { lit: ShellState.setting("activityTracking", "ask") === "on"; size: 8 }]
+                    }
                     // A newer Shale, or what the last update brought: the page behind the arrow lists the changes.
                     C.ListRow {
                         visible: Updates.available || !!Updates.recent
@@ -362,7 +392,7 @@ FocusScope {
                     C.ListRow {
                         visible: root.arrangement.sections.focus
                         Layout.fillWidth: true
-                        text: "Focus"
+                        text: ShellState.word("quiet") === "QUIET" ? "Quiet" : "Focus"
                         glyph: "focus"
                         selected: Focus.active
                         checkmark: false

@@ -4,9 +4,12 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import "paths.js" as Paths
+import "station.js" as Station
 
 QtObject {
     id: root
+    // The power-up (a sweep along the bar) runs once per shell session.
+    property bool poweredUp: false
     property string panel: ""
     property string screenName: ""
     property string detail: ""
@@ -205,6 +208,10 @@ QtObject {
     }
     function setting(key, fallback) {
         return settings[key] === undefined ? fallback : settings[key];
+    }
+    // A station word, or its plain word with the Station words setting off (16 section 2).
+    function word(key) {
+        return Station.word(key, setting("stationWords", true));
     }
     function setSetting(key, value) {
         const next = Object.assign({}, settings);

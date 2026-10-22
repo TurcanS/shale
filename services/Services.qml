@@ -238,6 +238,7 @@ QtObject {
         onNotification: notification => {
             notification.tracked = true;
             root.receiveNotification(notification);
+            root.signalArrived(Date.now());
         }
     }
     property Instantiator notificationObservers: Instantiator {
@@ -301,6 +302,8 @@ QtObject {
     // The shell's own signals (reminders) need no D-Bus round trip to itself. Their actions are {identifier, text};
     // choosing one, or dismissing the signal, is handed back through localInvoked and localDismissed. One marked
     // `breaksQuiet` pops up through Quiet and Do not disturb, but not over the lock or a fullscreen window.
+    // Something arrived: the Line shakes a small tremor at its time.
+    signal signalArrived(real at)
     signal localInvoked(int id, string identifier)
     signal localDismissed(int id)
     function post(fields) {
@@ -312,6 +315,7 @@ QtObject {
             dismissNotification(notifications[notifications.length - 1].id);
         // A reminder waits for you: its popup stays until it is handled or makes room for a newer one.
         showPopup({id: id, urgency: record.urgency, expireTimeout: 0, breaksQuiet: !!record.breaksQuiet});
+        signalArrived(record.timestamp);
         return id;
     }
     function showPopup(n) {

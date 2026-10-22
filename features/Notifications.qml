@@ -1,22 +1,72 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import "../core"
+import "../core/station.js" as Station
 import "../services"
 import "../components" as C
 
 FocusScope {
-    readonly property string title: "Notifications"
+    readonly property string title: ShellState.word("signalLog")
     readonly property int panelWidth: 420
     ColumnLayout {
         anchors.fill: parent
         spacing: Theme.gapM
         C.Toggle {
-            text: "Do not disturb"
+            text: ShellState.word("quiet") === "QUIET" ? "Quiet" : "Do not disturb"
             selected: ShellState.setting("dnd", false)
             Layout.fillWidth: true
             onClicked: ShellState.setSetting("dnd", !ShellState.setting("dnd", false))
+        }
+        // Today's signals as ticks on the 24-hour scale, tall when urgent; a tick takes the list to its signal.
+        Item {
+            id: drum
+            visible: ShellState.setting("stationWords", true) && ticks.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 26 : 0
+            readonly property double dayStart: new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+            readonly property var ticks: {
+                list.count;
+                return Station.ticks(Services.notifications.map(n => ({id: n.id, at: n.timestamp, urgent: n.urgency === 2})), dayStart, dayStart + 86400000, width);
+            }
+            Accessible.role: Accessible.Graphic
+            Accessible.name: ticks.length + " notifications today"
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: Theme.border
+            }
+            Repeater {
+                model: drum.ticks
+                Rectangle {
+                    id: tick
+                    required property var modelData
+                    x: modelData.x - 1
+                    width: 2
+                    height: modelData.urgent ? 20 : 11
+                    anchors.bottom: parent.bottom
+                    color: modelData.urgent ? Theme.accent2 : Theme.accent
+                    opacity: tickArea.containsMouse ? 1 : 0.7
+                    MouseArea {
+                        id: tickArea
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        hoverEnabled: true
+                        onClicked: {
+                            for (let i = 0; i < Services.notificationModel.count; i++) {
+                                if (Services.notificationModel.get(i).id === tick.modelData.id) {
+                                    list.positionViewAtIndex(i, ListView.Beginning);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         ListView {
             id: list

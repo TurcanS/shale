@@ -53,6 +53,14 @@ Item {
             cursorShape: Qt.PointingHandCursor
         }
     }
+    // When the session's notifications arrived (newest last, at most 60): the Line's tremors and grains.
+    property var tremors: []
+    Connections {
+        target: Services
+        function onSignalArrived(at) {
+            line.tremors = line.tremors.concat([{at: at}]).slice(-60);
+        }
+    }
     function load() {
         if (!line.shown || !line.tracking || !Backend.ready)
             return;
@@ -185,6 +193,31 @@ Item {
                     loops: 3
                     NumberAnimation { to: 1.8; duration: 300; easing.type: Easing.OutCubic }
                     NumberAnimation { to: 1; duration: 500; easing.type: Easing.InOutQuad }
+                }
+            }
+        }
+        // Tremors: a notification adds a spike at its time that decays over 2 s into a grain that stays for the session.
+        // With reduced motion or power saver the grain appears at once.
+        Repeater {
+            model: line.tremors
+            Rectangle {
+                id: grain
+                required property var modelData
+                x: LineMath.position(modelData.at, line.bounds.start, line.bounds.end, strip.width) - 0.5
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.text
+                opacity: 0.55
+                height: 3
+                Component.onCompleted: if (!Theme.calm && Date.now() - modelData.at < 2000) decay.start()
+                NumberAnimation {
+                    id: decay
+                    target: grain
+                    property: "height"
+                    from: 16
+                    to: 3
+                    duration: 2000
+                    easing.type: Easing.OutCubic
                 }
             }
         }

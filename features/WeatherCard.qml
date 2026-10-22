@@ -154,7 +154,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 1
                 C.Label {
-                    text: "Weather"
+                    text: ShellState.word("atmos")
                     font.weight: Font.DemiBold
                     Layout.fillWidth: true
                 }

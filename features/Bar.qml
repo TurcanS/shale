@@ -99,7 +99,7 @@ PanelWindow {
         trayMenu: trayMenu
         onScreen: bar.visible && !ShellState.locked
         // The rest of the bar steps back a little while the hub opens.
-        opacity: bar.arrival * (1 - 0.25 * Math.min(1, bar.dayProgress / 0.3))
+        opacity: bar.arrival * (1 - 0.25 * Math.min(1, bar.dayProgress / 0.3)) * bar.powerUp
         dayOpen: bar.dayOpen
         onDayClicked: bar.toggleDay(false)
         onDayPeekClicked: bar.toggleDay(true)
@@ -198,9 +198,44 @@ PanelWindow {
     }
     // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1
-    Component.onCompleted: arrival = ShellState.locked ? 0 : 1
+    // Power-up, once per session: a lit edge sweeps left to right while the bar comes up behind it. Calm, Still,
+    // reduced motion and power saver show the bar at once.
+    property real powerUp: 1
+    function tryPowerUp() {
+        if (ShellState.poweredUp || ShellState.locked || Object.keys(ShellState.settings).length === 0)
+            return;
+        ShellState.poweredUp = true;
+        if (Theme.calm)
+            return;
+        powerUp = 0;
+        powerSweep.start();
+    }
+    NumberAnimation {
+        id: powerSweep
+        target: bar
+        property: "powerUp"
+        to: 1
+        duration: 600
+        easing.type: Easing.OutCubic
+    }
+    Rectangle {
+        visible: bar.powerUp < 1
+        x: bar.powerUp * (bar.width - width)
+        y: 0
+        width: 2
+        height: 32
+        color: Theme.accent
+        opacity: 0.8 * (1 - bar.powerUp)
+    }
+    Component.onCompleted: {
+        arrival = ShellState.locked ? 0 : 1;
+        tryPowerUp();
+    }
     Connections {
         target: ShellState
+        function onSettingsChanged() {
+            bar.tryPowerUp();
+        }
         function onPanelChanged() {
             if (ShellState.panel !== "")
                 bar.closeDay();

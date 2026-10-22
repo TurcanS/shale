@@ -163,9 +163,49 @@ function paint(ctx, drum) {
     ctx.fill();
 }
 
-// Station words, or the plain ones when they are off.
+// Station words, or the plain ones when they are off. The plain word is also what a screen reader and a tooltip say.
+const WORDS = {
+    quiet: ["QUIET", "Focus"], cleared: ["CLEARED", "Done"], onTarget: ["ON TARGET", "Target reached"],
+    signals: ["Signals", "Notifications"], signalLog: ["Signal log", "Notifications"], console: ["Console", "Control center"],
+    atmos: ["Atmos", "Weather"], recorder: ["Recorder", "Activity"], recorderOff: ["Recorder off", "Tracking off"],
+    unattended: ["Station unattended", "Locked"], powerDown: ["Power down", "Shut down"], restart: ["Restart", "Restart"],
+    signOff: ["Sign off", "Log out"], standBy: ["Stand by", "Suspend"], eventArrived: ["EVENT ARRIVED", "Reminder"],
+    gauge: ["Gauge", "Level"], muted: ["MUTED", "Muted"]
+};
+
 function word(key, station) {
-    const plain = {quiet: "Focus", cleared: "Done", onTarget: "Target reached"};
-    const words = {quiet: "QUIET", cleared: "CLEARED", onTarget: "ON TARGET"};
-    return station ? words[key] : plain[key];
+    const pair = WORDS[key];
+    return pair ? pair[station ? 0 : 1] : key;
+}
+
+// The console's status sentence, from real state only: "All quiet. 3 work orders open, next event in 25 min, recorder on."
+// `state` is {quiet, open, nextMinutes (null when none), recorder, station}.
+function status(state) {
+    const station = state.station !== false;
+    const parts = [];
+    parts.push(state.open + (state.open === 1 ? (station ? " work order" : " to-do") : (station ? " work orders" : " to-dos")) + " open");
+    if (state.nextMinutes !== null && state.nextMinutes !== undefined) {
+        const m = Math.max(0, Math.round(state.nextMinutes));
+        const span = m >= 90 ? Math.round(m / 60) + " h" : m + " min";
+        parts.push((station ? "next event in " : "next reminder in ") + span);
+    }
+    parts.push(state.recorder ? (station ? "recorder on" : "tracking on") : (station ? "recorder off" : "tracking off"));
+    const lead = state.quiet ? (station ? "Quiet." : "Focus on.") : (station ? "All quiet." : "");
+    return (lead ? lead + " " : "").concat(parts.join(", ").replace(/^./, c => lead ? c : c.toUpperCase()), ".");
+}
+
+// The power menu's report line: nothing when nothing is open; never blocks.
+function powerReport(open, targets, station) {
+    if (open <= 0)
+        return "";
+    const noun = open === 1 ? "order" : "orders";
+    return (targets ? (station ? "Shift report not done. " : "Day report not done. ") : "") + open + " " + noun + " uncleared.";
+}
+
+// Ticks for the signal log's drum: one per notification today, x across the width, tall when urgent.
+function ticks(items, dayStart, dayEnd, width) {
+    const span = dayEnd - dayStart;
+    return items.filter(item => item.at >= dayStart && item.at < dayEnd)
+        .map(item => ({x: Math.round((item.at - dayStart) / span * width) + 0.5, urgent: !!item.urgent, id: item.id}))
+        .sort((a, b) => a.x - b.x);
 }
