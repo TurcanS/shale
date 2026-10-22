@@ -52,6 +52,16 @@ Item {
             id: hover
             cursorShape: Qt.PointingHandCursor
         }
+        // Scrolling down on the Line goes deeper in time: the Dig, in the Activity panel.
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: event => {
+                if (event.angleDelta.y >= 0 || !line.tracking)
+                    return;
+                ShellState.open("activity");
+                ShellState.detail = "dig";
+            }
+        }
     }
     // When the session's notifications arrived (newest last, at most 60): the Line's tremors and grains.
     property var tremors: []

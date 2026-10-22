@@ -258,6 +258,9 @@ class DayStore:
             self.db.execute("ALTER TABLE days ADD COLUMN shift_started INTEGER")
             self.db.commit()
         self.db.execute("CREATE TABLE IF NOT EXISTS quiet_log (start INTEGER PRIMARY KEY, end INTEGER NOT NULL)")
+        # When a notification arrived and from which app: grains in the Dig. Never its text.
+        self.db.execute("CREATE TABLE IF NOT EXISTS signals (at INTEGER NOT NULL, app TEXT, urgency INTEGER NOT NULL DEFAULT 1)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS signals_at ON signals(at)")
         self.db.execute("CREATE TABLE IF NOT EXISTS routine_alerts (routine_id INTEGER NOT NULL, date TEXT NOT NULL, UNIQUE(routine_id, date))")
         for table, column in (("quiet_log", "order_id INTEGER"), ("routines", "times INTEGER"), ("routines", "alert INTEGER NOT NULL DEFAULT 0"),
                               ("routines", "created_at INTEGER")):
@@ -932,6 +935,39 @@ class DayStore:
         self._set_day(date, shift_reminded=self.now())
         return {"due": True}
 
+    # What the Dig reads (docs 02 section 3.5).
+
+    def signal_log(self, at, app, urgency):
+        """Keeps the arrival of one notification: its time, app and urgency, nothing else."""
+        at = check_time(at, "time")
+        if at is None:
+            raise ValueError("Choose a valid time.")
+        app = str(app or "")[:100]
+        urgency = urgency if type(urgency) is int and 0 <= urgency <= 2 else 1
+        self.db.execute("INSERT INTO signals (at, app, urgency) VALUES (?, ?, ?)", (at, app, urgency))
+        self.db.execute("DELETE FROM signals WHERE at < ?", (at - 400 * 86400000,))
+        self.db.commit()
+        return {"logged": True}
+
+    def clear_signals(self):
+        self.db.execute("DELETE FROM signals")
+        self.db.commit()
+
+    def signals(self, start, end):
+        return self.db.execute("SELECT at, app, urgency FROM signals WHERE at >= ? AND at < ? ORDER BY at", (start, end)).fetchall()
+
+    def quiet_sessions(self, start, end):
+        return self.db.execute("SELECT start, end, order_id FROM quiet_log WHERE start >= ? AND start < ? ORDER BY start", (start, end)).fetchall()
+
+    def cleared_times(self, start, end):
+        return [row[0] for row in self.db.execute(
+            "SELECT done_at FROM completions WHERE done_at >= ? AND done_at < ? ORDER BY done_at", (start, end))]
+
+    def notes(self, first, last):
+        """The shift-report note of each day between two dates, as {date: text}."""
+        return {row[0]: row[1] for row in self.db.execute(
+            "SELECT date, note FROM days WHERE date BETWEEN ? AND ? AND note IS NOT NULL AND note != ''", (first, last))}
+
     def quiet_log(self, start, end, order_id=None):
         """Keeps one Quiet session (keyed by its start, so a resumed session replaces its earlier end). One started on an
         order logs its seconds on it: the order's total is always the sum of its sessions."""
@@ -1188,6 +1224,8 @@ class DayStore:
             return self.carry_auto(p.get("date"))
         if method == "day.shift.reminder":
             return self.shift_reminder(p.get("date"), p.get("end", "18:00"), p.get("now"))
+        if method == "day.signal.log":
+            return self.signal_log(p.get("at"), p.get("app"), p.get("urgency"))
         if method == "day.quiet.log":
             return self.quiet_log(p.get("start"), p.get("end"), p.get("orderId"))
         if method == "day.momentum":

@@ -314,9 +314,15 @@ FocusScope {
         if (detail === "app") appDetail = "firefox";
         if (detail === "day") caption = "Firefox  ·  14:12–15:00  ·  48m active";
     }
+    // Scrolling down on the Line opens the panel on the Dig.
     Component.onCompleted: {
         if (previewMode) previewSample();
         else refresh();
+        if (ShellState.detail === "dig") mode = "dig";
+    }
+    Connections {
+        target: ShellState
+        function onDetailChanged() { if (ShellState.detail === "dig") root.mode = "dig"; }
     }
     Component.onDestruction: alive = false
     Connections {
@@ -439,8 +445,8 @@ FocusScope {
             spacing: Theme.gapS
             C.Segmented {
                 fill: false
-                Layout.preferredWidth: 300
-                model: [{key: "overview", text: "Overview"}, {key: "day", text: "Day"}, {key: "apps", text: "Apps"}]
+                Layout.preferredWidth: 380
+                model: [{key: "overview", text: "Overview"}, {key: "day", text: "Day"}, {key: "apps", text: "Apps"}, {key: "dig", text: "Dig"}]
                 current: root.mode
                 onActivated: key => { root.mode = key; if (key !== "apps") root.appDetail = ""; }
             }
@@ -1341,6 +1347,20 @@ FocusScope {
                     }
                 }
             }
+
+            // The Dig ----------------------------------------------------------
+            Loader {
+                anchors.fill: parent
+                active: root.mode === "dig"
+                sourceComponent: Dig {
+                    anchors.fill: parent
+                    focus: true
+                    onOpenDay: date => {
+                        root.setDate(date);
+                        root.mode = "day";
+                    }
+                }
+            }
         }
         RowLayout {
             visible: root.tracking !== "ask"
@@ -1375,13 +1395,13 @@ FocusScope {
             return;
         if (event.key === Qt.Key_Escape && mode === "apps" && appDetail !== "") {
             appDetail = ""; event.accepted = true;
-        } else if (event.key === Qt.Key_1 || event.key === Qt.Key_2 || event.key === Qt.Key_3) {
-            mode = ["overview", "day", "apps"][event.key - Qt.Key_1]; event.accepted = true;
-        } else if ((event.key === Qt.Key_Left || event.key === Qt.Key_Right) && mode !== "overview") {
+        } else if (event.key === Qt.Key_1 || event.key === Qt.Key_2 || event.key === Qt.Key_3 || event.key === Qt.Key_4) {
+            mode = ["overview", "day", "apps", "dig"][event.key - Qt.Key_1]; event.accepted = true;
+        } else if ((event.key === Qt.Key_Left || event.key === Qt.Key_Right) && mode !== "overview" && mode !== "dig") {
             const step = event.key === Qt.Key_Left ? -1 : 1;
             if (mode === "apps") shiftPeriod(step);
             else shiftDate(weekly ? step * 7 : step);
             event.accepted = true;
-        } else if (event.key === Qt.Key_Home && mode !== "overview") { setDate(today()); event.accepted = true; }
+        } else if (event.key === Qt.Key_Home && mode !== "overview" && mode !== "dig") { setDate(today()); event.accepted = true; }
     }
 }

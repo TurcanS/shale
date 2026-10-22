@@ -239,6 +239,7 @@ QtObject {
             notification.tracked = true;
             root.receiveNotification(notification);
             root.signalArrived(Date.now());
+            root.logSignal(notification.appName, notification.urgency);
         }
     }
     property Instantiator notificationObservers: Instantiator {
@@ -304,6 +305,11 @@ QtObject {
     // `breaksQuiet` pops up through Quiet and Do not disturb, but not over the lock or a fullscreen window.
     // Something arrived: the Line shakes a small tremor at its time.
     signal signalArrived(real at)
+    // The Dig keeps when a signal arrived and from which app, never what it said, and only while recording is on.
+    function logSignal(app, urgency) {
+        if (ShellState.setting("activityTracking", "ask") === "on" && Backend.ready)
+            Backend.request("dig.signal", {at: Date.now(), app: app || "", urgency: urgency}, () => {});
+    }
     signal localInvoked(int id, string identifier)
     signal localDismissed(int id)
     function post(fields) {
@@ -316,6 +322,7 @@ QtObject {
         // A reminder waits for you: its popup stays until it is handled or makes room for a newer one.
         showPopup({id: id, urgency: record.urgency, expireTimeout: 0, breaksQuiet: !!record.breaksQuiet});
         signalArrived(record.timestamp);
+        logSignal(record.appName, record.urgency);
         return id;
     }
     function showPopup(n) {

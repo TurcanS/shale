@@ -26,6 +26,7 @@ import wallpaperscom
 import activity
 import art
 import day
+import dig
 import shift
 import sysmon
 from runtime import runtime_base
@@ -1407,12 +1408,33 @@ class Backend:
                         raise ValueError("Choose a tracking state.")
                     return self.activity.pause(p["paused"])
                 if method == "activity.clear":
+                    # The arrival log is part of the same history.
+                    if self.day is None:
+                        self.day = day.DayStore(STATE / "day.sqlite3")
+                    self.day.clear_signals()
                     return self.activity.clear()
                 if method == "activity.focus":
                     return self.activity.add_focus(p.get("start"), p.get("end"))
             except (ValueError, OverflowError, sqlite3.Error) as error:
                 raise BackendError("invalid", str(error)) from None
             raise BackendError("invalid", "Unknown activity operation.")
+        if method in ("dig.range", "dig.signal"):
+            if migrated_settings()["activityTracking"] != "on":
+                if method == "dig.signal":
+                    return {"logged": False}
+                raise BackendError("invalid", "Recording is off.")
+            try:
+                if self.day is None:
+                    self.day = day.DayStore(STATE / "day.sqlite3")
+                if method == "dig.signal":
+                    return self.day.signal_log(p.get("at"), p.get("app"), p.get("urgency"))
+                if self.activity is None:
+                    self.activity = activity.ActivityStore(STATE / "activity.sqlite3")
+                current = settings()
+                return dig.build(self.activity, self.day, str(p.get("level", "")), str(p.get("date", "")), p.get("weekStart", 1),
+                                 current["pinnedApps"], (current["screenshotDirectory"], current["recordingDirectory"]))
+            except (ValueError, OverflowError, sqlite3.Error) as error:
+                raise BackendError("invalid", str(error)) from None
         if method.startswith("day."):
             try:
                 if self.day is None:
