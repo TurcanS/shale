@@ -385,8 +385,9 @@ FocusScope {
                     C.ChoiceRow {
                         visible: ShellState.setting("lockScreen", "builtin") === "builtin" || !Backend.has("hyprlock", true)
                         label: "Style"
-                        description: ShellState.setting("lockStyle", "particles") === "classic" ? "A large clock over your wallpaper" : "The time drawn in points of light that gather, shift and burst"
-                        model: [{key: "particles", text: "Particles"}, {key: "classic", text: "Classic"}]
+                        description: ({classic: "A large clock over your wallpaper", station: "The particle clock over today's drum, the next event and the open orders; it opens along the Front"})[ShellState.setting("lockStyle", "particles")]
+                                     || "The time drawn in points of light that gather, shift and burst"
+                        model: [{key: "particles", text: "Particles"}, {key: "classic", text: "Classic"}, {key: "station", text: "Station"}]
                         current: ShellState.setting("lockStyle", "particles")
                         onActivated: key => ShellState.setSetting("lockStyle", key)
                     }

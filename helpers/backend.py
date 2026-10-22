@@ -240,8 +240,8 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose a supported equalizer preset.")
     if key == "lockScreen" and value not in ("builtin", "hyprlock"):
         raise BackendError("invalid", "Choose the built-in lock screen or hyprlock.")
-    if key == "lockStyle" and value not in ("particles", "classic"):
-        raise BackendError("invalid", "Choose the particle or classic lock screen.")
+    if key == "lockStyle" and value not in ("particles", "classic", "station"):
+        raise BackendError("invalid", "Choose the particle, classic or station lock screen.")
     if key == "bluetoothAutoConnect" and (len(value) > 32 or not all(isinstance(a, str) and bluetooth_keep.ADDRESS.match(a) for a in value)
                                           or len(set(value)) != len(value)):
         raise BackendError("invalid", "Choose Bluetooth devices by their address.")

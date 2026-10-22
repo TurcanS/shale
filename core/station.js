@@ -163,6 +163,31 @@ function paint(ctx, drum) {
     ctx.fill();
 }
 
+// Where the Front (now) falls across `width`, the line the station lock splits along.
+function front(now, dayStart, dayEnd, width) {
+    return Math.round(Math.max(0, Math.min(1, (now - dayStart) / (dayEnd - dayStart))) * width);
+}
+
+// The station lock's readings. Anyone at the screen can read them, so an event's title is shown only with `titles`
+// on, and the drum's events come back with nothing but their time and that same title or "".
+// `items` are events {at, text}; `open` the count of open orders.
+function lockReadings(items, open, now, titles, station) {
+    const next = items.filter(item => item.at > now).sort((a, b) => a.at - b.at)[0];
+    let nextText = "";
+    if (next) {
+        const when = countdown(next.at, now);
+        const label = station ? "Next event" : "Next reminder";
+        nextText = (when === "Now" ? label + " due now" : when === "" ? label + " in over a day" : label + " " + when)
+            + (titles && next.text ? " · " + next.text : "");
+    }
+    const noun = station ? (open === 1 ? "order" : "orders") : (open === 1 ? "to-do" : "to-dos");
+    return {
+        next: nextText,
+        open: open > 0 ? open + " " + noun + " open" : "No " + (station ? "orders" : "to-dos") + " open",
+        items: items.map(item => ({at: item.at, text: titles ? item.text : ""}))
+    };
+}
+
 // Station words, or the plain ones when they are off. The plain word is also what a screen reader and a tooltip say.
 const WORDS = {
     quiet: ["QUIET", "Focus"], cleared: ["CLEARED", "Done"], onTarget: ["ON TARGET", "Target reached"],

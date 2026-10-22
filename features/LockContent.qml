@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import "../core"
 
@@ -10,7 +11,14 @@ Item {
     Loader {
         anchors.fill: parent
         focus: true
-        sourceComponent: ShellState.setting("lockStyle", "particles") === "classic" ? classic : particles
+        sourceComponent: ({classic: classic, station: station})[ShellState.setting("lockStyle", "particles")] || particles
+    }
+    Component {
+        id: station
+        LockStation {
+            context: root.context
+            screenName: root.screenName
+        }
     }
     Component {
         id: particles
