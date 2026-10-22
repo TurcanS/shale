@@ -171,7 +171,7 @@ PanelWindow {
         maskSpreadAtMin: 1
     }
     // The core sample: the picture in two pieces, cut at the Front, each pushed out to its own side. A thin accent
-    // seam marks the cut while it is close.
+    // seam marks the cut mid-way and is gone at both ends, so neither hand-off to or from the lock screen shows it.
     Repeater {
         model: root.split ? 2 : 0
         delegate: Item {
@@ -192,7 +192,7 @@ PanelWindow {
                 width: 2
                 height: parent.height
                 color: Theme.accent
-                opacity: 0.8 * (1 - root.open)
+                opacity: 0.8 * Math.sin(Math.PI * root.open)
             }
         }
     }

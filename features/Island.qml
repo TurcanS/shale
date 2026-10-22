@@ -31,7 +31,12 @@ Item {
             island.resting = true;
         }
     }
-    onHoveredChanged: if (!hovered && !cardHover.hovered) resting = false
+    // Leaving ends the rest a moment later, so the pointer can cross the gap between the capsule and the card.
+    Timer {
+        interval: 300
+        running: island.resting && !island.hovered && !cardHover.hovered
+        onTriggered: island.resting = false
+    }
     property real now: Date.now()
     // The cleared card says ON TARGET instead, when clearing the order met the day's target.
     property bool stamp: false
@@ -168,7 +173,6 @@ Item {
         opacity: Theme.reduced ? island.reveal : Math.min(1, island.reveal * 3)
         HoverHandler {
             id: cardHover
-            onHoveredChanged: if (!hovered && !island.hovered) island.resting = false
         }
         // What is live sets the colour of the card's left edge, as an app does on a notification card.
         Rectangle {
