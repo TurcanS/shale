@@ -101,3 +101,21 @@ function accentFrom(colors) {
     }
     return hex(color);
 }
+
+// The accent's partner (accent2) for an accent taken from the wallpaper: the turn that takes Ember to its coral partner in the
+// Strata palette (hue 34 degrees back, a little darker and richer), kept inside sRGB and light enough to read on the dark
+// panels. A "#rrggbb" string; pure arithmetic, so it runs outside QML.
+function partner(color) {
+    const source = oklch(color);
+    const hue = source.h - 34 * Math.PI / 180;
+    const lightness = Math.max(0.68, Math.min(0.85, source.l - 0.07));
+    let low = 0, high = Math.min(0.18, source.c + 0.02);
+    for (let i = 0; i < 20; i++) {
+        const middle = (low + high) / 2;
+        if (fromOklch(lightness, middle, hue).every(value => value >= -0.0001 && value <= 1.0001))
+            low = middle;
+        else
+            high = middle;
+    }
+    return "#" + fromOklch(lightness, low, hue).map(value => Math.round(gamma(Math.max(0, Math.min(1, value))) * 255).toString(16).padStart(2, "0")).join("");
+}

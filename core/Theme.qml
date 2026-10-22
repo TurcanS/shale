@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import "minerals.js" as Minerals
+import "palette.js" as Palette
 
 QtObject {
     readonly property var surfacePalettes: ({
@@ -52,8 +53,9 @@ QtObject {
     readonly property color border: surfaces.border
     readonly property color text: surfaces.text
     readonly property color muted: surfaces.muted
-    // The partner of the accent (the end of the Front's gradient, the hot edge of a fired reminder).
-    readonly property color accent2: "#fc7b6d"
+    // The partner of the accent (the end of the Front's gradient, the hot edge of a fired reminder). It follows the wallpaper with
+    // the accent, turned in hue; a chosen accent keeps the palette's coral.
+    readonly property color accent2: ShellState.setting("accentFromWallpaper", false) ? Palette.partner(accent) : "#fc7b6d"
     readonly property color accentHover: Qt.hsla(accentHue, accent.hslSaturation, Math.min(1, accent.hslLightness + 0.08), 1)
     readonly property color accentText: contrast(accent, selection) >= 4.5 ? accent : text
     readonly property color disabled: surfaces.disabled
