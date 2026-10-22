@@ -193,6 +193,29 @@ function checkQuery(text, routines) {
         .sort((a, b) => Number(a.checkedToday) - Number(b.checkedToday) || a.name.localeCompare(b.name));
 }
 
+// The Strata commands: "todo buy milk", "remind in 20m stretch", "log #Work", "find milk", "shift" →
+// {verb, rest}; null for anything else. A verb alone is a command only for "log" and "shift".
+function orderQuery(text) {
+    const match = /^\s*(todo|remind|log|find|shift)(?:\s+(.*?))?\s*$/i.exec(String(text || ""));
+    if (!match)
+        return null;
+    const verb = match[1].toLowerCase(), rest = match[2] || "";
+    if (rest === "" && verb !== "log" && verb !== "shift")
+        return null;
+    if (rest !== "" && verb === "shift")
+        return null;
+    return {verb: verb, rest: rest};
+}
+
+// Open orders whose title or notes hold every word of `text` (case and accents folded), newest first; at most `limit`.
+function findOrders(text, orders, limit) {
+    const words = fold(text).split(/\s+/).filter(word => word !== "");
+    if (!words.length)
+        return [];
+    return orders.filter(order => !order.doneAt && !order.done && words.every(word => fold(order.text + " " + (order.notes || "")).indexOf(word) >= 0))
+        .sort((a, b) => b.id - a.id).slice(0, limit);
+}
+
 // Things the launcher can do besides opening apps. Session actions that end the session open the session
 // menu, whose hold-to-confirm buttons stay the only way to log out, restart or shut down.
 var ACTIONS = [

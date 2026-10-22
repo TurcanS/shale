@@ -648,3 +648,27 @@ function summary(order, now) {
                                           : "Alert " + alert.beforeMin + " min before");
     return parts.join(" · ");
 }
+
+// The fields day.add takes, from a parsed capture (capture() above).
+function orderFields(order) {
+    const fields = {kind: "todo", text: order.text, site: order.site, section: order.section, tags: order.tags, priority: order.priority,
+                    dueAt: order.dueAt, allDay: order.allDay, deadlineAt: order.deadlineAt, durationMin: order.durationMin,
+                    rule: order.rule, ruleFromDone: order.ruleFromDone};
+    if (order.alerts.length)
+        fields.alerts = order.alerts;
+    return fields;
+}
+
+// A plain list, one order per line in the capture grammar: {orders: [fields], skipped: [{line, reason}]}.
+function importLines(lines, now, options) {
+    const result = {orders: [], skipped: []};
+    for (const line of lines) {
+        const order = capture(line, now, options);
+        const reason = !order ? "empty" : order.error || (order.errors.length ? order.errors[0].note : "");
+        if (reason)
+            result.skipped.push({line: line, reason: reason});
+        else
+            result.orders.push(orderFields(order));
+    }
+    return result;
+}

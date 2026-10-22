@@ -129,9 +129,12 @@ case "$1" in
     if [ -n "$2" ]; then exec quickshell ipc -p "$config" call shell settingsPage "$2"; fi
     exec quickshell ipc -p "$config" call shell toggle settings
     ;;
+  day) exec quickshell ipc -p "$config" call shell day toggle ;;
+  order) exec quickshell ipc -p "$config" call shell day peek ;;
+  logbook) exec quickshell ipc -p "$config" call shell day logbook ;;
   launcher|clipboard|control|notifications|overview|capture|power|calendar|wallpaper|activity|system)
     exec quickshell ipc -p "$config" call shell toggle "$1"
     ;;
-  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' ;;
-  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' >&2; exit 2 ;;
+  help|-h|--help) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|day|order|logbook|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' ;;
+  *) echo 'Usage: shale {start|stop|restart|logs|close|lock|launcher|clipboard|control|notifications|overview|settings [PAGE]|capture|day|order|logbook|power|calendar|wallpaper|activity|system|screenshot [region|output]|page PAGE|focus [MINUTES|toggle|end]|timer DURATION [LABEL]|color|dnd [on|off]|stop-recording|status|--version}' >&2; exit 2 ;;
 esac

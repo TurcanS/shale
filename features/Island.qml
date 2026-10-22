@@ -47,6 +47,8 @@ Item {
         }
     }
     function push(kind, milliseconds, live, hover) {
+        if (live && kind !== "event" && !ShellState.setting("islandLive", true))
+            return;
         now = Date.now();
         queue = Queue.push(queue, {kind: kind, until: milliseconds > 0 ? now + milliseconds : 0, live: live, hover: !!hover});
     }

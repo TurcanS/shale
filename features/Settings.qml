@@ -103,6 +103,12 @@ FocusScope {
             Notifications: [
                 {label: "Keep notification history across restarts", key: "persistNotifications", description: "Up to 200 notifications for seven days. Contents stay hidden on the lock screen."}
             ],
+            Station: [
+                {label: "Countdown on the capsule", key: "capsuleCountdown", defaultValue: true, description: "The next event within the hour, beside the clock"},
+                {label: "Target meter on the capsule", key: "capsuleMeter", defaultValue: true, description: "Five segments that light as orders are cleared"},
+                {label: "Count tag on the capsule", key: "capsuleCount", defaultValue: true, description: "Orders due today, amber with a mark when one is late"},
+                {label: "Live activities in the island", key: "islandLive", defaultValue: true, description: "Quiet, timers and music grow the capsule into a card"}
+            ],
             Audio: [
                 {label: "Allow volume amplification up to 150%", key: "amplification"},
                 {label: "Show time left instead of track length", key: "mediaRemaining"}
@@ -115,6 +121,7 @@ FocusScope {
         {name: "Shortcuts", icon: "grid", description: "Keyboard shortcuts and the commands behind them."},
         {name: "General", icon: "calendar", description: "Time, units, search, the terminal and updates."},
         {name: "Motion", icon: "bolt", description: "Choose a pace that feels right."},
+        {name: "Station", icon: "activity", description: "What the capsule and the island show. Shift and targets are under General, keys under Shortcuts."},
         {name: "Notifications", icon: "bell", description: "Decide what needs your attention."},
         {name: "Audio", icon: "volume", description: "Set the limits for your listening."},
         {name: "Capture", icon: "camera", description: "A home for screenshots and recordings."},
@@ -130,6 +137,7 @@ FocusScope {
             "Control center": ["controlLayout"],
             General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck", "dailyTarget", "weeklyTarget", "daysOff", "shiftStart", "autoCarry", "shiftReminder", "shiftEnd"],
             Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
+            Station: ["capsuleCountdown", "capsuleMeter", "capsuleCount", "islandLive"],
             Notifications: ["persistNotifications", "focusMinutes"],
             Audio: ["amplification", "mediaRemaining"],
             Capture: ["screenshotDirectory", "recordingDirectory", "recordAudio", "captureDelay"]

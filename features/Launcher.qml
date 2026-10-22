@@ -8,6 +8,7 @@ import "../services"
 import "../components" as C
 import "../core/paths.js" as Paths
 import "../core/search.js" as Search
+import "../core/day.js" as DayText
 
 FocusScope {
     id: root
@@ -28,6 +29,14 @@ FocusScope {
     property string rejectedReason: ""
     // A leading character picks what the launcher searches: apps (default), : emoji, / files, ? the web, > a command.
     readonly property string mode: modeOf(query)
+    // Orders, sites, tags and filters are loaded when a command that needs them is first typed.
+    property bool orderDataAsked: false
+    onQueryChanged: {
+        if (!orderDataAsked && query.trim().length >= 3 && !calculatorQuery) {
+            orderDataAsked = true;
+            Day.loadLogbook();
+        }
+    }
     readonly property string term: mode === "apps" ? query.trim() : query.slice(1).trim()
     readonly property bool unitQuery: isConversion(query) && rejectedConversion !== query
     readonly property bool calculatorQuery: isExpression(query) || unitQuery
@@ -95,7 +104,50 @@ FocusScope {
             return b.rank + boost(b) - a.rank - boost(a) || a.name.localeCompare(b.name);
         });
         // Every app stays reachable from the empty query; a search only needs the best matches.
-        return commandResults.concat(term ? sorted.slice(0, 100) : sorted);
+        // Typing an open order's words offers it after the apps (three at most).
+        const words = term.length >= 3 && !commandResults.length ? Search.findOrders(term, Day.orders, 3).map(orderRow) : [];
+        return commandResults.concat(term ? sorted.slice(0, 100) : sorted, words);
+    }
+    // The Strata commands: todo, remind, log, find and shift. A row that cannot run says why and does nothing.
+    function orderResults(order) {
+        const now = Date.now();
+        if (order.verb === "todo") {
+            const parsed = DayText.capture(order.rest, now, {sites: Day.sites.map(site => site.name)});
+            const reason = !parsed ? "Say what to do" : parsed.error || (parsed.errors.length ? parsed.errors[0].note : "");
+            return [{kind: "todo", key: "todo", name: "Add an order: " + (parsed && parsed.text ? parsed.text : order.rest), fallback: "check", parsed: parsed,
+                     subtitle: reason || "Goes to the Logbook with its site, tags and time", blocked: reason !== ""}];
+        }
+        if (order.verb === "remind") {
+            const parsed = DayText.parse(order.rest, now);
+            const reason = !parsed ? "Say when and what" : parsed.error || (parsed.kind !== "reminder" ? "Add a time, for example remind in 20m stretch" : "");
+            return [{kind: "remind", key: "remind", name: "Remind: " + (parsed && parsed.text ? parsed.text : order.rest), fallback: "bell", parsed: parsed,
+                     subtitle: reason || DayText.describe(parsed, now), blocked: reason !== ""}];
+        }
+        if (order.verb === "shift")
+            return [{kind: "logbook", key: "shift", name: Day.shiftDue ? "Start the shift" : "Open the shift report", fallback: "activity",
+                     subtitle: Day.shiftDue ? "Plan today and carry over what is left" : "What was cleared and how the weeks went",
+                     view: Day.shiftDue ? "" : "report", argument: null, hub: Day.shiftDue}];
+        if (order.verb === "find")
+            return Search.findOrders(order.rest, Day.orders, 8).map(orderRow);
+        // log: the Logbook, a site (#), a tag (@) or a saved filter by name
+        const rest = order.rest, folded = Search.fold(rest.replace(/^[#@]/, ""));
+        if (rest === "")
+            return [{kind: "logbook", key: "log", name: "Open the Logbook", subtitle: "Today", fallback: "check", view: "today", argument: null}];
+        const results = [];
+        if (rest[0] !== "@")
+            Day.sites.filter(site => !site.archived && Search.fold(site.name).indexOf(folded) >= 0).forEach(site =>
+                results.push({kind: "logbook", key: "log:site:" + site.id, name: "Site " + site.name, subtitle: "Open in the Logbook", fallback: "check", view: "site", argument: site}));
+        if (rest[0] !== "#")
+            Day.tags.filter(tag => Search.fold(tag.name).indexOf(folded) >= 0).forEach(tag =>
+                results.push({kind: "logbook", key: "log:tag:" + tag.name, name: "Tag @" + tag.name, subtitle: "Open in the Logbook", fallback: "check", view: "tag", argument: tag.name}));
+        if (rest[0] !== "#" && rest[0] !== "@")
+            Day.filters.filter(filter => Search.fold(filter.name).indexOf(folded) >= 0).forEach(filter =>
+                results.push({kind: "logbook", key: "log:filter:" + filter.id, name: "Filter " + filter.name, subtitle: "Open in the Logbook", fallback: "check", view: "filter", argument: filter}));
+        return results;
+    }
+    function orderRow(order) {
+        return {kind: "order", key: "order:" + order.id, name: order.text, fallback: "check", order: order,
+                subtitle: "Order" + (order.site ? " · " + order.site : "") + " · Enter opens it, Ctrl+Enter clears it"};
     }
     // "timer 10m tea" and "focus 40" become one row each, above everything else.
     readonly property var commandResults: {
@@ -105,6 +157,9 @@ FocusScope {
         if (timer)
             return [{kind: "timer", key: "timer", name: "Start a " + Focus.minutesText(timer.seconds) + " timer" + (timer.label ? " · " + timer.label : ""),
                      subtitle: "Counts down in the bar and chimes when done", fallback: "timer", seconds: timer.seconds, label: timer.label}];
+        const order = Search.orderQuery(query);
+        if (order)
+            return orderResults(order);
         const checks = Search.checkQuery(query, Day.routines);
         if (checks.length)
             return checks.map(routine => ({kind: "check", key: "check:" + routine.id, routine: routine, fallback: "check",
@@ -317,6 +372,27 @@ FocusScope {
             Focus.addTimer(item.seconds, item.label);
         } else if (item.kind === "focus") {
             Focus.start(item.minutes);
+        } else if (item.kind === "todo" || item.kind === "remind") {
+            if (item.blocked) {
+                ShellState.message(item.subtitle, "error");
+                return;
+            }
+            if (item.kind === "remind") {
+                Day.add(item.parsed);
+            } else {
+                Day.addOrder(DayText.orderFields(item.parsed));
+            }
+            ShellState.message("Added: " + item.parsed.text, "success");
+        } else if (item.kind === "logbook") {
+            if (item.hub)
+                ShellState.dayRequested(ShellState.targetScreen(), "toggle");
+            else
+                ShellState.logbookRequested(ShellState.targetScreen(), item.view, item.argument, 0);
+        } else if (item.kind === "order") {
+            if (modifiers & Qt.ControlModifier)
+                Day.complete(item.order.id, null);
+            else
+                ShellState.logbookRequested(ShellState.targetScreen(), "", null, item.order.id);
         } else if (item.kind === "check") {
             Day.checkRoutine(item.routine.id, !item.routine.checkedToday);
         } else if (item.kind === "run") {

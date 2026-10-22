@@ -132,6 +132,10 @@ QtObject {
     }
     property real brightness: -1
     readonly property var panels: ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
+    // The Day hub, the quick-add row or the Logbook, on the focused output: "toggle", "peek" or "logbook".
+    signal dayRequested(string output, string mode)
+    // Opens the Logbook on a view ("today", "ahead", "site", "tag", "filter", "report", ...) or on one order's sheet.
+    signal logbookRequested(string output, string view, var argument, int orderId)
     signal activitySnapshotRequested()
     property var wallpaperChange: ({})
     property bool wallpaperBusy: false
@@ -665,6 +669,10 @@ QtObject {
             const on = state === "toggle" ? !root.setting("dnd", false) : state === "on";
             root.setSetting("dnd", on);
             root.osd(on ? "Do not disturb on" : "Do not disturb off", -1, on ? "bell-off" : "bell");
+        }
+        function day(mode: string): void {
+            if (["toggle", "peek", "logbook"].indexOf(mode) >= 0)
+                root.dayRequested(root.targetScreen(), mode);
         }
         function settingsPage(name: string): void {
             root.openSettings(name);

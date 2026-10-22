@@ -17,6 +17,7 @@ import time
 
 from activity import day_bounds
 import routines
+import day_io
 import shift
 
 
@@ -1219,6 +1220,12 @@ class DayStore:
             return self.undo(method.endswith("redo"))
         if method == "day.history.list":
             return self.history()
+        if method == "day.export":
+            return day_io.export(self, p.get("format"), p.get("path"))
+        if method == "day.import":
+            return day_io.import_file(self, p.get("source"), p.get("path"))
+        if method == "day.backup":
+            return day_io.backup(self, p.get("path"))
         if method.startswith(("day.sites.", "day.sections.")):
             return self.handle_sites(method, p)
         if method.startswith("day.tags."):

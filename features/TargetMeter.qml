@@ -9,7 +9,7 @@ Row {
     id: meter
     readonly property var m: Day.momentum
     readonly property int lit: m && m.target > 0 ? Math.floor(Math.min(m.cleared, m.target) * 5 / m.target) : 0
-    visible: Day.targets && !!m && !m.dayOff && !ShellState.presentation
+    visible: ShellState.setting("capsuleMeter", true) && Day.targets && !!m && !m.dayOff && !ShellState.presentation
     spacing: 2
     Accessible.role: Accessible.ProgressBar
     Accessible.name: m ? "Target " + m.cleared + " of " + m.target : ""

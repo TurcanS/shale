@@ -67,6 +67,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
             "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto", "shortcuts": {},
             "dailyTarget": 5, "weeklyTarget": 25, "daysOff": [], "shiftStart": "05:00", "autoCarry": False, "shiftReminder": False, "shiftEnd": "18:00",
+            "capsuleCountdown": True, "capsuleMeter": True, "capsuleCount": True, "islandLive": True,
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}

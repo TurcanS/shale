@@ -22,6 +22,29 @@ PanelWindow {
             bar.toggleDay(false);
         }
     }
+    // The same three doors as the pill, from a shortcut or `shale day`, on the focused output.
+    Connections {
+        target: ShellState
+        function onDayRequested(output, mode) {
+            if (output !== bar.outputName)
+                return;
+            if (mode === "logbook")
+                bar.toggleLogbook();
+            else
+                bar.toggleDay(mode === "peek");
+        }
+    }
+    Connections {
+        target: ShellState
+        function onLogbookRequested(output, view, argument, orderId) {
+            if (output !== bar.outputName)
+                return;
+            if (!hub.logbook)
+                bar.toggleLogbook();
+            if (hub.logbook)
+                hub.showView(view, argument, orderId);
+        }
+    }
     // Both stages in one movement: from the capsule straight to the Logbook, or on from the hub; again to step back.
     IpcHandler {
         target: "logbook-" + bar.outputName

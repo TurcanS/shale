@@ -69,6 +69,19 @@ Item {
         bookMotion.restart();
         pages.focusNow();
     }
+    // The Logbook on a view, or on the sheet of one order (found by id among the open orders).
+    function showView(view, argument, orderId) {
+        if (orderId > 0) {
+            const order = Day.orders.find(item => item.id === orderId);
+            pages.kind = "search";
+            pages.argument = null;
+            pages.found = order ? [order] : [];
+            pages.selectFirst();
+            pages.openSheet();
+        } else {
+            pages.open(view, argument);
+        }
+    }
     function closeLogbook() {
         logbook = false;
         bookMotion.duration = Book.stageMotion(false, Theme.reduced, Theme.lowPower, Theme.leave).duration;

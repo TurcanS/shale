@@ -272,12 +272,7 @@ FocusScope {
             return;
         const text = capture.text;
         capture.text = "";
-        const fields = {kind: "todo", text: order.text, site: order.site, section: order.section, tags: order.tags, priority: order.priority,
-                        dueAt: order.dueAt, allDay: order.allDay, deadlineAt: order.deadlineAt, durationMin: order.durationMin,
-                        rule: order.rule, ruleFromDone: order.ruleFromDone};
-        if (order.alerts.length)
-            fields.alerts = order.alerts;
-        Day.addOrder(fields, (result, error) => book.added(error, text));
+        Day.addOrder(DayText.orderFields(order), (result, error) => book.added(error, text));
     }
     function added(error, text) {
         if (!error)

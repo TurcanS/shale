@@ -8,6 +8,7 @@ local shortcuts = {
     ["SUPER + M"] = "power", ["Print"] = "screenshot region",
     ["SUPER + L"] = "lock",
     ["SHIFT + Print"] = "screenshot output", ["SUPER + Print"] = "capture",
+    ["SUPER + SHIFT + D"] = "day", ["SUPER + SHIFT + N"] = "order", ["SUPER + SHIFT + L"] = "logbook",
 }
 -- Shortcuts changed in Settings: {action = "KEYS"} binds other keys, {action = false} none.
 local config = os.getenv("XDG_CONFIG_HOME")

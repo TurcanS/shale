@@ -335,7 +335,7 @@ Item {
             // Something due within the hour rides along as a countdown.
             readonly property real eventIn: shownEvent ? shownEvent.at - nowMs : -1
             readonly property string soon: {
-                if (eventIn < 0 || eventIn > 3600000)
+                if (eventIn < 0 || eventIn > 3600000 || !ShellState.setting("capsuleCountdown", true))
                     return "";
                 const text = shownEvent.text.length > 24 ? shownEvent.text.slice(0, 23) + "…" : shownEvent.text;
                 return Station.countdown(shownEvent.at, nowMs) + " " + text;
@@ -383,7 +383,7 @@ Item {
                 }
             }
             Rectangle {
-                visible: clockButton.dueToday > 0 || clockButton.overdue > 0
+                visible: ShellState.setting("capsuleCount", true) && (clockButton.dueToday > 0 || clockButton.overdue > 0)
                 anchors.right: parent.right
                 anchors.top: parent.top
                 width: Math.max(14, dueLabel.implicitWidth + 6)
