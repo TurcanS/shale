@@ -7,6 +7,7 @@ import "../core"
 import "../core/day.js" as DayText
 import "../core/station.js" as Station
 import "../core/logbook.js" as Book
+import "../core/notes.js" as Notes
 import "../services"
 import "../components" as C
 
@@ -52,6 +53,9 @@ Item {
     readonly property bool recording: ShellState.setting("activityTracking", "ask") === "on"
     // The last deleted item and where it stood, for Undo.
     property var lastDeleted: null
+    // The operator note: one line, changing every hour; off with the setting and while presenting.
+    readonly property string note: ShellState.setting("operatorNotes", true) && !ShellState.presentation
+                                   ? Notes.pick(ShellState.setting("operatorLines", []), now, 1) : ""
     // The to-do list's row to select once the list has reloaded after a change.
     property int pendingRow: -1
     readonly property int headerHeight: 84
@@ -893,7 +897,7 @@ Item {
                             Layout.fillWidth: true
                             spacing: Theme.gapS
                             C.Label {
-                                text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : "Enter files · Tab moves · Space clears · Delete removes"
+                                text: hub.parsed ? DayText.describe(hub.parsed, hub.now) : hub.note || "Enter files · Tab moves · Space clears · Delete removes"
                                 color: hub.parsed && hub.parsed.error ? Theme.warning : Theme.muted
                                 font.pixelSize: Theme.caption
                                 elide: Text.ElideRight

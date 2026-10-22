@@ -344,7 +344,7 @@ Item {
             // An event that arrived stays on the capsule until it is snoozed, cleared or dismissed; the newest shows.
             readonly property var arrived: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
             readonly property string arrivedText: arrived ? "▲ " + (arrived.text.length > 24 ? arrived.text.slice(0, 23) + "…" : arrived.text) : ""
-            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  QUIET " + Focus.clockText(Focus.remainingSeconds) + (Focus.orderText ? " " + (Focus.orderText.length > 22 ? Focus.orderText.slice(0, 21) + "…" : Focus.orderText) : "") : arrived ? "  ·  " + arrivedText : soon ? "  ·  " + soon : "")
+            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  " + Station.word("quiet", ShellState.setting("stationWords", true)) + " " + Focus.clockText(Focus.remainingSeconds) + (Focus.orderText ? " " + (Focus.orderText.length > 22 ? Focus.orderText.slice(0, 21) + "…" : Focus.orderText) : "") : arrived ? "  ·  " + arrivedText : soon ? "  ·  " + soon : "")
             // Open to-dos due today, as a small count on the pill; amber with a mark when one is already late.
             readonly property int dueToday: Day.todos.filter(item => item.dueAt && new Date(item.dueAt).toDateString() === clock.date.toDateString()).length
             readonly property int overdue: Day.todos.filter(item => item.dueAt && item.dueAt < clockButton.nowMs).length

@@ -162,3 +162,10 @@ function paint(ctx, drum) {
     ctx.arc(stylus, mid, 3.5, 0, 2 * Math.PI);
     ctx.fill();
 }
+
+// Station words, or the plain ones when they are off.
+function word(key, station) {
+    const plain = {quiet: "Focus", cleared: "Done", onTarget: "Target reached"};
+    const words = {quiet: "QUIET", cleared: "CLEARED", onTarget: "ON TARGET"};
+    return station ? words[key] : plain[key];
+}

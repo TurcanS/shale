@@ -220,3 +220,43 @@ def backup(store, value):
     finally:
         target.close()
     return {"path": str(path)}
+
+
+def restore(store, value):
+    """Replaces everything with a copy made by backup(). The data as it was is kept next to the database first
+    (day.sqlite3.before-restore), and a file that is not a Shale Day database of the current version is refused."""
+    path = file_path(value, ".sqlite3", must_exist=True)
+    try:
+        source = sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True)
+        try:
+            version = source.execute("PRAGMA user_version").fetchone()[0]
+            tables = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        finally:
+            source.close()
+    except sqlite3.Error:
+        raise ValueError("That file isn't a Shale Day backup.") from None
+    if not {"items", "alerts", "sites", "history"} <= tables:
+        raise ValueError("That file isn't a Shale Day backup.")
+    if version != store_schema():
+        raise ValueError("That backup is from another version of Shale (schema " + str(version) + ").")
+    main = store.db.execute("PRAGMA database_list").fetchone()[2]
+    if main:
+        keep = Path(main + ".before-restore")
+        descriptor = os.open(keep, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        os.close(descriptor)
+        copy = sqlite3.connect(keep)
+        try:
+            store.db.backup(copy)
+        finally:
+            copy.close()
+    source = sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True)
+    try:
+        source.backup(store.db)
+    finally:
+        source.close()
+    return {"path": str(path), "count": len(store.orders(1))}
+
+
+def store_schema():
+    import day
+    return day.SCHEMA

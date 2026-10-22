@@ -1224,6 +1224,8 @@ class DayStore:
             return day_io.export(self, p.get("format"), p.get("path"))
         if method == "day.import":
             return day_io.import_file(self, p.get("source"), p.get("path"))
+        if method == "day.restore":
+            return day_io.restore(self, p.get("path"))
         if method == "day.backup":
             return day_io.backup(self, p.get("path"))
         if method.startswith(("day.sites.", "day.sections.")):

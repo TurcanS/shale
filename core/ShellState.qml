@@ -269,6 +269,15 @@ QtObject {
     }
     // Every app the shell starts gets its own scope in app.slice, so restarting or crashing the shell never takes
     // it down, and its output goes to the journal under its own name instead of `shale logs`.
+    // A soft sample for clearing an order, an event or the end of Quiet: off by default, never while presenting or in
+    // Quiet. The names are freedesktop's, the player the one Focus's chime uses.
+    function playSound(kind, held) {
+        const files = {clear: "message", event: "complete", quiet: "bell"};
+        if (!setting("sounds", false) || presentation || held || !files[kind])
+            return;
+        const volume = (setting("soundVolume", 50) / 100).toFixed(2);
+        launch(["sh", "-c", 'f=/usr/share/sounds/freedesktop/stereo/' + files[kind] + '.oga; [ -r "$f" ] && command -v pw-play >/dev/null && exec pw-play --volume ' + volume + ' "$f"'], "", "shale-sound");
+    }
     function launch(command, workingDirectory, appId) {
         if (!command || !command.length)
             return;

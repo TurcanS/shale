@@ -68,6 +68,7 @@ DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
             "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto", "shortcuts": {},
             "dailyTarget": 5, "weeklyTarget": 25, "daysOff": [], "shiftStart": "05:00", "autoCarry": False, "shiftReminder": False, "shiftEnd": "18:00",
             "capsuleCountdown": True, "capsuleMeter": True, "capsuleCount": True, "islandLive": True,
+            "stationWords": True, "liveliness": "full", "operatorNotes": True, "operatorLines": [], "sounds": False, "soundVolume": 50, "lockTitles": False,
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
             "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
@@ -306,6 +307,12 @@ def check_setting(key, value):
             shift.parse_clock(value)
         except ValueError as error:
             raise BackendError("invalid", str(error)) from None
+    if key == "liveliness" and value not in ("full", "calm", "still"):
+        raise BackendError("invalid", "Choose full, calm or still.")
+    if key == "soundVolume" and not 0 <= value <= 100:
+        raise BackendError("invalid", "Choose a sound volume from 0 to 100.")
+    if key == "operatorLines" and (len(value) > 20 or not all(type(line) is str and 0 < len(line.strip()) <= 100 and "\n" not in line for line in value)):
+        raise BackendError("invalid", "Choose up to 20 one-line notes of up to 100 characters.")
     if key == "terminal" and value != "auto" and value not in (prefix[0] for prefix in Backend.TERMINALS):
         raise BackendError("invalid", "Choose a supported terminal.")
     try:

@@ -83,7 +83,10 @@ QtObject {
     readonly property int heading: Math.max(20, body + 6)
     // The bar keeps its own fixed sizes so its 32 px height holds at every text size.
     readonly property int barText: 12
-    readonly property bool reduced: ShellState.setting("reducedMotion", false)
+    // Still liveliness is the same as reduced motion; Calm drops the breathing and the power-up (step 13 reads `calm`).
+    readonly property string liveliness: ShellState.setting("liveliness", "full")
+    readonly property bool calm: liveliness !== "full" || reduced || lowPower
+    readonly property bool reduced: ShellState.setting("reducedMotion", false) || liveliness === "still"
     // Power saver always trims effects; the setting keeps them trimmed in every mode.
     readonly property bool lowPower: ShellState.powerSaver || ShellState.setting("batterySaving", false)
     readonly property int fast: reduced ? 0 : (lowPower ? 90 : 120)

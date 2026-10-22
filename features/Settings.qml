@@ -107,7 +107,11 @@ FocusScope {
                 {label: "Countdown on the capsule", key: "capsuleCountdown", defaultValue: true, description: "The next event within the hour, beside the clock"},
                 {label: "Target meter on the capsule", key: "capsuleMeter", defaultValue: true, description: "Five segments that light as orders are cleared"},
                 {label: "Count tag on the capsule", key: "capsuleCount", defaultValue: true, description: "Orders due today, amber with a mark when one is late"},
-                {label: "Live activities in the island", key: "islandLive", defaultValue: true, description: "Quiet, timers and music grow the capsule into a card"}
+                {label: "Live activities in the island", key: "islandLive", defaultValue: true, description: "Quiet, timers and music grow the capsule into a card"},
+                {label: "Station words", key: "stationWords", defaultValue: true, description: "QUIET, CLEARED and ON TARGET; off shows plain words"},
+                {label: "Operator notes", key: "operatorNotes", defaultValue: true, description: "One line in the hub's footer, new every hour"},
+                {label: "Sounds", key: "sounds", defaultValue: false, description: "A soft tick on clearing, a chime for an event, a note when Quiet ends"},
+                {label: "Show order titles on the lock screen", key: "lockTitles", defaultValue: false, description: "Used by the station lock style"}
             ],
             Audio: [
                 {label: "Allow volume amplification up to 150%", key: "amplification"},
@@ -137,7 +141,7 @@ FocusScope {
             "Control center": ["controlLayout"],
             General: ["clock24h", "weekStart", "weatherUnits", "searchEngine", "terminal", "updateCheck", "dailyTarget", "weeklyTarget", "daysOff", "shiftStart", "autoCarry", "shiftReminder", "shiftEnd"],
             Motion: ["reducedMotion", "batterySaving", "windowPreviews"],
-            Station: ["capsuleCountdown", "capsuleMeter", "capsuleCount", "islandLive"],
+            Station: ["capsuleCountdown", "capsuleMeter", "capsuleCount", "islandLive", "stationWords", "liveliness", "operatorNotes", "operatorLines", "sounds", "soundVolume", "lockTitles"],
             Notifications: ["persistNotifications", "focusMinutes"],
             Audio: ["amplification", "mediaRemaining"],
             Capture: ["screenshotDirectory", "recordingDirectory", "recordAudio", "captureDelay"]
@@ -390,6 +394,41 @@ FocusScope {
                 BarSettings {
                     visible: root.category === "Bar"
                     Layout.fillWidth: true
+                }
+                ColumnLayout {
+                    visible: root.category === "Station"
+                    Layout.fillWidth: true
+                    spacing: Theme.gapM
+                    C.ChoiceRow {
+                        label: "Liveliness"
+                        description: "Still moves nothing, like reduced motion; Calm keeps state changes only"
+                        model: [{key: "full", text: "Full"}, {key: "calm", text: "Calm"}, {key: "still", text: "Still"}]
+                        current: ShellState.setting("liveliness", "full")
+                        onActivated: key => ShellState.setSetting("liveliness", key)
+                    }
+                    C.ChoiceRow {
+                        label: "Sound volume"
+                        model: [25, 50, 75, 100].map(volume => ({key: volume, text: volume + "%"}))
+                        current: ShellState.setting("soundVolume", 50)
+                        onActivated: key => ShellState.setSetting("soundVolume", key)
+                    }
+                    C.Label {
+                        text: "Your own operator notes"
+                        Layout.fillWidth: true
+                    }
+                    C.Field {
+                        id: ownLines
+                        Layout.fillWidth: true
+                        Accessible.name: "Your own operator notes, separated by a vertical bar"
+                        placeholderText: "One line, or several separated by |"
+                        text: ShellState.setting("operatorLines", []).join(" | ")
+                        onAccepted: ShellState.setSetting("operatorLines", text.split("|").map(line => line.trim()).filter(line => line !== "").slice(0, 20))
+                    }
+                    C.Caption {
+                        text: "Press Enter to save. They join the shipped lines; up to 20, 100 characters each."
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
                 }
                 C.ChoiceRow {
                     visible: root.category === "Notifications"

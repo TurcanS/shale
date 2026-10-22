@@ -134,6 +134,15 @@ ColumnLayout {
         orderResult = "";
         Backend.request("day.backup", {path: orderPath(".sqlite3")}, (r, e) => orderDone(e ? "" : "Copied all Day data to " + r.path, e));
     }
+    function restoreDay() {
+        busy = true;
+        orderResult = "";
+        Backend.request("day.restore", {path: orderPath(".sqlite3")}, (r, e) => {
+            orderDone(e ? "" : "Restored " + r.count + " order" + (r.count === 1 ? "" : "s") + " from " + r.path + ". What was here is kept as day.sqlite3.before-restore.", e);
+            Day.refresh();
+            Day.loadLogbook();
+        });
+    }
     C.Label {
         text: "Orders"
         font.weight: Font.DemiBold
@@ -187,6 +196,14 @@ ColumnLayout {
             Layout.preferredWidth: 1
             onClicked: root.backupDay()
         }
+        C.Button {
+            text: "Restore"
+            glyph: "folder"
+            enabled: !root.busy && Backend.ready
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            onClicked: root.restoreDay()
+        }
     }
     C.Label {
         visible: root.orderResult !== ""
@@ -197,7 +214,7 @@ ColumnLayout {
         Layout.fillWidth: true
     }
     C.Caption {
-        text: "Import reads .json (a Shale export), .csv (a Todoist project export; its file name becomes the site) or any other text file with one order per line in the capture grammar. Back up all writes a .sqlite3 copy next to the name above."
+        text: "Import reads .json (a Shale export), .csv (a Todoist project export; its file name becomes the site) or any other text file with one order per line in the capture grammar. Back up all writes a .sqlite3 copy and Restore reads one back (what was here is kept first)."
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }

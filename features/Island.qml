@@ -91,6 +91,7 @@ Item {
     Connections {
         target: Day
         function onCleared() {
+            ShellState.playSound("clear", Focus.active);
             island.stamp = false;
             island.push("cleared", 1000, false, false);
         }
@@ -102,6 +103,7 @@ Item {
         // Six seconds, longer while the pointer is on it; it stays live (the bubble) until handled. Quiet holds it,
         // unless it is one that breaks through.
         function onArrival(item) {
+            ShellState.playSound("event", Focus.active);
             if (!Focus.active || item.breaksQuiet)
                 island.push("event", 6000, true, true);
         }
