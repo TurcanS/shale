@@ -214,7 +214,7 @@ Item {
             opacity: (line.front === "idle" ? 0.4 : 1) * breath
             property real breath: 1
             SequentialAnimation on breath {
-                running: line.shown && line.front === "active" && !Theme.reduced && !Theme.lowPower
+                running: line.shown && line.front === "active" && !Theme.calm
                 loops: Animation.Infinite
                 onRunningChanged: if (!running) front.breath = 1
                 NumberAnimation { to: 0.6; duration: 1400; easing.type: Easing.InOutSine }

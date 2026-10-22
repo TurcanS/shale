@@ -207,6 +207,51 @@ function orderQuery(text) {
     return {verb: verb, rest: rest};
 }
 
+// One row for an open order in the launcher's results.
+function orderRow(order) {
+    return {kind: "order", key: "order:" + order.id, name: order.text, fallback: "check", order: order,
+            subtitle: "Order" + (order.site ? " · " + order.site : "") + " · Enter opens it, Ctrl+Enter clears it"};
+}
+
+// The launcher rows for a command from orderQuery. `ctx` is {now, capture, parse, describe} (core/day.js) and the Day
+// service's {sites, tags, filters, orders, shiftDue}. A row that cannot run says why in `subtitle` and has `blocked`.
+function orderRows(order, ctx) {
+    if (order.verb === "todo") {
+        const parsed = ctx.capture(order.rest, ctx.now, {sites: ctx.sites.map(site => site.name)});
+        const reason = !parsed ? "Say what to do" : parsed.error || (parsed.errors.length ? parsed.errors[0].note : "");
+        return [{kind: "todo", key: "todo", name: "Add an order: " + (parsed && parsed.text ? parsed.text : order.rest), fallback: "check", parsed: parsed,
+                 subtitle: reason || "Goes to the Logbook with its site, tags and time", blocked: reason !== ""}];
+    }
+    if (order.verb === "remind") {
+        const parsed = ctx.parse(order.rest, ctx.now);
+        const reason = !parsed ? "Say when and what" : parsed.error || (parsed.kind !== "reminder" ? "Add a time, for example remind in 20m stretch" : "");
+        return [{kind: "remind", key: "remind", name: "Remind: " + (parsed && parsed.text ? parsed.text : order.rest), fallback: "bell", parsed: parsed,
+                 subtitle: reason || ctx.describe(parsed, ctx.now), blocked: reason !== ""}];
+    }
+    if (order.verb === "shift")
+        return [{kind: "logbook", key: "shift", name: ctx.shiftDue ? "Start the shift" : "Open the shift report", fallback: "activity",
+                 subtitle: ctx.shiftDue ? "Plan today and carry over what is left" : "What was cleared and how the weeks went",
+                 view: ctx.shiftDue ? "" : "report", argument: null, hub: ctx.shiftDue}];
+    if (order.verb === "find")
+        return findOrders(order.rest, ctx.orders, 8).map(orderRow);
+    // log: the Logbook, a site (#), a tag (@) or a saved filter by name
+    const rest = order.rest, folded = fold(rest.replace(/^[#@]/, ""));
+    if (rest === "")
+        return [{kind: "logbook", key: "log", name: "Open the Logbook", subtitle: "Today", fallback: "check", view: "today", argument: null}];
+    const results = [];
+    const named = (list, row) => list.forEach(item => results.push(Object.assign({kind: "logbook", subtitle: "Open in the Logbook", fallback: "check"}, row(item))));
+    if (rest[0] !== "@")
+        named(ctx.sites.filter(site => !site.archived && fold(site.name).indexOf(folded) >= 0),
+              site => ({key: "log:site:" + site.id, name: "Site " + site.name, view: "site", argument: site}));
+    if (rest[0] !== "#")
+        named(ctx.tags.filter(tag => fold(tag.name).indexOf(folded) >= 0),
+              tag => ({key: "log:tag:" + tag.name, name: "Tag @" + tag.name, view: "tag", argument: tag.name}));
+    if (rest[0] !== "#" && rest[0] !== "@")
+        named(ctx.filters.filter(filter => fold(filter.name).indexOf(folded) >= 0),
+              filter => ({key: "log:filter:" + filter.id, name: "Filter " + filter.name, view: "filter", argument: filter}));
+    return results;
+}
+
 // Open orders whose title or notes hold every word of `text` (case and accents folded), newest first; at most `limit`.
 function findOrders(text, orders, limit) {
     const words = fold(text).split(/\s+/).filter(word => word !== "");

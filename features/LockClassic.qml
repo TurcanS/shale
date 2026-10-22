@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import "../core"
+import "../services"
 import "../components" as C
 
 // The classic lock screen: a large clock over the blurred wallpaper, your picture and the password field.
@@ -75,6 +76,17 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 12
             Layout.bottomMargin: 18
+        }
+        // The next order, only when the owner chose to show titles on the lock screen.
+        C.Label {
+            visible: ShellState.setting("lockTitles", false) && !!Day.nextItem
+            text: Day.nextItem ? Day.nextItem.text : ""
+            color: Theme.muted
+            font.pixelSize: Theme.small
+            elide: Text.ElideRight
+            Layout.maximumWidth: 330
+            Layout.alignment: Qt.AlignHCenter
+            Layout.bottomMargin: 12
         }
         LockField {
             id: field
