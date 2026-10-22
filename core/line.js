@@ -11,6 +11,12 @@ function dayBounds(now) {
     return {start: start, end: end};
 }
 
+// Whether `now` is the moment just after midnight that ends the Line's day, when its layer sinks into the stack
+// (02 section 3.3). A Line coming back hours later (after a suspend, or out of a fullscreen window) only starts anew.
+function atMidnight(bounds, now) {
+    return now >= bounds.end && now - bounds.end < 120000;
+}
+
 function position(at, dayStart, dayEnd, width) {
     return Math.max(0, Math.min(width, (at - dayStart) / (dayEnd - dayStart) * width));
 }

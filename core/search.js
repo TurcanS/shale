@@ -253,6 +253,23 @@ function orderRows(order, ctx) {
 }
 
 // Open orders whose title or notes hold every word of `text` (case and accents folded), newest first; at most `limit`.
+// The empty launcher's first rows: today's next three events (reminders still to come before `dayEnd`), which open the
+// hub, and the target, which opens the shift report. `momentum` is Day.momentum (null or targets off: no target row).
+function emptyRows(events, momentum, now, dayEnd) {
+    const ahead = events.filter(event => event.at > now && event.at < dayEnd).sort((a, b) => a.at - b.at).slice(0, 3);
+    const rows = ahead.map(event => {
+        const minutes = Math.ceil((event.at - now) / 60000);
+        const when = minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + " h" + (minutes % 60 ? " " + String(minutes % 60).padStart(2, "0") : "");
+        return {kind: "logbook", key: "next:" + event.id, name: event.text, subtitle: "Next event · in " + when, fallback: "bell",
+                view: "", argument: null, hub: true};
+    });
+    if (momentum && momentum.enabled && !momentum.dayOff && momentum.target > 0)
+        rows.push({kind: "logbook", key: "target", fallback: "check", view: "report", argument: null, hub: false,
+                   name: (momentum.cleared >= momentum.target ? "On target: " : "Target: ") + momentum.cleared + " of " + momentum.target + " cleared",
+                   subtitle: "This week " + momentum.weekCleared + (momentum.weekTarget > 0 ? " of " + momentum.weekTarget : "") + " · Opens the shift report"});
+    return rows;
+}
+
 function findOrders(text, orders, limit) {
     const words = fold(text).split(/\s+/).filter(word => word !== "");
     if (!words.length)

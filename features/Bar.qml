@@ -44,6 +44,10 @@ PanelWindow {
             if (hub.logbook)
                 hub.showView(view, argument, orderId);
         }
+        function onDayOpened(output) {
+            if (output !== bar.outputName)
+                bar.closeDay();
+        }
     }
     // Both stages in one movement: from the capsule straight to the Logbook, or on from the hub; again to step back.
     IpcHandler {
@@ -125,6 +129,7 @@ PanelWindow {
         dayMotion.to = 1;
         dayMotion.restart();
         hub.focusCapture();
+        ShellState.dayOpened(bar.outputName);
     }
     function toggleLogbook() {
         if (hub.logbook) {
@@ -196,6 +201,7 @@ PanelWindow {
         outputName: bar.outputName
         blocked: bar.dayOpen || ShellState.presentation || ShellState.locked || !bar.visible
         hovered: content.dayHovered
+        recorded: content.recorded
     }
     // Lifts away as the desktop folds into the lock screen, and drops back in just behind the reveal after an unlock.
     property real arrival: 1

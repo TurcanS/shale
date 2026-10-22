@@ -8,7 +8,8 @@ import "../components" as C
 
 // The capsule grows a card for a few seconds when something live happens: an event arriving, Quiet starting or
 // hovered, a timer in its last seconds, a new track, an order cleared. One at a time by importance; a second live thing shows as a small
-// bubble beside it. The card opens from the pill's own rectangle, so a reversal needs no special case.
+// bubble beside it. The card opens from the pill's own rectangle, so a reversal needs no special case. With the pointer
+// resting on the capsule and nothing live, it grows the summary card: the next events, open orders, target, recorded time.
 Item {
     id: island
     // Where the pill is, in this item's coordinates; asked for through `rectOf` as the card opens.
@@ -18,12 +19,25 @@ Item {
     // No expansion while the hub is open or typed into, in presentation, or under the lock.
     property bool blocked: false
     property bool hovered: false
+    // Today's recorded seconds, from the Line, for the summary card.
+    property real recorded: 0
+    // The pointer has stayed on the capsule (or the card) for a moment, so passing over it opens nothing.
+    property bool resting: false
+    Timer {
+        interval: 450
+        running: island.hovered && !island.resting
+        onTriggered: {
+            island.now = Date.now();
+            island.resting = true;
+        }
+    }
+    onHoveredChanged: if (!hovered && !cardHover.hovered) resting = false
     property real now: Date.now()
     // The cleared card says ON TARGET instead, when clearing the order met the day's target.
     property bool stamp: false
     property var queue: []
     // The pointer on the card keeps it open too, so its keys can be reached.
-    readonly property var picked: Queue.pick(queue, now, blocked, hovered || cardHover.hovered)
+    readonly property var picked: Queue.pick(queue, now, blocked, hovered || cardHover.hovered, resting)
     readonly property var current: picked.current
     readonly property var bubble: current ? picked.bubble : null
     readonly property alias card: card
@@ -31,9 +45,14 @@ Item {
     property var shown: null
     readonly property string kind: shown ? shown.kind : ""
     readonly property var event: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
-    readonly property int cardWidth: kind === "event" ? 400 : 280
-    readonly property int cardHeight: 52
-    Accessible.name: ({event: "Reminder arrived", quiet: "Focus", timer: "Timer", media: "Now playing", gauge: "Level", saved: "Saved", cleared: "To-do done"})[kind] || ""
+    readonly property var summary: kind === "summary"
+        ? Queue.summary(Day.items.filter(item => item.kind === "reminder" && !item.doneAt).concat(Day.nextItem && Day.nextItem.kind === "reminder" ? [Day.nextItem] : [])
+                            .filter((item, index, list) => list.findIndex(other => other.id === item.id) === index),
+                        Day.todos.length, Day.momentum, recorded, ShellState.setting("activityTracking", "ask") === "on", now, ShellState.setting("stationWords", true))
+        : null
+    readonly property int cardWidth: kind === "event" ? 400 : kind === "summary" ? 300 : 280
+    readonly property int cardHeight: summary ? 52 + 18 * Math.max(1, summary.events.length) : 52
+    Accessible.name: ({event: "Reminder arrived", quiet: "Focus", timer: "Timer", media: "Now playing", gauge: "Level", saved: "Saved", cleared: "To-do done", summary: "Day summary"})[kind] || ""
     property real reveal: current ? 1 : 0
     Behavior on reveal {
         NumberAnimation {
@@ -149,6 +168,7 @@ Item {
         opacity: Theme.reduced ? island.reveal : Math.min(1, island.reveal * 3)
         HoverHandler {
             id: cardHover
+            onHoveredChanged: if (!hovered && !island.hovered) island.resting = false
         }
         // What is live sets the colour of the card's left edge, as an app does on a notification card.
         Rectangle {
@@ -214,9 +234,39 @@ Item {
                                                           + " · " + Qt.formatDateTime(new Date(island.event.at), "HH:mm")
                                                           + (Day.arrived.length > 1 ? " · " + Day.arrived.length + " events" : ""))
                             : island.kind === "quiet" ? "Quiet" : island.kind === "timer" ? "Timer"
-                            : island.kind === "media" ? "Now playing" : island.kind === "gauge" ? ShellState.word("gauge") : island.kind === "saved" ? "Saved" : "Cleared"
+                            : island.kind === "media" ? "Now playing" : island.kind === "gauge" ? ShellState.word("gauge") : island.kind === "saved" ? "Saved"
+                            : island.summary ? [island.summary.open, island.summary.target].filter(part => part !== "").join(" · ") : "Cleared"
+                    }
+                    // The summary: one row per event still to come (a countdown within the hour), then the recorder.
+                    Repeater {
+                        model: island.summary ? island.summary.events : []
+                        RowLayout {
+                            id: eventRow
+                            required property var modelData
+                            Layout.fillWidth: true
+                            spacing: 8
+                            C.Readout {
+                                text: eventRow.modelData.soon || Qt.formatDateTime(new Date(eventRow.modelData.at), ShellState.timeFormat)
+                                color: eventRow.modelData.soon ? Theme.accent2 : Theme.muted
+                                font.pixelSize: Theme.small
+                                Layout.preferredWidth: 52
+                            }
+                            C.Label {
+                                text: eventRow.modelData.text
+                                font.pixelSize: Theme.small
+                                Layout.fillWidth: true
+                            }
+                        }
+                    }
+                    C.Label {
+                        visible: !!island.summary
+                        text: island.summary ? (island.summary.events.length ? "" : (ShellState.setting("stationWords", true) ? "No events ahead · " : "No reminders ahead · ")) + island.summary.recorded : ""
+                        color: Theme.muted
+                        font.pixelSize: Theme.small
+                        Layout.fillWidth: true
                     }
                     C.Readout {
+                        visible: !island.summary
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         font.pixelSize: Theme.body + 3

@@ -144,6 +144,8 @@ QtObject {
     signal dayRequested(string output, string mode)
     // Opens the Logbook on a view ("today", "ahead", "site", "tag", "filter", "report", ...) or on one order's sheet.
     signal logbookRequested(string output, string view, var argument, int orderId)
+    // A hub opened on this output; the hub on any other output gives way, as an open panel does.
+    signal dayOpened(string output)
     signal activitySnapshotRequested()
     property var wallpaperChange: ({})
     property bool wallpaperBusy: false

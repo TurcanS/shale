@@ -43,6 +43,8 @@ Item {
     property Item dayAnchor: null
     // Whether the pointer is on the Day pill.
     property bool dayHovered: false
+    // Today's recorded seconds from the Line, for the island's summary card.
+    property real recorded: 0
     signal dayClicked()
     // A right-click: the quick-add row.
     signal dayPeekClicked()
@@ -360,6 +362,11 @@ Item {
                 width: parent.width
                 onScreen: bar.onScreen
                 open: bar.dayOpen
+            }
+            Binding {
+                target: bar
+                property: "recorded"
+                value: todayLine.recorded
             }
             TargetMeter {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -786,6 +793,16 @@ Item {
                 acceptedButtons: Qt.MiddleButton
                 onTapped: Services.toggleMute()
             }
+            // Muted, in the station's words: a hollow lamp on the speaker.
+            C.Lamp {
+                visible: Services.muted && ShellState.setting("stationWords", true)
+                lit: false
+                color: Theme.muted
+                size: 6
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 6
+            }
         }
     }
     Component {
@@ -808,6 +825,27 @@ Item {
             Accessible.name: "Battery " + Math.round(Services.batteryPercent) + "%" + (Services.batteryCharging ? ", charging" : "")
             selected: bar.controlActive("power")
             onClicked: bar.toggleControl("power")
+            // The charge as a 5-segment gauge under the glyph, in the station's words.
+            Row {
+                id: charge
+                readonly property int lit: Station.lit(Services.batteryPercent, 5)
+                visible: ShellState.setting("stationWords", true)
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 3
+                spacing: 1
+                Repeater {
+                    model: 5
+                    Rectangle {
+                        required property int index
+                        width: 4
+                        height: 2
+                        radius: 1
+                        color: index >= charge.lit ? Theme.border : Services.batteryPercent <= 10 && !Services.batteryCharging ? Theme.danger
+                               : Services.batteryPercent <= 20 && !Services.batteryCharging ? Theme.warning : Theme.accent
+                    }
+                }
+            }
         }
     }
     Component {

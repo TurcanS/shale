@@ -82,8 +82,21 @@ Item {
     }
     function tick() {
         now = Date.now();
-        if (now >= bounds.end || now < bounds.start)
-            bounds = LineMath.dayBounds(now);
+        if (now < bounds.end && now >= bounds.start) {
+            load();
+            return;
+        }
+        // At midnight the finished day sinks out of the Line before the new one begins; the grab is the old picture.
+        if (LineMath.atMidnight(bounds, now) && !Theme.reduced && !Theme.lowPower && strip.width > 0
+            && strip.grabToImage(result => line.sink(result.url)))
+            return;
+        bounds = LineMath.dayBounds(now);
+        load();
+    }
+    function sink(url) {
+        sunk.source = url;
+        bounds = LineMath.dayBounds(Date.now());
+        sinking.restart();
         load();
     }
     // 30 s, as Activity's own refresh; a new day starts an empty Line on the same tick.
@@ -267,6 +280,27 @@ Item {
                 NumberAnimation { duration: Theme.enter }
             }
         }
+    }
+    // Yesterday's layer on its way down into the stack, for 1.2 s after midnight.
+    Image {
+        id: sunk
+        property real fall: 0
+        x: strip.x
+        y: fall * 10
+        width: strip.width
+        height: strip.height
+        visible: sinking.running
+        opacity: 1 - fall
+    }
+    NumberAnimation {
+        id: sinking
+        target: sunk
+        property: "fall"
+        from: 0
+        to: 1
+        duration: 1200
+        easing.type: Easing.InOutCubic
+        onFinished: sunk.source = ""
     }
     // What is under the pointer: the app and how long, or the item and its time. Drawn below the bar, which the
     // window leaves transparent; it is a hint only, so it takes no input.

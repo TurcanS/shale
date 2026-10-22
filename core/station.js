@@ -163,6 +163,11 @@ function paint(ctx, drum) {
     ctx.fill();
 }
 
+// How many of a gauge's `count` segments are lit for `percent` (0 to 100): any charge at all lights the first.
+function lit(percent, count) {
+    return Math.max(0, Math.min(count, Math.ceil(Math.max(0, percent) / 100 * count - 1e-9)));
+}
+
 // Where the Front (now) falls across `width`, the line the station lock splits along.
 function front(now, dayStart, dayEnd, width) {
     return Math.round(Math.max(0, Math.min(1, (now - dayStart) / (dayEnd - dayStart))) * width);

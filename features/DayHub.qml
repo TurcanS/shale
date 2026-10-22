@@ -26,7 +26,8 @@ Item {
     // The quick-add row: only the field, Enter adds and closes.
     property bool peek: false
     readonly property int fullHeight: 460
-    readonly property int hubWidth: peek ? 480 : 640
+    // Never wider than the output, so a narrow or portrait monitor still shows the whole hub.
+    readonly property int hubWidth: Math.max(0, Math.min(peek ? 480 : 640, width - 2 * Theme.gapM))
     readonly property int hubHeight: peek ? Theme.controlLarge + Theme.small + Theme.gapXs + 2 * Theme.gapM + 4 : fullHeight
     // The Logbook, the island's third stage: the hub grows on into it (0: the hub, 1: the Logbook). It is its own
     // number, so a reversal at any moment needs no special case.

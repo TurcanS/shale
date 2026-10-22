@@ -106,7 +106,16 @@ FocusScope {
         // Every app stays reachable from the empty query; a search only needs the best matches.
         // Typing an open order's words offers it after the apps (three at most).
         const words = term.length >= 3 && !commandResults.length ? Search.findOrders(term, Day.orders, 3).map(Search.orderRow) : [];
-        return commandResults.concat(term ? sorted.slice(0, 100) : sorted, words);
+        return commandResults.concat(term ? [] : emptyRows, term ? sorted.slice(0, 100) : sorted, words);
+    }
+    // An empty search starts with today's next events and the target.
+    readonly property var emptyRows: {
+        if (mode !== "apps" || query !== "")
+            return [];
+        const now = Date.now();
+        const day = new Date(now);
+        const pending = Day.items.filter(item => item.kind === "reminder" && !item.doneAt && !(item.firedAt && item.firedAt >= item.at));
+        return Search.emptyRows(pending, Day.momentum, now, new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime());
     }
     // The Strata commands: todo, remind, log, find and shift (rows built in core/search.js).
     function orderResults(order) {
