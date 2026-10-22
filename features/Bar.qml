@@ -193,6 +193,7 @@ PanelWindow {
         id: island
         anchors.fill: parent
         rectOf: bar.pillRect
+        outputName: bar.outputName
         blocked: bar.dayOpen || ShellState.presentation || ShellState.locked || !bar.visible
         hovered: content.dayHovered
     }

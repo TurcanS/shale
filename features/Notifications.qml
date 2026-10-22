@@ -10,6 +10,7 @@ import "../components" as C
 
 FocusScope {
     readonly property string title: ShellState.word("signalLog")
+    readonly property string plainTitle: "Notifications"
     readonly property int panelWidth: 420
     ColumnLayout {
         anchors.fill: parent

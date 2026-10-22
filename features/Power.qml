@@ -9,6 +9,7 @@ import QtQuick.Layouts
 FocusScope {
     id: root
     readonly property string title: ShellState.word("powerDown")
+    readonly property string plainTitle: "Session"
     readonly property int panelWidth: 440
     readonly property int panelHeight: Theme.body >= 18 ? 470 : 440
 

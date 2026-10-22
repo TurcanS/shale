@@ -75,7 +75,7 @@ Scope {
         id: osdWindow
         readonly property bool level: ShellState.osdValue >= 0
         readonly property bool station: ShellState.setting("stationWords", true)
-        property real reveal: root.target && ShellState.osdVisible && !ShellState.locked ? 1 : 0
+        property real reveal: root.target && ShellState.osdVisible && !ShellState.locked && !ShellState.osdInIsland ? 1 : 0
         Behavior on reveal { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
         screen: root.screen
         anchors {

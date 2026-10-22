@@ -47,6 +47,7 @@ Rectangle {
             }
             C.Label {
                 text: root.page("title", "Shale")
+                Accessible.name: root.page("plainTitle", text)
                 font.pixelSize: Theme.titleSize
                 font.weight: Font.DemiBold
                 Layout.fillWidth: true

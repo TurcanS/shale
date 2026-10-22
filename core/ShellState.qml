@@ -26,6 +26,11 @@ QtObject {
     property bool osdVisible: false
     // Bumps on every OSD update so the icon can react even when the value is unchanged.
     property int osdSerial: 0
+    // The island on the focused output took this level readout, so the popup stays away.
+    property bool osdInIsland: false
+    // A screenshot or recording was saved: the island offers an Open key for a moment.
+    property string savedPath: ""
+    signal captureSaved(string path)
     // Follows Settings → 24-hour clock everywhere a time of day is shown.
     readonly property string timeFormat: setting("clock24h", true) ? "HH:mm" : "h:mm AP"
     // 0 is Sunday. Settings → General may choose instead of the locale.
@@ -403,6 +408,10 @@ QtObject {
         }
     }
     function recordingResult(r) {
+        if (r.saved) {
+            savedPath = r.path;
+            captureSaved(r.path);
+        }
         if (r.saved)
             message("Recording saved · " + fileName(r.path), "success", {label: "Open", run: () => openPath(r.path)});
         else
@@ -511,6 +520,8 @@ QtObject {
                 root.message("Color copied · " + r.color, "success");
             else if (r && r.path) {
                 const path = r.path;
+                root.savedPath = path;
+                root.captureSaved(path);
                 root.message((r.copied ? "Screenshot copied and saved · " : "Screenshot saved · ") + root.fileName(path), "success", {label: "Open", run: () => root.openPath(path)});
             } else
                 root.message("Done", "success");

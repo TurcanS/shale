@@ -8,6 +8,7 @@ import "../components" as C
 FocusScope {
     id: root
     readonly property string title: ShellState.word("recorder")
+    readonly property string plainTitle: "Activity"
     readonly property int panelWidth: 720
     readonly property int panelHeight: 620
     readonly property int graphWeeks: width < 520 ? 26 : 53

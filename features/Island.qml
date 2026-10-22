@@ -13,6 +13,7 @@ Item {
     id: island
     // Where the pill is, in this item's coordinates; asked for through `rectOf` as the card opens.
     property var rectOf: null
+    property string outputName: ""
     property rect pill: Qt.rect(0, 0, 0, 0)
     // No expansion while the hub is open or typed into, in presentation, or under the lock.
     property bool blocked: false
@@ -67,6 +68,23 @@ Item {
             } else if (timer.endsAt - island.now <= 10000 && !island.queue.some(item => item.kind === "timer" && item.until === timer.endsAt)) {
                 island.queue = Queue.push(island.queue, {kind: "timer", until: timer.endsAt, live: false, hover: false});
             }
+        }
+    }
+    // Volume and brightness grow out of the capsule while changing, plus 1.5 s; countdowns (no level) keep the popup.
+    Connections {
+        target: ShellState
+        function onOsdSerialChanged() {
+            const mine = island.outputName === ShellState.targetScreen() && ShellState.setting("islandLive", true)
+                && ShellState.osdValue >= 0 && !island.blocked;
+            ShellState.osdInIsland = mine;
+            if (mine)
+                island.push("gauge", 1500, false, false);
+        }
+    }
+    Connections {
+        target: ShellState
+        function onCaptureSaved() {
+            island.push("saved", 3000, false, true);
         }
     }
     Connections {
@@ -175,13 +193,27 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
+                    Row {
+                        visible: island.kind === "gauge"
+                        spacing: 2
+                        Repeater {
+                            model: 20
+                            Rectangle {
+                                required property int index
+                                width: 8
+                                height: 3
+                                radius: 1
+                                color: (index + 1) / 20 <= ShellState.osdValue + 0.025 && ShellState.osdValue > 0 ? (ShellState.osdMuted ? Theme.muted : Theme.accent) : Theme.border
+                            }
+                        }
+                    }
                     C.StationText {
                         color: island.kind === "event" ? Theme.accent2 : Theme.muted
                         text: island.kind === "event" ? (!island.event ? "Event" : (island.event.away ? "While you were away" : "Event arrived")
                                                           + " · " + Qt.formatDateTime(new Date(island.event.at), "HH:mm")
                                                           + (Day.arrived.length > 1 ? " · " + Day.arrived.length + " events" : ""))
                             : island.kind === "quiet" ? "Quiet" : island.kind === "timer" ? "Timer"
-                            : island.kind === "media" ? "Now playing" : "Cleared"
+                            : island.kind === "media" ? "Now playing" : island.kind === "gauge" ? ShellState.word("gauge") : island.kind === "saved" ? "Saved" : "Cleared"
                     }
                     C.Readout {
                         Layout.fillWidth: true
@@ -198,17 +230,23 @@ Item {
                                 return island.event ? "▲ " + island.event.text : "";
                             if (kind === "media")
                                 return NowPlaying.player ? (NowPlaying.player.trackTitle || "") + (NowPlaying.player.trackArtist ? " · " + NowPlaying.player.trackArtist : "") : "";
+                            if (kind === "saved")
+                                return ShellState.fileName(ShellState.savedPath);
+                            if (kind === "gauge")
+                                return (ShellState.osdMuted ? ShellState.word("muted") : ShellState.osdLabel) + "  " + Math.round(ShellState.osdValue * 100) + "%";
                             return island.stamp ? "ON TARGET" : "Order cleared";
                         }
                     }
                 }
                 C.StationKey {
-                    visible: island.kind === "quiet" || island.kind === "timer"
+                    visible: island.kind === "quiet" || island.kind === "timer" || island.kind === "saved"
                     Layout.fillWidth: false
-                    text: island.kind === "quiet" ? "End" : "Cancel"
+                    text: island.kind === "quiet" ? "End" : island.kind === "saved" ? "Open" : "Cancel"
                     onClicked: {
                         if (island.kind === "quiet") {
                             Focus.end(true);
+                        } else if (island.kind === "saved") {
+                            ShellState.openPath(ShellState.savedPath);
                         } else if (Focus.nextTimer) {
                             Focus.cancelTimer(Focus.nextTimer.id);
                         }

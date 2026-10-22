@@ -5,7 +5,7 @@
 // media playing) and so shows as a small bubble while another activity has the capsule.
 
 // Lower comes first: an arrived event, then the gauges, then the rest ([16](16-station-shell.md) section 3a).
-const PRIORITY = {event: 0, gauge: 1, quiet: 2, timer: 3, media: 4, cleared: 5};
+const PRIORITY = {event: 0, gauge: 1, saved: 2, quiet: 3, timer: 4, media: 5, cleared: 6};
 
 function rank(kind) {
     return kind in PRIORITY ? PRIORITY[kind] : 99;
