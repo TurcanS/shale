@@ -23,7 +23,6 @@ Item {
     property var bounds: LineMath.dayBounds(now)
     property var activity: null
     readonly property var segments: activity && activity.date === Day.today() ? activity.segments : []
-    readonly property var ranking: LineMath.ranking(activity ? activity.apps || [] : [])
     readonly property var bands: LineMath.bands(segments, bounds.start, bounds.end, now, span)
     readonly property var marks: LineMath.marks(Day.items, Day.todos, bounds.start, bounds.end, span)
     // Recorded time, added up as Activity's day view does (active and watching).
@@ -88,8 +87,7 @@ Item {
     function bandColor(band) {
         if (band.state === "idle")
             return Theme.activityIdle;
-        const index = line.ranking.indexOf(band.app);
-        const mineral = Theme.activityApps[index >= 0 ? index : Theme.activityApps.length - 1];
+        const mineral = Theme.mineral(band.app);
         return band.state === "watching" ? Theme.mix(mineral, Theme.warning, 0.35) : mineral;
     }
     // Open rock: the part of the day still to come.

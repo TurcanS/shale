@@ -84,7 +84,7 @@ FocusScope {
         const usage = ShellState.setting("appUsage", {});
         const folded = Search.fold(term).trim();
         const ranked = apps.map(app => ({
-            kind: "app", name: app.entry.name, subtitle: app.entry.genericName || app.entry.comment || app.entry.id,
+            kind: "app", mineral: app.entry.id, name: app.entry.name, subtitle: app.entry.genericName || app.entry.comment || app.entry.id,
             glyph: app.entry.icon, entry: app.entry, key: app.entry.id, rank: Search.scoreApp(app.text, folded)
         })).filter(i => i.rank > 0);
         // Open windows and built-in actions compete with apps on one scale. An open window edges out launching
@@ -125,7 +125,7 @@ FocusScope {
                 continue;
             const entry = appId && DesktopEntries.heuristicLookup ? DesktopEntries.heuristicLookup(appId) : null;
             const workspace = window.workspace ? (window.workspace.id > 0 ? "workspace " + window.workspace.id : String(window.workspace.name || "").replace(/^special:/, "")) : "";
-            results.push({kind: "window", key: "window:" + window.address, name: window.title || (entry ? entry.name : appId) || "Window",
+            results.push({kind: "window", mineral: appId, key: "window:" + window.address, name: window.title || (entry ? entry.name : appId) || "Window",
                           subtitle: "Switch to " + (entry ? entry.name : appId || "window") + (workspace ? " · " + workspace : ""),
                           glyph: entry ? entry.icon : appId, fallback: "window", window: window, rank: rank});
         }
@@ -649,7 +649,19 @@ FocusScope {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.gapXs
-                        C.Label { text: row.modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.gapS
+                            // The app's mineral, the same colour the Line and Activity give it.
+                            Rectangle {
+                                visible: !!row.modelData.mineral
+                                Layout.preferredWidth: 6
+                                Layout.preferredHeight: 6
+                                radius: 3
+                                color: Theme.mineral(row.modelData.mineral)
+                            }
+                            C.Label { text: row.modelData.name; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                        }
                         C.Label {
                             visible: row.modelData.subtitle !== row.modelData.name && row.modelData.subtitle !== ""
                             text: row.modelData.subtitle

@@ -95,6 +95,16 @@ Rectangle {
         color: root.event ? Theme.accent2 : Theme.danger
         visible: root.notification.urgency === 2 || root.event
     }
+    // The app's mineral on the left edge, so the same app reads the same here as on the Line.
+    Rectangle {
+        x: 0
+        y: 18
+        width: 3
+        height: 20
+        radius: 1.5
+        color: Theme.mineral(root.notification.desktopEntry || root.notification.appName)
+        visible: !(root.notification.urgency === 2 || root.event)
+    }
     HoverHandler {
         onHoveredChanged: if (root.popup) Services.pausePopup(root.notification.id, hovered)
     }

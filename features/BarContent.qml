@@ -174,6 +174,11 @@ Item {
                 required property bool urgent
                 required property bool empty
                 readonly property bool current: workspaceStrip.activeId === workspaceId
+                // The app whose window sits on this workspace, as a lamp in its mineral.
+                readonly property string lampApp: {
+                    const window = Services.windows.find(w => w.workspace && w.workspace.id === workspaceId);
+                    return window ? (window.wayland ? window.wayland.appId || "" : (window.lastIpcObject || {}).class || "") : "";
+                }
                 readonly property color tint: current ? Theme.accentText : urgent ? Theme.warning : empty ? Theme.disabled : Theme.muted
                 width: workspaceStrip.slotWidth
                 height: workspaceStrip.height
@@ -198,6 +203,16 @@ Item {
                         radius: 3
                         color: workspaceButton.tint
                         Behavior on width { NumberAnimation { duration: Theme.reduced ? 0 : Theme.fast; easing.type: Easing.OutCubic } }
+                    }
+                    Rectangle {
+                        visible: workspaceButton.lampApp !== ""
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 2
+                        width: 4
+                        height: 4
+                        radius: 2
+                        color: Theme.mineral(workspaceButton.lampApp)
                     }
                 }
                 background: Rectangle {

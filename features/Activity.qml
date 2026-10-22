@@ -118,8 +118,7 @@ FocusScope {
     }
     function stateColor(state) { return state === "active" ? Theme.accent : state === "watching" ? Theme.activityWatching : Theme.activityIdle; }
     function appColor(app) {
-        const index = dayRanking.indexOf(app);
-        return Theme.activityApps[index >= 0 ? index : Theme.activityApps.length - 1];
+        return Theme.mineral(app === "other" ? "" : app);
     }
     function appEntry(app) {
         const key = app.toLowerCase().replace(/\.desktop$/, "");

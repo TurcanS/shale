@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import "minerals.js" as Minerals
 
 QtObject {
     readonly property var surfacePalettes: ({
@@ -112,6 +113,8 @@ QtObject {
     readonly property color activityWatching: mix(raised, warning, 0.78)
     // Distinct, equally muted hues for telling apps apart on one timeline, kept clear of the accent and the
     // watching amber; the last is for "other".
+    // The colour that follows an app everywhere (Line, Activity, cards, launcher, volume, workspaces).
+    function mineral(app) { return Minerals.color(app); }
     readonly property var activityApps: [accent, mix(raised, Qt.rgba(0.56, 0.71, 0.89, 1), 0.86), mix(raised, Qt.rgba(0.78, 0.64, 0.83, 1), 0.86),
                                          mix(raised, Qt.rgba(0.88, 0.60, 0.60, 1), 0.86), mix(raised, Qt.rgba(0.74, 0.80, 0.52, 1), 0.86),
                                          mix(raised, Qt.rgba(0.70, 0.68, 0.94, 1), 0.86), mix(raised, muted, 0.55)]

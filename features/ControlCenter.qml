@@ -563,6 +563,7 @@ FocusScope {
                                     required property var modelData
                                     Layout.fillWidth: true
                                     title: modelData.properties && modelData.properties["application.name"] || modelData.description || modelData.name
+                                    mineral: Theme.mineral(modelData.properties && (modelData.properties["application.process.binary"] || modelData.properties["application.name"]))
                                     muteable: !!modelData.audio
                                     muted: !!modelData.audio && modelData.audio.muted
                                     onIconClicked: if (modelData.audio) modelData.audio.muted = !modelData.audio.muted

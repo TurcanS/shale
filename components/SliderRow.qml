@@ -7,6 +7,8 @@ import "." as C
 ColumnLayout {
     id: root
     property string title: ""
+    // A per-app row shows the app's mineral before its name.
+    property color mineral: "transparent"
     property string glyph: "volume"
     property real value: 0
     property real maximum: 1
@@ -43,6 +45,13 @@ ColumnLayout {
             Accessible.checkable: true
             Accessible.checked: root.muted
             onClicked: root.iconClicked()
+        }
+        Rectangle {
+            visible: root.mineral.a > 0
+            Layout.preferredWidth: 8
+            Layout.preferredHeight: 8
+            radius: 4
+            color: root.mineral
         }
         C.Label {
             text: root.title + (root.muted ? " · muted" : "")
