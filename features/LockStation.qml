@@ -42,6 +42,16 @@ LockParticles {
         if (!error)
             activity = result;
     }
+    // A named function rather than code in the handler: qmllint skips a whole file whose handlers declare constants.
+    function lowerWallpaper(drum) {
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child !== drum && child.darken !== undefined && child.sharp !== undefined) {
+                child.z = -2;
+                return;
+            }
+        }
+    }
     Component.onCompleted: loadActivity()
     // The drum moves on once a minute, as in the hub.
     Timer {
@@ -67,15 +77,7 @@ LockParticles {
         // The particle screen's own children all sit at z 0 in their order, the wallpaper first. QML cannot insert an
         // item among them, so the wallpaper goes one step further down instead, and the drum between it and the rest.
         z: -1
-        Component.onCompleted: {
-            for (let i = 0; i < root.children.length; i++) {
-                const child = root.children[i];
-                if (child !== drumLayer && child.darken !== undefined && child.sharp !== undefined) {
-                    child.z = -2;
-                    break;
-                }
-            }
-        }
+        Component.onCompleted: root.lowerWallpaper(drumLayer)
         Canvas {
             id: drum
             anchors.fill: parent
@@ -120,10 +122,11 @@ LockParticles {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 28
+        // Slides down 20 px into place as the chrome comes in, as the status corner opposite does.
+        anchors.topMargin: 28 - (1 - root.chrome) * 20
         width: Math.min(420, root.width / 2 - 56)
         spacing: 6
         opacity: root.chrome * (1 - 0.4 * root.idleness)
-        transform: Translate { y: -(1 - root.chrome) * 20 }
         C.StationText {
             text: ShellState.word("unattended")
             color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.95)
