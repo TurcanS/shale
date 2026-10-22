@@ -13,7 +13,8 @@ Item {
     property bool onScreen: true
     property bool open: false
     readonly property bool tracking: ShellState.setting("activityTracking", "ask") === "on"
-    readonly property bool shown: onScreen && !ShellState.presentation && !ShellState.locked
+    // Hidden while presenting or sharing the screen, as well as under the lock (03 section 10).
+    readonly property bool shown: onScreen && !ShellState.presentation && !ShellState.locked && Services.screenSharers.length === 0
     readonly property int restHeight: 4
     readonly property int hoverHeight: 9
     // Space either side so the Line stays inside the pill's rounded ends.

@@ -231,3 +231,17 @@ function moveBlock(dueAt, minutes, days) {
 function dropColumn(from, dx, columnWidth, columns) {
     return Math.max(0, Math.min(columns - 1, from + Math.round(dx / columnWidth)));
 }
+
+// The https:// links in an order's notes, each once, in order, at most `limit`; a trailing full stop, comma, colon,
+// semicolon or closing bracket belongs to the sentence, not the link.
+function links(notes, limit) {
+    const found = [];
+    const pattern = /https:\/\/[^\s<>"]+/g;
+    let match;
+    while ((match = pattern.exec(String(notes || ""))) !== null && found.length < limit) {
+        const url = match[0].replace(/[.,:;!?)\]]+$/, "");
+        if (url.length > 8 && found.indexOf(url) < 0)
+            found.push(url);
+    }
+    return found;
+}

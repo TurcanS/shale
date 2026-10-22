@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Io
 import Quickshell.Hyprland
 import "../core"
+import "../services"
 import "../components" as C
 
 PanelWindow {
@@ -199,7 +200,7 @@ PanelWindow {
         anchors.fill: parent
         rectOf: bar.pillRect
         outputName: bar.outputName
-        blocked: bar.dayOpen || ShellState.presentation || ShellState.locked || !bar.visible
+        blocked: bar.dayOpen || ShellState.presentation || Services.screenSharers.length > 0 || ShellState.locked || !bar.visible
         hovered: content.dayHovered
         recorded: content.recorded
     }

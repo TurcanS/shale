@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "../core"
 import "../core/day.js" as DayText
+import "../core/logbook.js" as Book
 import "../services"
 import "../components" as C
 
@@ -210,6 +211,22 @@ Rectangle {
                 onActiveFocusChanged: {
                     if (!activeFocus && sheet.order && text !== (sheet.order.notes || ""))
                         sheet.save({notes: text});
+                }
+            }
+        }
+        // The notes stay plain text to edit; their https:// links open from keys under them.
+        Flow {
+            Layout.fillWidth: true
+            spacing: Theme.gapS
+            visible: links.count > 0
+            Repeater {
+                id: links
+                model: Book.links(notesField.text, 3)
+                C.StationKey {
+                    required property string modelData
+                    text: "↗ " + modelData.replace(/^https:\/\//, "").slice(0, 40)
+                    Accessible.name: "Open link " + modelData
+                    onClicked: ShellState.openUrl(modelData)
                 }
             }
         }

@@ -339,15 +339,16 @@ Item {
             readonly property string soon: {
                 if (eventIn < 0 || eventIn > 3600000 || !ShellState.setting("capsuleCountdown", true))
                     return "";
-                const text = shownEvent.text.length > 24 ? shownEvent.text.slice(0, 23) + "…" : shownEvent.text;
-                return Station.countdown(shownEvent.at, nowMs) + " " + text;
+                return Station.soon(shownEvent, nowMs, discreet);
             }
             readonly property bool quiet: Focus.active
+            // Presenting or sharing the screen: times and counts only, no reminder or order titles (03 section 10).
+            readonly property bool discreet: ShellState.presentation || Services.screenSharers.length > 0
             Accessible.name: (quiet ? "Focus, " + Focus.clockText(Focus.remainingSeconds) + " left, " : "") + (arrived ? "Reminder arrived, " : soon ? "Next reminder, " : "") + "Day hub"
             // An event that arrived stays on the capsule until it is snoozed, cleared or dismissed; the newest shows.
             readonly property var arrived: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
-            readonly property string arrivedText: arrived ? "▲ " + (arrived.text.length > 24 ? arrived.text.slice(0, 23) + "…" : arrived.text) : ""
-            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  " + Station.word("quiet", ShellState.setting("stationWords", true)) + " " + Focus.clockText(Focus.remainingSeconds) + (Focus.orderText ? " " + (Focus.orderText.length > 22 ? Focus.orderText.slice(0, 21) + "…" : Focus.orderText) : "") : arrived ? "  ·  " + arrivedText : soon ? "  ·  " + soon : "")
+            readonly property string arrivedText: !arrived ? "" : discreet ? "▲" : "▲ " + (arrived.text.length > 24 ? arrived.text.slice(0, 23) + "…" : arrived.text)
+            text: Qt.formatDateTime(clock.date, format) + (quiet ? "  ·  " + Station.word("quiet", ShellState.setting("stationWords", true)) + " " + Focus.clockText(Focus.remainingSeconds) + (Focus.orderText && !discreet ? " " + (Focus.orderText.length > 22 ? Focus.orderText.slice(0, 21) + "…" : Focus.orderText) : "") : arrived ? "  ·  " + arrivedText : soon ? "  ·  " + soon : "")
             // Open to-dos due today, as a small count on the pill; amber with a mark when one is already late.
             readonly property int dueToday: Day.todos.filter(item => item.dueAt && new Date(item.dueAt).toDateString() === clock.date.toDateString()).length
             readonly property int overdue: Day.todos.filter(item => item.dueAt && item.dueAt < clockButton.nowMs).length

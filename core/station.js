@@ -163,6 +163,15 @@ function paint(ctx, drum) {
     ctx.fill();
 }
 
+// The capsule's countdown: "T−0:25 Stand-up", the title cut at 24 characters; only the countdown while `discreet`
+// (presenting or sharing the screen).
+function soon(event, now, discreet) {
+    const count = countdown(event.at, now);
+    if (discreet)
+        return count;
+    return count + " " + (event.text.length > 24 ? event.text.slice(0, 23) + "…" : event.text);
+}
+
 // How many of a gauge's `count` segments are lit for `percent` (0 to 100): any charge at all lights the first.
 function lit(percent, count) {
     return Math.max(0, Math.min(count, Math.ceil(Math.max(0, percent) / 100 * count - 1e-9)));
