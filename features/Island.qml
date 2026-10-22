@@ -33,6 +33,7 @@ Item {
     readonly property var event: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
     readonly property int cardWidth: kind === "event" ? 400 : 280
     readonly property int cardHeight: 52
+    Accessible.name: ({event: "Reminder arrived", quiet: "Focus", timer: "Timer", media: "Now playing", gauge: "Level", saved: "Saved", cleared: "To-do done"})[kind] || ""
     property real reveal: current ? 1 : 0
     Behavior on reveal {
         NumberAnimation {

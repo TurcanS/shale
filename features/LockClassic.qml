@@ -51,6 +51,13 @@ Item {
             elide: Text.ElideNone
             Layout.alignment: Qt.AlignHCenter
         }
+        // The lock in the station's words; the plain word ("Locked") when they are off.
+        C.StationText {
+            text: ShellState.word("unattended")
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 4
+            Accessible.name: "Locked"
+        }
         // Tabular figures keep the clock from shifting as the minutes change.
         C.Label {
             text: Qt.formatDateTime(clock.date, ShellState.setting("clock24h", true) ? "HH:mm" : "h:mm")

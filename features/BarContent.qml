@@ -341,6 +341,7 @@ Item {
                 return Station.countdown(shownEvent.at, nowMs) + " " + text;
             }
             readonly property bool quiet: Focus.active
+            Accessible.name: (quiet ? "Focus, " + Focus.clockText(Focus.remainingSeconds) + " left, " : "") + (arrived ? "Reminder arrived, " : soon ? "Next reminder, " : "") + "Day hub"
             // An event that arrived stays on the capsule until it is snoozed, cleared or dismissed; the newest shows.
             readonly property var arrived: Day.arrived.length ? Day.arrived[Day.arrived.length - 1] : null
             readonly property string arrivedText: arrived ? "▲ " + (arrived.text.length > 24 ? arrived.text.slice(0, 23) + "…" : arrived.text) : ""
