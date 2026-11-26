@@ -685,9 +685,8 @@ FocusScope {
             Layout.topMargin: 8
             implicitHeight: 60
             radius: Theme.radiusCard
-            color: Theme.accentSoft
-            border.width: 1
-            border.color: Theme.accentLine
+            color: Theme.raised
+            C.Raise {}
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 16
@@ -921,9 +920,10 @@ FocusScope {
                         anchors.fill: parent
                         anchors.margins: 2
                         radius: Theme.radiusCard
-                        color: cell.GridView.isCurrentItem ? Theme.accentSoft : cell.down || cell.hovered ? Theme.keyWash(cell.down) : "transparent"
-                        border.width: cell.GridView.isCurrentItem ? 1 : 0
-                        border.color: Theme.accentLine
+                        color: cell.GridView.isCurrentItem ? Theme.raised : cell.down || cell.hovered ? Theme.keyWash(cell.down) : "transparent"
+                        C.Raise {
+                            shown: cell.GridView.isCurrentItem
+                        }
                     }
                     contentItem: Text {
                         text: cell.modelData.emoji

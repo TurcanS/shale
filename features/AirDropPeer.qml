@@ -178,13 +178,16 @@ AbstractButton {
                 width: 58
                 height: 58
                 radius: 29
-                color: root.phase === "done" ? Theme.accentSoft : Theme.module
+                color: root.phase === "done" ? Theme.raised : Theme.module
                 border.width: 1
-                border.color: root.phase === "done" ? Theme.accentLine : Theme.edge
+                border.color: root.phase === "done" ? "transparent" : Theme.edge
                 Behavior on color {
                     ColorAnimation {
                         duration: Theme.fast
                     }
+                }
+                C.Raise {
+                    shown: root.phase === "done"
                 }
                 C.Icon {
                     anchors.centerIn: parent

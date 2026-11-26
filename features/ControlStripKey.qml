@@ -5,7 +5,7 @@ import "../components" as C
 // M and S on a channel strip.
 C.Button {
     id: stripKey
-    property color onColor: Theme.accentSoft
+    property color onColor: Theme.raisedOnKey
     property color onText: Theme.accentText
     implicitWidth: 26
     implicitHeight: 22
@@ -25,6 +25,9 @@ C.Button {
             ColorAnimation {
                 duration: Theme.fast
             }
+        }
+        C.Raise {
+            shown: stripKey.selected
         }
         C.WarmUp {
             id: lamp

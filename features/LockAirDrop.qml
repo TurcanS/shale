@@ -70,7 +70,7 @@ ColumnLayout {
                         implicitWidth: 34
                         implicitHeight: 34
                         radius: 17
-                        color: card.phase === "done" || card.phase === "link" ? Theme.accent : Theme.accentSoft
+                        color: card.phase === "done" || card.phase === "link" ? Theme.accent : Theme.raisedOnKey
                         C.Icon {
                             anchors.centerIn: parent
                             name: card.phase === "done" || card.phase === "link" ? "check" : Words.deviceGlyph(card.kind)

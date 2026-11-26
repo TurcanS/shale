@@ -85,7 +85,7 @@ Rectangle {
                 implicitWidth: 32
                 implicitHeight: 32
                 radius: Theme.radiusKey
-                color: root.connected ? Theme.accentSoft : Theme.key
+                color: root.connected ? Theme.raisedOnKey : Theme.key
                 C.Icon {
                     id: kindIcon
                     anchors.centerIn: parent

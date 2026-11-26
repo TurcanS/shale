@@ -74,7 +74,7 @@ PanelWindow {
                 Layout.preferredWidth: 30
                 Layout.preferredHeight: 30
                 radius: 9
-                color: messageWindow.retainedKind === "error" ? Theme.dangerSoft : messageWindow.retainedKind === "success" ? Theme.accentSoft : Theme.key
+                color: messageWindow.retainedKind === "error" ? Theme.dangerSoft : messageWindow.retainedKind === "success" ? Theme.raisedOnKey : Theme.key
                 C.Icon {
                     anchors.centerIn: parent
                     name: messageWindow.retainedKind === "error" ? "alert" : messageWindow.retainedKind === "success" ? "check" : "info"

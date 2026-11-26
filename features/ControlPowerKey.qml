@@ -10,13 +10,14 @@ C.Button {
     cornerRadius: Theme.radiusCard
     background: Rectangle {
         radius: powerKey.cornerRadius
-        color: powerKey.selected ? Theme.accentSoft : powerKey.hovered || powerKey.down || powerKey.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
-        border.width: powerKey.selected ? 1 : 0
-        border.color: Theme.accentLine
+        color: powerKey.selected ? Theme.raised : powerKey.hovered || powerKey.down || powerKey.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
         Behavior on color {
             ColorAnimation {
                 duration: Theme.fast
             }
+        }
+        C.Raise {
+            shown: powerKey.selected
         }
     }
 }

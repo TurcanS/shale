@@ -159,11 +159,12 @@ FocusScope {
                     onClicked: root.mode = modelData.key
                     background: Rectangle {
                         radius: tile.cornerRadius
-                        color: tile.on ? Theme.accentSoft : tile.hovered || tile.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
-                        border.width: 1
-                        border.color: tile.on ? Theme.accentLine : "transparent"
+                        color: tile.on ? Theme.raised : tile.hovered || tile.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
                         opacity: tile.enabled || tile.on ? 1 : Theme.disabledOpacity
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        C.Raise {
+                            shown: tile.on
+                        }
                     }
                     contentItem: Item {
                         implicitHeight: tileContent.implicitHeight
@@ -179,7 +180,7 @@ FocusScope {
                             }
                             C.Label {
                                 text: tile.modelData.text
-                                color: tile.on ? Theme.accentText : Theme.textSecondary
+                                color: tile.on ? Theme.text : Theme.textSecondary
                                 font.pixelSize: 13
                                 font.weight: Font.DemiBold
                                 Layout.alignment: Qt.AlignHCenter

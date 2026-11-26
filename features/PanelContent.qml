@@ -87,12 +87,15 @@ Rectangle {
                 implicitWidth: chipRow.implicitWidth + 18
                 implicitHeight: 24
                 radius: 12
-                color: chip && chip.on ? Theme.accentSoft : Theme.key
+                color: chip && chip.on ? Theme.raisedOnKey : Theme.key
                 Layout.leftMargin: -2
                 Behavior on color {
                     ColorAnimation {
                         duration: Theme.fast
                     }
+                }
+                C.Raise {
+                    shown: !!headerChip.chip && headerChip.chip.on
                 }
                 RowLayout {
                     id: chipRow
@@ -102,12 +105,12 @@ Rectangle {
                         implicitWidth: 6
                         implicitHeight: 6
                         radius: 3
-                        color: chipText.color
+                        color: headerChip.chip && headerChip.chip.on ? Theme.accent : chipText.color
                     }
                     C.Label {
                         id: chipText
                         text: headerChip.chip ? headerChip.chip.text : ""
-                        color: headerChip.chip && headerChip.chip.on ? Theme.accentText : Theme.textMuted
+                        color: headerChip.chip && headerChip.chip.on ? Theme.text : Theme.textMuted
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
                         elide: Text.ElideNone

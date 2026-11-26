@@ -3,12 +3,14 @@ import "../core"
 import "../components" as C
 
 // A key on the bar, 28 px tall. Flat keys show a light wash on hover; the status key rests on
-// `module`. A key whose panel is open on this screen turns keySelected.
+// `module`. A key whose panel is open on this screen is a raised key (keySelected on its lip); so is a live chip
+// (raisedKey).
 C.Button {
     id: key
     // Whether the item has something to show; the zone hides its slot otherwise.
     property bool shown: true
     property color rest: "transparent"
+    property bool raisedKey: false
     labelSize: 13
     implicitHeight: 28
     topPadding: 0
@@ -37,6 +39,8 @@ C.Button {
         }
     }
     foreground: !enabled ? Theme.textFaint : tone === "danger" ? Theme.dangerText : tone === "warning" ? Theme.warning : Theme.text
+    // Bar glyphs keep the label's colour when the panel is open; live chips set their own.
+    glyphColor: foreground
     background: Rectangle {
         radius: key.cornerRadius
         color: key.selected ? Theme.keySelected : key.rest
@@ -44,6 +48,9 @@ C.Button {
             ColorAnimation {
                 duration: Theme.fast
             }
+        }
+        C.Raise {
+            shown: key.selected || key.raisedKey
         }
         Rectangle {
             anchors.fill: parent

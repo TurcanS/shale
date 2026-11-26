@@ -28,7 +28,7 @@ BarLiveChip {
         C.Label {
             visible: !bar.compact && privacyButton.apps.length > 0
             text: privacyButton.apps.length ? privacyButton.apps[0] + (privacyButton.apps.length > 1 ? " +" + (privacyButton.apps.length - 1) : "") : ""
-            color: Theme.accentText
+            color: Theme.text
             font.pixelSize: 11
             font.weight: Font.DemiBold
             elide: Text.ElideNone

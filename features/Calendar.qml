@@ -227,13 +227,14 @@ FocusScope {
                                     width: 28
                                     height: 28
                                     radius: 9
-                                    color: cell.isToday ? Theme.accent : cell.isPicked ? Theme.keySelected : cell.hovered || cell.down ? cell.wash : "transparent"
-                                    border.width: cell.isPicked ? 1 : 0
-                                    border.color: Theme.accentLine
+                                    color: cell.isToday ? Theme.accent : cell.isPicked ? Theme.raised : cell.hovered || cell.down ? cell.wash : "transparent"
                                     Behavior on color {
                                         ColorAnimation {
                                             duration: Theme.fast
                                         }
+                                    }
+                                    C.Raise {
+                                        shown: cell.isPicked && !cell.isToday
                                     }
                                 }
                             }

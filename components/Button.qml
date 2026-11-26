@@ -6,7 +6,7 @@ import "../core"
 import "." as C
 
 // Secondary keys by default; accent is the primary action (accent fill, dark ink), danger is destructive (danger
-// edge, wash and text), selected is "on" (accent wash, accent edge and text), flat has no key until hovered.
+// edge, wash and text), selected is "on" (a raised neutral key with an accent glyph), flat has no key until hovered.
 AbstractButton {
     id: root
     property string glyph: ""
@@ -22,8 +22,10 @@ AbstractButton {
     property int labelSize: Theme.label
     property real cornerRadius: height > 40 ? Theme.radiusCard : Theme.radiusKey
     readonly property bool iconOnly: text === "" && glyph !== ""
-    // Label and glyph share one colour so state reads the same on both. Controls built on Button may set their own.
-    property color foreground: !enabled ? Theme.textFaint : danger || tone === "danger" ? Theme.dangerText : tone === "warning" ? Theme.warning : accent ? Theme.accentInk : selected ? Theme.accentText : Theme.text
+    // Label and glyph share one colour, except that an "on" key keeps the accent on its glyph only. Controls built on
+    // Button may set their own.
+    property color foreground: !enabled ? Theme.textFaint : danger || tone === "danger" ? Theme.dangerText : tone === "warning" ? Theme.warning : accent ? Theme.accentInk : Theme.text
+    property color glyphColor: enabled && selected && !accent && !danger && tone === "" ? Theme.accentText : foreground
     // Hover and press tints for keys without a fill of their own; translucent so they work on any surface.
     readonly property color wash: Theme.keyWash(down)
     // implicitContentWidth is the control's own measure of its content item: it follows a custom content item and
@@ -76,17 +78,20 @@ AbstractButton {
              : root.accent ? (lit ? Theme.accentHover : Theme.accent)
              : root.danger && !root.flat ? (lit ? Theme.dangerSoft : Theme.dangerWash)
              : root.danger ? (lit ? Theme.dangerWash : "transparent")
-             : root.selected ? Theme.accentSoft
+             : root.selected ? Theme.raised
              : root.flat ? (lit ? root.wash : "transparent")
              : lit ? Theme.keyHover : Theme.key
-        border.width: root.enabled && !root.flat && (root.selected && !root.accent || root.danger) ? 1 : 0
-        border.color: root.danger ? Theme.dangerLine : Theme.accentLine
+        border.width: root.enabled && !root.flat && root.danger ? 1 : 0
+        border.color: Theme.dangerLine
         Behavior on color {
             ColorAnimation {
                 duration: Theme.fast
             }
         }
-        // The "on" wash stays translucent; hovering it lays a light wash on top instead of swapping colours.
+        C.Raise {
+            shown: root.enabled && root.selected && !root.accent && !root.danger
+        }
+        // Hovering an "on" key lays a light wash on top instead of swapping colours.
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
@@ -136,7 +141,7 @@ AbstractButton {
                 id: glyphIcon
                 visible: root.glyph !== ""
                 name: root.glyph
-                color: root.foreground
+                color: root.glyphColor
                 Layout.alignment: Qt.AlignVCenter
             }
             C.Label {

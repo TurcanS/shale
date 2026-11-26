@@ -30,8 +30,10 @@ BarLiveChip {
     // Going live (visible, looking, a request, files moving), the chip warms up.
     onLiveChanged: if (live) flash()
     shown: AirDrop.available && (AirDrop.active || !!AirDrop.error)
-    rest: live ? Theme.accentSoft : "transparent"
-    foreground: live ? Theme.accentText : trouble ? Theme.dangerText : Theme.text
+    rest: live ? Theme.raised : "transparent"
+    raisedKey: live
+    foreground: trouble ? Theme.dangerText : Theme.text
+    glyphColor: live ? Theme.accentText : foreground
     leftPadding: label ? 9 : 0
     rightPadding: label ? 10 : 0
     implicitWidth: label ? implicitContentWidth + leftPadding + rightPadding : 28
@@ -66,7 +68,7 @@ BarLiveChip {
                 visible: AirDrop.progress < 0
                 name: chip.trouble ? "alert" : "airdrop"
                 size: 14
-                color: chip.foreground
+                color: chip.glyphColor
                 // Visible to others: the glyph breathes slowly.
                 SequentialAnimation on opacity {
                     running: AirDrop.mode === "visible" && AirDrop.progress < 0 && !Theme.reduced && !Theme.lowPower && chip.bar.onScreen

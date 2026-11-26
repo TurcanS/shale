@@ -49,7 +49,7 @@ BarLiveChip {
         }
         C.Label {
             text: focusButton.remaining
-            color: Theme.accentText
+            color: Theme.text
             font.pixelSize: 11
             font.weight: Font.DemiBold
             font.features: ({"tnum": 1})

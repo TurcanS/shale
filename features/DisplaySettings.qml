@@ -185,7 +185,7 @@ ColumnLayout {
                                 spacing: Theme.gapM
                                 C.Label {
                                     text: modeRow.text
-                                    color: modeRow.selected ? Theme.accentText : Theme.text
+                                    color: Theme.text
                                     font.weight: modeRow.selected ? Font.DemiBold : Font.Normal
                                     font.features: ({"tnum": 1})
                                     Layout.preferredWidth: Math.max(110, Theme.body * 8)

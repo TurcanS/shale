@@ -345,11 +345,14 @@ FocusScope {
                                 previous.forceActiveFocus(Qt.TabFocusReason);
                                 root.category = previous.modelData.name;
                             }
-                            // The chosen section is an accent wash with accent text; the others light up under the pointer.
+                            // The chosen section is a raised key with an accent icon; the others light up under the pointer.
                             background: Rectangle {
                                 radius: Theme.radiusKey
-                                color: section.selected ? Theme.accentSoft : section.hovered || section.visualFocus || section.down ? section.wash : "transparent"
+                                color: section.selected ? Theme.raised : section.hovered || section.visualFocus || section.down ? section.wash : "transparent"
                                 Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                C.Raise {
+                                    shown: section.selected
+                                }
                             }
                             contentItem: RowLayout {
                                 spacing: 10
@@ -360,7 +363,7 @@ FocusScope {
                                 }
                                 C.Label {
                                     text: section.text
-                                    color: section.selected ? Theme.accentText : Theme.textSecondary
+                                    color: section.selected ? Theme.text : Theme.textSecondary
                                     font.weight: section.selected ? Font.DemiBold : Font.Medium
                                     Layout.fillWidth: true
                                 }

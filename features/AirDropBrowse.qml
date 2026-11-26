@@ -171,13 +171,14 @@ FocusScope {
                     }
                     background: Rectangle {
                         radius: Theme.radiusKey
-                        color: row.tickedRow ? Theme.accentSoft : row.ListView.isCurrentItem && list.activeFocus || row.hovered ? Theme.rowWash(row.down) : "transparent"
-                        border.width: row.tickedRow ? 1 : 0
-                        border.color: Theme.accentLine
+                        color: row.tickedRow ? Theme.raised : row.ListView.isCurrentItem && list.activeFocus || row.hovered ? Theme.rowWash(row.down) : "transparent"
                         Behavior on color {
                             ColorAnimation {
                                 duration: Theme.fast
                             }
+                        }
+                        C.Raise {
+                            shown: row.tickedRow
                         }
                     }
                     contentItem: RowLayout {
@@ -192,7 +193,7 @@ FocusScope {
                         C.Label {
                             text: row.fileName
                             font.pixelSize: 13
-                            color: row.tickedRow ? Theme.accentText : Theme.text
+                            color: Theme.text
                             Layout.fillWidth: true
                         }
                         C.Label {

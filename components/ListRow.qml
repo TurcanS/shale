@@ -35,7 +35,7 @@ Button {
     // A whole row only gives a little under the pointer.
     scale: down && !Theme.reduced ? Theme.rowPressScale : 1
     pressDepth: 0
-    // A module at rest; the chosen row lays the accent wash over it.
+    // A module at rest; the chosen row is a raised neutral key.
     background: Rectangle {
         radius: root.cornerRadius
         color: root.quiet ? (root.highlighted && !root.selected ? root.wash : "transparent")
@@ -44,9 +44,12 @@ Button {
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
-            color: Theme.accentSoft
+            color: Theme.raised
             opacity: root.selected && root.interactive ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        }
+        Raise {
+            shown: root.selected && root.interactive
         }
     }
     contentItem: ColumnLayout {

@@ -83,7 +83,13 @@ QtObject {
     readonly property color text: surfaces.text
     readonly property color accentHover: Qt.hsla(accentHue, accent.hslSaturation, Math.min(1, accent.hslLightness + 0.08), 1)
     readonly property color accentText: contrast(accent, selection) >= 4.5 ? accent : text
-    // "On" backgrounds, the 1 px edge on "on" things, and the glow on live meters and the volume fill.
+    // "On" and chosen things are a raised neutral key: keySelected (keyHover where the thing already rests on a key)
+    // sitting on a 1 px dark lip, with the accent kept to the icon. Drawn by components/Raise.qml.
+    readonly property color raised: keySelected
+    readonly property color raisedOnKey: keyHover
+    readonly property color raisedLip: Qt.rgba(0, 0, 0, 0.4)
+    // Drop targets, progress and meter fills; the 1 px edge for focus and attention; the glow on live meters and the
+    // volume fill. Not for "on" states any more (see raised).
     readonly property color accentSoft: tint(accent, 0.14)
     readonly property color accentLine: tint(accent, 0.40)
     readonly property color accentGlow: tint(accent, 0.45)

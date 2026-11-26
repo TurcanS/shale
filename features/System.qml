@@ -376,13 +376,14 @@ FocusScope {
                     spacing: 1.4
                 }
                 radius: 14
-                color: current ? Theme.accentSoft : rowArea.containsMouse ? Theme.mix(Theme.module, Theme.text, 0.04) : Theme.module
-                border.width: 1
-                border.color: current ? Theme.accentLine : "transparent"
+                color: current ? Theme.raised : rowArea.containsMouse ? Theme.mix(Theme.module, Theme.text, 0.04) : Theme.module
                 Accessible.role: Accessible.ListItem
                 Accessible.name: resource.title + ", " + resource.subtitle
                 Accessible.selected: current
                 Behavior on color { ColorAnimation { duration: Theme.fast } }
+                C.Raise {
+                    shown: current
+                }
                 MouseArea {
                     id: rowArea
                     anchors.fill: parent

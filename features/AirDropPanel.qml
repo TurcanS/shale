@@ -269,13 +269,16 @@ FocusScope {
             Layout.fillWidth: true
             implicitHeight: 60
             radius: Theme.radiusCard + 2
-            color: root.shownMode === "off" ? Theme.moduleAlt : Theme.accentSoft
+            color: root.shownMode === "off" ? Theme.moduleAlt : Theme.raised
             border.width: 1
-            border.color: root.shownMode === "off" ? Theme.hairline : Theme.accentLine
+            border.color: root.shownMode === "off" ? Theme.hairline : "transparent"
             Behavior on color {
                 ColorAnimation {
                     duration: Theme.fast
                 }
+            }
+            C.Raise {
+                shown: root.shownMode !== "off"
             }
             RowLayout {
                 anchors.fill: parent
@@ -295,7 +298,7 @@ FocusScope {
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
                         font.features: ({"tnum": 1})
-                        color: root.shownMode === "off" ? Theme.text : Theme.accentText
+                        color: Theme.text
                         Layout.fillWidth: true
                     }
                     C.Label {

@@ -109,6 +109,7 @@ Rectangle {
                 labelSize: root.segmentHeight > 36 ? Theme.label : Theme.small
                 // White on the chosen option, quiet on the others until hovered.
                 foreground: !enabled ? Theme.textFaint : selected ? "#ffffff" : hovered || visualFocus ? Theme.text : Theme.textMuted
+                glyphColor: foreground
                 Layout.fillWidth: root.fill
                 Layout.preferredWidth: root.fill && !root.proportional ? root.widest : implicitWidth
                 // Never narrower than the label, so a large text size widens the control instead of eliding it.

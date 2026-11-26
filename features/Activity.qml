@@ -1235,8 +1235,11 @@ FocusScope {
                                     width: appList.width
                                     height: 42
                                     radius: Theme.radiusKey
-                                    color: current ? Theme.accentSoft : rowArea.containsMouse ? Theme.mix(Theme.moduleAlt, Theme.text, 0.04) : index % 2 === 0 ? Theme.moduleAlt : "transparent"
+                                    color: current ? Theme.raised : rowArea.containsMouse ? Theme.mix(Theme.moduleAlt, Theme.text, 0.04) : index % 2 === 0 ? Theme.moduleAlt : "transparent"
                                     Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                    C.Raise {
+                                        shown: appRow.current
+                                    }
                                     Accessible.role: Accessible.ListItem
                                     Accessible.name: root.appLabel(modelData.app) + ", " + root.formatTime(modelData.total)
                                     RowLayout {

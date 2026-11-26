@@ -123,13 +123,14 @@ FocusScope {
         Accessible.description: note + " Key " + key + "."
         background: Rectangle {
             radius: tile.cornerRadius
-            color: tile.selected ? Theme.accentSoft : tile.hovered || tile.down || tile.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.04) : Theme.module
-            border.width: 1
-            border.color: tile.selected ? Theme.accentLine : "transparent"
+            color: tile.selected ? Theme.raised : tile.hovered || tile.down || tile.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.04) : Theme.module
             Behavior on color {
                 ColorAnimation {
                     duration: Theme.fast
                 }
+            }
+            C.Raise {
+                shown: tile.selected
             }
         }
         contentItem: ColumnLayout {

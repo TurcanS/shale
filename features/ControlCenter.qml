@@ -466,6 +466,7 @@ FocusScope {
         cornerRadius: Theme.radiusCard
         hint: modelData.description || name
         foreground: selected ? Theme.text : Theme.textSecondary
+        glyphColor: selected ? Theme.accentText : foreground
         Layout.fillWidth: true
         Layout.preferredWidth: 1
         Accessible.name: name
@@ -475,13 +476,14 @@ FocusScope {
         onClicked: Services.setOutput(modelData)
         background: Rectangle {
             radius: outputKey.cornerRadius
-            color: outputKey.selected ? Theme.accentSoft : outputKey.hovered || outputKey.down || outputKey.visualFocus ? Theme.mix(Theme.well, Theme.text, 0.05) : Theme.well
-            border.width: 1
-            border.color: outputKey.selected ? Theme.accentLine : "transparent"
+            color: outputKey.selected ? Theme.raised : outputKey.hovered || outputKey.down || outputKey.visualFocus ? Theme.mix(Theme.well, Theme.text, 0.05) : Theme.well
             Behavior on color {
                 ColorAnimation {
                     duration: Theme.fast
                 }
+            }
+            C.Raise {
+                shown: outputKey.selected
             }
         }
         contentItem: RowLayout {
@@ -489,7 +491,7 @@ FocusScope {
             C.Icon {
                 name: root.outputGlyph(outputKey.modelData.description || outputKey.name)
                 size: 17
-                color: outputKey.foreground
+                color: outputKey.glyphColor
             }
             C.Label {
                 text: outputKey.name

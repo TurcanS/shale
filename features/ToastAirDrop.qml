@@ -175,7 +175,7 @@ PanelWindow {
                             width: 38
                             height: 38
                             radius: 19
-                            color: card.good ? Theme.accent : card.ended ? Theme.key : Theme.accentSoft
+                            color: card.good ? Theme.accent : card.ended ? Theme.key : Theme.raisedOnKey
                             Behavior on color {
                                 ColorAnimation {
                                     duration: Theme.fast

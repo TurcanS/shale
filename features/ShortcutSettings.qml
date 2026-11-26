@@ -178,7 +178,7 @@ ColumnLayout {
                             textSize: 12
                             width: Math.max(24, implicitWidth)
                             height: 24
-                            color: shortcut.active ? Theme.accentSoft : Theme.key
+                            color: shortcut.active ? Theme.raisedOnKey : Theme.key
                             textColor: shortcut.active ? Theme.accentText : Theme.textSecondary
                             // The cap's lower lip.
                             Rectangle {
@@ -188,8 +188,7 @@ ColumnLayout {
                                 anchors.leftMargin: 3
                                 anchors.rightMargin: 3
                                 height: 1
-                                color: Qt.rgba(0, 0, 0, 0.4)
-                                visible: !shortcut.active
+                                color: Theme.raisedLip
                             }
                         }
                     }

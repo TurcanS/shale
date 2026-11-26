@@ -62,15 +62,14 @@ ColumnLayout {
                     onClicked: control.perform("wifi.power", {powered: !ShellState.wifi.powered}, () => control.refresh())
                 }
             }
-            // The network in use: a filled accent tile, its signal, Disconnect and Forget.
+            // The network in use: a raised key with a filled accent tile, its signal, Disconnect and Forget.
             Rectangle {
                 visible: !!wifiModule.current
                 Layout.fillWidth: true
                 implicitHeight: currentColumn.implicitHeight + 24
                 radius: Theme.radiusCard
-                color: Theme.accentSoft
-                border.width: 1
-                border.color: Theme.accentLine
+                color: Theme.raised
+                C.Raise {}
                 ColumnLayout {
                     id: currentColumn
                     anchors.fill: parent
@@ -101,14 +100,14 @@ ColumnLayout {
                         }
                         ControlSmallKey {
                             text: "Disconnect"
-                            rest: Qt.rgba(0, 0, 0, 0.25)
+                            rest: Theme.keyHover
                             enabled: !control.acting
                             onClicked: control.perform("wifi.disconnect", {}, () => control.refresh())
                         }
                         ControlSmallKey {
                             text: "Forget"
                             hint: "Forget this network"
-                            rest: Qt.rgba(0, 0, 0, 0.25)
+                            rest: Theme.keyHover
                             enabled: !control.acting
                             onClicked: {
                                 control.dnsPath = "";
@@ -127,7 +126,7 @@ ColumnLayout {
                         }
                         ControlSmallKey {
                             text: "Cancel"
-                            rest: Qt.rgba(0, 0, 0, 0.25)
+                            rest: Theme.keyHover
                             onClicked: control.forgetPath = ""
                         }
                         C.Button {
@@ -160,7 +159,7 @@ ColumnLayout {
                         ControlSmallKey {
                             text: "Change"
                             hint: "Choose this network's DNS servers"
-                            rest: Qt.rgba(0, 0, 0, 0.25)
+                            rest: Theme.keyHover
                             enabled: !control.acting
                             onClicked: control.openDns(wifiModule.current)
                         }
@@ -216,7 +215,7 @@ ColumnLayout {
                             }
                             ControlSmallKey {
                                 text: "Cancel"
-                                rest: Qt.rgba(0, 0, 0, 0.25)
+                                rest: Theme.keyHover
                                 enabled: !control.busy
                                 onClicked: control.dnsPath = ""
                             }

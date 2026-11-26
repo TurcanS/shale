@@ -164,7 +164,7 @@ ColumnLayout {
                         implicitWidth: Math.max(26, heldCount.implicitWidth + 12)
                         implicitHeight: 26
                         radius: 8
-                        color: root.held > 0 ? Theme.accentSoft : Theme.key
+                        color: root.held > 0 ? Theme.raisedOnKey : Theme.key
                         C.Label {
                             id: heldCount
                             anchors.centerIn: parent

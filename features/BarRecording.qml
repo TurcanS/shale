@@ -34,7 +34,7 @@ BarLiveChip {
         // Tabular digits keep the chip from jittering every second.
         C.Label {
             text: recordingChip.elapsed
-            color: Theme.accentText
+            color: Theme.text
             font.pixelSize: 11
             font.weight: Font.DemiBold
             font.features: ({"tnum": 1})

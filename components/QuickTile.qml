@@ -2,8 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import "../core"
 
-// A 60 px quick tile: a module at rest; "on" lays the accent wash and edge over whatever is beneath and fills the
-// glyph tile with the accent.
+// A 60 px quick tile: a module at rest; "on" is a raised neutral key and fills the glyph tile with the accent.
 Button {
     id: root
     property string subtitle: ""
@@ -24,12 +23,12 @@ Button {
     rightPadding: split ? detailWidth + Theme.gapS : Theme.gapM
     background: Rectangle {
         radius: root.cornerRadius
-        color: root.selected ? Theme.accentSoft : root.bodyActive ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
-        border.width: 1
-        border.color: root.selected ? Theme.accentLine : "transparent"
+        color: root.selected ? Theme.raised : root.bodyActive ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
         Behavior on color { ColorAnimation { duration: Theme.fast } }
-        Behavior on border.color { ColorAnimation { duration: Theme.fast } }
-        // Hover on an "on" tile: a light wash over the accent one.
+        Raise {
+            shown: root.selected
+        }
+        // Hover on an "on" tile: a light wash over the raised key.
         Rectangle {
             anchors.fill: parent
             radius: parent.radius

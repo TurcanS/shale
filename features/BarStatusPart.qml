@@ -1,5 +1,6 @@
 import QtQuick
 import "../core"
+import "../components" as C
 
 // One part of the status key: its own click, scroll and hint, with a wash on hover.
 BarKey {
@@ -19,6 +20,9 @@ BarKey {
                 ColorAnimation {
                     duration: Theme.fast
                 }
+            }
+            C.Raise {
+                shown: part.selected
             }
         }
     }
