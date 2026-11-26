@@ -1,28 +1,46 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="64" alt="">
+<img src="docs/logo.svg" width="88" alt="">
 
 # Shale
 
 A charcoal desktop shell for Hyprland, built with [Quickshell](https://quickshell.org).<br>
-A compact top bar, animated panels and the everyday controls you'd otherwise need separate apps for.
+A compact top bar, animated panels, desktop widgets and AirDrop: the everyday controls you'd otherwise need separate apps for.
 
-[Install](#install) · [Features](#features) · [Shortcuts](#shortcuts) · [Files](#files) · [Development](#development)
+[![Stars](https://img.shields.io/github/stars/TurcanS/shale?style=flat-square&labelColor=16171a&color=2e3137)](https://github.com/TurcanS/shale/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/TurcanS/shale?style=flat-square&labelColor=16171a&color=2e3137)](https://github.com/TurcanS/shale/commits/main)
+[![Hyprland 0.56+](https://img.shields.io/badge/Hyprland-0.56%2B-2e3137?style=flat-square&labelColor=16171a)](https://hyprland.org)
+[![Quickshell 0.3.1+](https://img.shields.io/badge/Quickshell-0.3.1%2B-2e3137?style=flat-square&labelColor=16171a)](https://quickshell.org)
+[![MIT](https://img.shields.io/badge/licence-MIT-2e3137?style=flat-square&labelColor=16171a)](LICENSE)
+
+[Install](#install) · [Features](#features) · [Shortcuts](#shortcuts) · [AirDrop](#airdrop) · [Files](#files) · [Development](#development)
 
 </div>
 
 <br>
 
-![Shale: launcher, control center, notifications, wallpapers, settings and the lock screen](docs/screenshots/showcase.gif)
+![Shale in motion: desktop widgets, Find, Control, AirDrop, a wallpaper change carrying the accent through the shell, the system monitor, Focus, Clock and sky, Activity, Settings and the session menu](docs/screenshots/tour.webp)
 
 <table>
   <tr>
-    <td width="50%" align="center"><img src="docs/screenshots/launcher.png" alt="Launcher"><br><sub>Launcher</sub></td>
-    <td width="50%" align="center"><img src="docs/screenshots/control.png" alt="Control center"><br><sub>Control center</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/widgets.webp" alt="Desktop widgets"><br><sub>Widgets: clock, sky, player and system on the desktop</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/find.webp" alt="Find"><br><sub>Find: apps, windows, actions, sums and units</sub></td>
   </tr>
   <tr>
-    <td width="50%" align="center"><img src="docs/screenshots/wallpaper.png" alt="Wallpapers"><br><sub>Wallpapers</sub></td>
-    <td width="50%" align="center"><img src="docs/screenshots/settings.png" alt="Settings"><br><sub>Settings</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/control.webp" alt="Control"><br><sub>Control: Wi-Fi, Bluetooth, sound and quick keys</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/airdrop.webp" alt="AirDrop"><br><sub>AirDrop: send to iPhones and Macs nearby</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/wallpapers.webp" alt="Wallpapers"><br><sub>Wallpapers: the accent follows the picture</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/system.webp" alt="System monitor"><br><sub>System monitor</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/focus.webp" alt="Focus"><br><sub>Focus: a timed session that holds notifications</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/clock.webp" alt="Clock and sky"><br><sub>Clock and sky: calendar and weather</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/activity.webp" alt="Activity"><br><sub>Activity: your app history, kept on this computer</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/settings.webp" alt="Settings"><br><sub>Settings</sub></td>
   </tr>
 </table>
 
@@ -100,6 +118,9 @@ To change one, open Settings → Shortcuts, choose Change and press the new keys
 Everything is also a command: `shale launcher`, `shale system`, `shale screenshot region`, `shale page wifi`, `shale settings shortcuts`, `shale focus 50`, `shale dnd`, `shale lock`, `shale status`, `shale --version`. Run `shale help` for the list.
 
 ## AirDrop
+
+<p align="center"><img src="docs/screenshots/settings-airdrop.webp" width="80%" alt="Settings → AirDrop"></p>
+
 Shale drives the `airdrop` command (AirDrop for Linux) through its `--json` interface; without it, AirDrop doesn't
 show anywhere. Shale looks for it on your PATH and in `~/.local/bin`. Settings → AirDrop sets how it receives, where
 files go, this computer's name and the senders let straight in, and checks what the Wi-Fi card needs.
