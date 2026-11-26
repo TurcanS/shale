@@ -1,6 +1,7 @@
 """City search and forecasts from Open-Meteo (no API key) using the Python standard library."""
 import json
 import math
+import os
 from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
@@ -132,6 +133,9 @@ def parse(data):
     return {
         'current': {'temperature': _round(current.get('temperature_2m')), 'feelsLike': _round(current.get('apparent_temperature')),
                     'label': label, 'icon': icon,
+                    # Wind in the chosen units (km/h or mph), where it blows from in degrees, and humidity in percent.
+                    'wind': _round(current.get('wind_speed_10m')), 'windFrom': _round(current.get('wind_direction_10m')),
+                    'humidity': _round(current.get('relative_humidity_2m')),
                     'high': _round(today[0][2]) if today else None, 'low': _round(today[0][3]) if today else None},
         'days': days,
     }
@@ -143,7 +147,8 @@ def forecast(location, units, cache, refresh=False, fetch=_json, now=time.time):
         raise ValueError('Choose a city first.')
     if units not in UNITS:
         raise ValueError('Choose metric or imperial units.')
-    key = f"{location['latitude']:.4f},{location['longitude']:.4f},{units}"
+    # "w": a copy saved before the forecast carried wind is fetched again.
+    key = f"{location['latitude']:.4f},{location['longitude']:.4f},{units},w"
     try:
         saved = json.loads(Path(cache).read_text())
         if not isinstance(saved, dict) or saved.get('key') != key or not isinstance(saved.get('weather'), dict) or type(saved.get('fetched')) not in (int, float):
@@ -155,10 +160,11 @@ def forecast(location, units, cache, refresh=False, fetch=_json, now=time.time):
     if saved and 0 <= age < (60 if refresh else FRESH):
         return {**saved['weather'], 'location': location, 'units': units, 'fetched': saved['fetched'], 'stale': False}
     params = {'latitude': location['latitude'], 'longitude': location['longitude'], 'timezone': 'auto', 'forecast_days': 4,
-              'current': 'temperature_2m,apparent_temperature,weather_code,is_day',
+              'current': 'temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_direction_10m,relative_humidity_2m',
               'daily': 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max'}
     if units == 'imperial':
         params['temperature_unit'] = 'fahrenheit'
+        params['wind_speed_unit'] = 'mph'
     try:
         weather = parse(fetch(_FORECAST + '?' + urlencode(params)))
     except Exception as exc:
@@ -167,7 +173,7 @@ def forecast(location, units, cache, refresh=False, fetch=_json, now=time.time):
         raise
     fetched = now()
     Path(cache).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = Path(cache).with_suffix('.tmp')
+    temporary = Path(cache).with_suffix(f'.{os.getpid()}.tmp')  # the installed and the dev helper share this folder
     temporary.write_text(json.dumps({'key': key, 'fetched': fetched, 'weather': weather}))
     temporary.replace(cache)
     return {**weather, 'location': location, 'units': units, 'fetched': fetched, 'stale': False}

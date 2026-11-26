@@ -4,7 +4,7 @@ import Quickshell.Hyprland
 import "../core"
 import "../core/palette.js" as Palette
 
-// Keeps the accent colour in step with the focused monitor's wallpaper while "Match wallpaper" is on.
+// Keeps the accent colour in step with the focused monitor's wallpaper while the accent is From wallpaper.
 Scope {
     id: root
     readonly property bool enabled: ShellState.setting("accentFromWallpaper", false)

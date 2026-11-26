@@ -1,4 +1,5 @@
-"""System monitor samples from /proc and /sys: CPU, memory, disks, network, GPUs, temperatures and fans.
+"""System monitor samples from /proc and /sys: CPU, memory, disks, network, GPUs, temperatures, fans and the busiest
+processes.
 
 The sampler keeps the previous counters, so each sample reports rates since the last one (zero the first time, and
 after a pause). It also keeps the last few minutes of what the graphs show, filled by a cheap background tick while
@@ -16,6 +17,10 @@ VIRTUAL_DISKS = ("loop", "ram", "zram", "sr", "fd", "dm-", "md", "nbd")
 CPU_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "soc_thermal")
 CPU_PACKAGE = ("package id 0", "tctl", "tdie", "cpu")
 VENDORS = {"0x10de": "nvidia", "0x1002": "amd", "0x8086": "intel"}
+# Kernel threads carry this flag in /proc/<pid>/stat; they have no memory of their own and can't be ended.
+PF_KTHREAD = 0x00200000
+# Ending these would take the session down with them; the shell's own ancestors are protected as well.
+PROTECTED_PROCESSES = ("Hyprland", "systemd", "dbus-daemon", "dbus-broker")
 NVIDIA_QUERY = ["nvidia-smi", "--query-gpu=pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu",
                 "--format=csv,noheader,nounits"]
 
@@ -90,12 +95,16 @@ class Sampler:
         self.names = {}
         self.nvidia = (None, {})
         self.cached_sensors = (None, None)
+        # (time, {pid: (start, cpu ticks)}) from the last process list, for each process's CPU share since then.
+        self.process_ticks = (None, {})
+        self.hz = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+        self.page = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
         self.lock = asyncio.Lock()
 
-    async def sample(self, nvidia=False, history=False):
+    async def sample(self, nvidia=False, history=False, processes=None):
         """One sample, with the graph values it added as `recorded`, and every kept graph point as `history` when
         asked. `nvidia` asks nvidia-smi for usage too: every query resets the card's idle timer, so the panel only
-        asks while that GPU is the one on screen."""
+        asks while that GPU is the one on screen. `processes` ("cpu" or "memory") adds the busiest processes."""
         async with self.lock:
             now = self.sampled = self.clock()
             # Plain file reads, but an NVMe temperature takes a drive command (~25 ms): off the event loop.
@@ -106,6 +115,8 @@ class Sampler:
                 if nvidia and gpu["vendor"] == "nvidia" and gpu["state"] == "active" \
                         and read(Path(device) / "power/runtime_status", "active") != "suspended":
                     gpu.update((await self.nvidia_values(now)).get(bus, {}))
+            if processes:
+                result["processes"] = await asyncio.to_thread(self.processes, now, len(result["cpu"]["cores"]) or 1, processes)
             result["time"], result["recorded"] = self.record(now, result)
             if history:
                 result["history"] = {key: list(points) for key, points in self.history.items()}
@@ -118,7 +129,7 @@ class Sampler:
             now = self.clock()
             if self.sampled is not None and 0 <= now - self.sampled < 3:
                 return False
-            self.record(now, self.collect(now, full=False))
+            self.record(now, await asyncio.to_thread(self.collect, now, full=False))
             return True
 
     def record(self, now, result):
@@ -230,6 +241,67 @@ class Sampler:
                 "frequency": round(sum(frequencies) / len(frequencies) / 1000) if frequencies else None,
                 "load": averages, "processes": processes, "threads": threads, "temperature": sensors["cpu"]}
 
+    # Processes
+    def processes(self, now, threads, sort="cpu", limit=30):
+        """The busiest processes, by CPU since the last list or by resident memory: name, CPU as a share of the whole
+        processor (so the rows add up to the CPU graph), memory, whether this user may end it, and whether it is one
+        that must stay (the shell, its ancestors, the compositor). Kernel threads and zombies are left out. `start`
+        (clock ticks after boot) tells a pid apart from a later process that reuses the number."""
+        before_time, before = self.process_ticks
+        elapsed = now - before_time if before_time is not None else 0.0
+        if not 0 < elapsed <= self.max_gap:
+            before = {}
+        uid, rows, ticks = os.getuid(), [], {}
+        try:
+            entries = [entry for entry in os.scandir(self.proc) if entry.name.isdigit()]
+        except OSError:
+            entries = []
+        for entry in entries:
+            text = read(Path(entry.path) / "stat")
+            try:
+                owner = entry.stat().st_uid
+            except OSError:
+                continue  # gone since the scan
+            head, _, tail = text.rpartition(")")
+            fields = tail.split()
+            if len(fields) < 22 or fields[0] == "Z" or int(fields[6]) & PF_KTHREAD:
+                continue
+            pid, start, used = int(entry.name), int(fields[19]), int(fields[11]) + int(fields[12])
+            ticks[pid] = (start, used)
+            previous = before.get(pid)
+            share = 100.0 * (used - previous[1]) / self.hz / elapsed / threads if previous and previous[0] == start else 0.0
+            rows.append({"pid": pid, "start": start, "name": head.partition("(")[2], "cpu": round(max(0.0, min(100.0, share)), 1),
+                         "memory": int(fields[21]) * self.page, "own": owner == uid})
+        self.process_ticks = (now, ticks)
+        rows.sort(key=lambda row: (-row["memory"], -row["cpu"]) if sort == "memory" else (-row["cpu"], -row["memory"]))
+        rows = rows[:limit]
+        kept = self.lineage(os.getpid())
+        for row in rows:
+            # The kernel cuts names at 15 characters; the program's own file name is whole.
+            if len(row["name"]) == 15:
+                program = os.path.basename(read(self.proc / str(row["pid"]) / "cmdline").split("\0")[0])
+                if program.startswith(row["name"]):
+                    row["name"] = program
+            row["protected"] = row["pid"] <= 1 or row["pid"] in kept or row["name"] in PROTECTED_PROCESSES
+        return rows
+
+    def process(self, pid):
+        """A running process's start time and name, or None once it has exited (or turned into a zombie)."""
+        head, _, tail = read(self.proc / str(pid) / "stat").rpartition(")")
+        fields = tail.split()
+        if len(fields) < 22 or fields[0] == "Z":
+            return None
+        return {"start": int(fields[19]), "name": head.partition("(")[2]}
+
+    def lineage(self, pid):
+        """A process and every ancestor: for the helper, the shell and whatever started it."""
+        seen = set()
+        while pid > 1 and pid not in seen:
+            seen.add(pid)
+            fields = read(self.proc / str(pid) / "stat").rpartition(")")[2].split()
+            pid = int(fields[1]) if len(fields) > 1 and fields[1].isdigit() else 0
+        return seen
+
     # Memory
     def memory(self):
         info = {}
@@ -260,6 +332,15 @@ class Sampler:
             # Sectors are always 512 bytes here, whatever the device's own sector size.
             counters[name] = (int(fields[5]) * 512, int(fields[9]) * 512, int(fields[12]))
         return counters
+
+    def disk_kind(self, name):
+        """What a disk is and holds, from sysfs without waking it: {kind: nvme | ssd | hdd | removable, size in bytes}."""
+        base = self.sys / "block" / name
+        removable = read(base / "removable") == "1"
+        kind = ("removable" if removable else "nvme" if name.startswith("nvme")
+                else "hdd" if read(base / "queue/rotational") == "1" else "ssd")
+        # The size file counts 512-byte sectors, whatever the device's own sector size.
+        return {"kind": kind, "size": int(number(base / "size", 0) or 0) * 512}
 
     def disk_of(self, device, depth=0):
         """The whole disk a block device (partition, or a device-mapper/RAID layer) lives on."""
@@ -306,7 +387,7 @@ class Sampler:
                 self.names[name] = " ".join(read(self.sys / "block" / name / "device/model").split()) or name
             device = os.path.realpath(self.sys / "block" / name / "device")
             disks.append({"name": name, "model": self.names[name], "read": max(0, rate(0)), "write": max(0, rate(1)), "busy": max(0.0, busy),
-                          "temperature": sensors["devices"].get(device), "mounts": mounts.get(name, [])})
+                          "temperature": sensors["devices"].get(device), "mounts": mounts.get(name, []), **self.disk_kind(name)})
         return disks
 
     # Network

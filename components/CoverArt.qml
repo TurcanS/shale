@@ -9,13 +9,13 @@ ClippingRectangle {
     property int glyphSize: Math.max(10, Math.round(width * 0.45))
     readonly property bool ready: cover.status === Image.Ready
     radius: Math.round(width / 5)
-    color: Theme.raised
+    color: Theme.keyTile
     Icon {
         anchors.centerIn: parent
         visible: !root.ready
         name: "music"
         size: root.glyphSize
-        color: Theme.muted
+        color: Theme.textDim
     }
     Image {
         id: cover

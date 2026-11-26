@@ -1,0 +1,11 @@
+[Unit]
+Description=Shale: follow power mode changes for Wi-Fi power saving
+
+[Path]
+# Where power-profiles-daemon and tuned-ppd save the mode each time it changes.
+PathChanged=/var/lib/power-profiles-daemon/state.ini
+PathChanged=/etc/tuned/ppd_base_profile
+Unit=shale-wifi-power.service
+
+[Install]
+WantedBy=multi-user.target

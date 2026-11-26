@@ -1,0 +1,12 @@
+[Unit]
+Description=Shale: Wi-Fi power saving off in Performance, on otherwise
+After=power-profiles-daemon.service tuned-ppd.service NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/shale-wifi-power
+
+[Install]
+# Not multi-user.target: power-profiles-daemon starts after that target, so ordering after it from there is a
+# cycle and systemd drops this job at boot. graphical.target comes after both.
+WantedBy=graphical.target

@@ -35,11 +35,6 @@ function vividPair(colors) {
     return {grey: false, first: usable[0], second: second};
 }
 
-// Lifts a colour so it reads over dark surfaces and busy artwork.
-function tone(color, lightness) {
-    return Qt.hsla(Math.max(0, color.hslHue), Math.max(0.5, color.hslSaturation), Math.max(lightness, Math.min(0.8, color.hslLightness)), 1);
-}
-
 function linear(value) {
     return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 }

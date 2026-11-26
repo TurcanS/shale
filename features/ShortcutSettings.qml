@@ -8,7 +8,7 @@ import "../components" as C
 // Settings → Shortcuts: each Shale shortcut, recorded by pressing the new keys.
 ColumnLayout {
     id: root
-    spacing: Theme.gapM
+    spacing: 8
     // shortcuts.list: {ready, shortcuts: [{action, title, default, keys, changed}]}
     property var listing: ({ready: false, shortcuts: []})
     property bool loaded: false
@@ -17,6 +17,8 @@ ColumnLayout {
     property string held: ""
     // True while Hyprland's empty recording submap is active, so bound keys reach the recorder.
     property bool submap: false
+    // Counts start() calls: only the latest one's answer may set `submap`, whatever order the answers come in.
+    property int recordTicket: 0
     property bool busy: false
     property string error: ""
     property string errorAction: ""
@@ -27,7 +29,7 @@ ColumnLayout {
             if (!e)
                 root.listing = r;
             root.loaded = true;
-        });
+        }, {owner: root});
     }
     function start(action) {
         stop();
@@ -36,11 +38,19 @@ ColumnLayout {
         recording = action;
         held = "";
         recorder.forceActiveFocus();
+        const ticket = ++recordTicket;
         Backend.request("shortcuts.record", {active: true}, (r, e) => {
-            // Stopped meanwhile: leave the submap again.
-            if (!e && r.active && root.recording !== action)
+            // Settings closed meanwhile: leave the submap, or Hyprland's shortcuts stay off until Escape.
+            if (!root) {
+                if (!e && r.active)
+                    Backend.request("shortcuts.record", {active: false});
+                return;
+            }
+            if (ticket === root.recordTicket && root.recording !== "")
+                root.submap = !e && r.active;
+            // Stopped meanwhile: leave the submap again, unless another shortcut is being recorded and needs it.
+            else if (!e && r.active && root.recording === "")
                 Backend.request("shortcuts.record", {active: false});
-            root.submap = !e && r.active && root.recording === action;
         });
     }
     function stop() {
@@ -70,7 +80,7 @@ ColumnLayout {
             root.listing = r;
             root.savedAction = action || "*";
             savedTimer.restart();
-        });
+        }, {owner: root});
     }
     onVisibleChanged: visible ? load() : stop()
     Component.onCompleted: if (Backend.ready) load()
@@ -130,109 +140,94 @@ ColumnLayout {
         }
     }
     C.Label {
-        text: !root.loaded ? "" : root.listing.ready ? "Choose Change, then press the new keys. Changes apply right away." : "Shortcuts come from the installed Hyprland fragment. Update Shale with ./install.sh --update to change them here; you can also copy a command to bind it yourself."
+        text: !root.loaded ? "" : root.listing.ready ? "Choose Change, then press the new keys. Keys Hyprland already uses are refused; the rest apply right away." : "Shortcuts come from the installed Hyprland fragment. Update Shale with ./install.sh --update to change them here; you can also copy a command to bind it yourself."
         visible: text !== ""
-        color: Theme.muted
+        color: Theme.textSecondary
+        font.pixelSize: Theme.label
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
+    // Each shortcut: its name (and what's happening to it) beside its key caps, Change, then reset and copy.
     C.Group {
         Repeater {
             model: root.listing.shortcuts
-            ColumnLayout {
+            C.SettingRow {
                 id: shortcut
                 required property var modelData
                 readonly property bool active: root.recording === modelData.action
+                readonly property bool saved: root.savedAction === modelData.action || root.savedAction === "*"
+                readonly property bool failed: root.error !== "" && root.errorAction === modelData.action
                 readonly property var caps: KeyNames.caps(active ? (root.held ? root.held + " + …" : "") : modelData.keys)
-                Layout.fillWidth: true
-                spacing: 0
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(40, Theme.body + 26)
-                    Layout.leftMargin: Theme.gapM - 2
-                    spacing: Theme.gapXs + 2
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        C.Label {
-                            text: shortcut.modelData.title
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        C.Caption {
-                            visible: text !== ""
-                            text: shortcut.active ? "Press the new keys · Esc to cancel · Backspace for none"
-                                : root.savedAction === shortcut.modelData.action || root.savedAction === "*" ? "Saved"
-                                : shortcut.modelData.changed ? "Changed" : ""
-                            color: shortcut.active ? Theme.accentText : root.savedAction === shortcut.modelData.action || root.savedAction === "*" ? Theme.success : Theme.muted
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                    }
-                    C.Caption {
-                        visible: !shortcut.active && !shortcut.modelData.keys
-                        text: "Not set"
-                        color: Theme.disabled
-                    }
+                label: modelData.title
+                description: failed ? root.error : active ? "Press the new keys · Esc to cancel · Backspace for none" : saved ? "Saved" : modelData.changed ? "Changed" : ""
+                descriptionColor: failed ? Theme.dangerText : active ? Theme.accentText : saved ? Theme.success : Theme.textDim
+                C.Label {
+                    visible: !shortcut.active && !shortcut.modelData.keys
+                    text: "Not set"
+                    color: Theme.textFaint
+                    font.pixelSize: Theme.small
+                }
+                Row {
+                    spacing: 4
+                    Layout.rightMargin: 4
                     Repeater {
                         model: shortcut.caps
-                        Rectangle {
+                        C.KeyHint {
                             required property string modelData
-                            implicitWidth: Math.max(26, keyLabel.implicitWidth + 14)
-                            implicitHeight: Math.max(24, Theme.caption + 12)
-                            radius: Theme.radiusSmall - 2
-                            color: shortcut.active ? Theme.selection : Theme.raised
-                            C.Label {
-                                id: keyLabel
-                                anchors.centerIn: parent
-                                text: parent.modelData
-                                font.family: Theme.mono
-                                font.pixelSize: Theme.caption
-                                color: shortcut.active ? Theme.accentText : Theme.text
+                            text: modelData
+                            textSize: 12
+                            width: Math.max(24, implicitWidth)
+                            height: 24
+                            color: shortcut.active ? Theme.accentSoft : Theme.key
+                            textColor: shortcut.active ? Theme.accentText : Theme.textSecondary
+                            // The cap's lower lip.
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.leftMargin: 3
+                                anchors.rightMargin: 3
+                                height: 1
+                                color: Qt.rgba(0, 0, 0, 0.4)
+                                visible: !shortcut.active
                             }
                         }
                     }
-                    C.Button {
-                        visible: root.listing.ready
-                        text: shortcut.active ? "Cancel" : "Change"
-                        flat: true
-                        selected: shortcut.active
-                        enabled: !root.busy
-                        implicitHeight: 32
-                        hint: (shortcut.active ? "Stop recording " : "Change the ") + shortcut.modelData.title + " shortcut"
-                        onClicked: shortcut.active ? root.stop() : root.start(shortcut.modelData.action)
-                    }
-                    C.Button {
-                        visible: root.listing.ready && shortcut.modelData.changed && !shortcut.active
-                        glyph: "refresh"
-                        hint: "Reset " + shortcut.modelData.title
-                        flat: true
-                        enabled: !root.busy
-                        implicitWidth: 32
-                        implicitHeight: 32
-                        onClicked: root.apply(shortcut.modelData.action, null)
-                    }
-                    C.Button {
-                        glyph: "copy"
-                        hint: "Copy command shale " + shortcut.modelData.action
-                        flat: true
-                        implicitWidth: 32
-                        implicitHeight: 32
-                        onClicked: {
-                            const command = "shale " + shortcut.modelData.action;
-                            ShellState.run("clipboard.write", {text: command}, () => ShellState.message("Copied · " + command, "success"));
-                        }
-                    }
                 }
-                C.Label {
-                    visible: root.error !== "" && root.errorAction === shortcut.modelData.action
-                    text: root.error
-                    color: Theme.danger
-                    font.pixelSize: Theme.small
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Theme.gapM - 2
-                    Layout.bottomMargin: Theme.gapS
+                C.Button {
+                    visible: root.listing.ready
+                    text: shortcut.active ? "Press keys…" : "Change"
+                    selected: shortcut.active
+                    enabled: !root.busy
+                    implicitWidth: 104
+                    implicitHeight: 30
+                    cornerRadius: 8
+                    labelSize: 12
+                    hint: (shortcut.active ? "Stop recording " : "Change the ") + shortcut.modelData.title + " shortcut"
+                    onClicked: shortcut.active ? root.stop() : root.start(shortcut.modelData.action)
+                }
+                C.Button {
+                    visible: root.listing.ready && shortcut.modelData.changed && !shortcut.active
+                    glyph: "refresh"
+                    hint: "Reset " + shortcut.modelData.title
+                    flat: true
+                    enabled: !root.busy
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    cornerRadius: 8
+                    onClicked: root.apply(shortcut.modelData.action, null)
+                }
+                C.Button {
+                    glyph: "copy"
+                    hint: "Copy command shale " + shortcut.modelData.action
+                    flat: true
+                    implicitWidth: 30
+                    implicitHeight: 30
+                    cornerRadius: 8
+                    onClicked: {
+                        const command = "shale " + shortcut.modelData.action;
+                        ShellState.run("clipboard.write", {text: command}, () => ShellState.message("Copied · " + command, "success"));
+                    }
                 }
             }
         }
@@ -240,21 +235,23 @@ ColumnLayout {
     C.Label {
         visible: root.error !== "" && root.errorAction === ""
         text: root.error
-        color: Theme.danger
+        color: Theme.dangerText
         font.pixelSize: Theme.small
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
     C.Label {
         text: "Esc closes any open panel without a shortcut. Volume, brightness and media keys stay in your Hyprland config."
-        color: Theme.muted
+        color: Theme.textDim
         font.pixelSize: Theme.small
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
     C.ResetButton {
         visible: root.listing.ready && root.anyChanged
+        Layout.topMargin: Theme.gapS
         text: "Reset all shortcuts"
+        description: "Hold to put every shortcut back to how Shale comes"
         armed: !root.busy
         onConfirmed: root.apply("", null)
     }

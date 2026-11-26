@@ -11,7 +11,7 @@ C.Button {
     property bool armed: true
     property bool triggered: false
     property real progress: 0
-    property int delay: 1400
+    property int delay: 1000
     property double startedAt: 0
 
     signal confirmed()
@@ -29,16 +29,17 @@ C.Button {
     }
 
     glyph: "power"
-    implicitHeight: Math.max(68, holdContent.implicitHeight + topPadding + bottomPadding + 6)
+    implicitHeight: Math.max(description !== "" ? 60 : Theme.controlLarge, holdContent.implicitHeight + topPadding + bottomPadding)
     implicitWidth: 240
     padding: Theme.gapL
     topPadding: Theme.gapM
-    bottomPadding: 18
+    bottomPadding: Theme.gapM
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
     enabled: armed && !triggered
-    Accessible.name: "Hold to " + text.toLowerCase()
-    Accessible.description: "Hold for 1.4 seconds. Release early to cancel."
+    // Labels that already say "Hold to …" are read as they are.
+    Accessible.name: /^hold to /i.test(text) ? text : "Hold to " + text.toLowerCase()
+    Accessible.description: "Hold for " + delay / 1000 + (delay === 1000 ? " second" : " seconds") + ". Release early to cancel."
     onVisibleChanged: {
         if (!visible) {
             cancelHold();
@@ -77,24 +78,27 @@ C.Button {
         }
     }
 
+    // A module, or for destructive actions the danger edge and wash; holding fills it from the left.
     background: Rectangle {
-        radius: Theme.controlRadius
-        color: root.hovered || root.visualFocus || root.down ? Theme.hover : Theme.surface
+        readonly property bool lit: root.hovered || root.visualFocus || root.down
+        radius: Theme.radiusCard
+        color: root.destructive ? (lit ? Theme.dangerSoft : Theme.dangerWash) : lit ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
+        border.width: root.destructive ? 1 : 0
+        border.color: Theme.dangerLine
 
-        Rectangle {
+        // Clipped square on the right, so the fill keeps the key's rounded left end as it grows.
+        Item {
             anchors.left: parent.left
-            anchors.right: parent.right
+            anchors.top: parent.top
             anchors.bottom: parent.bottom
-            anchors.margins: Theme.gapM
-            height: 3
-            radius: 1.5
-            color: Theme.raised
+            width: parent.width * root.progress
+            clip: true
 
             Rectangle {
-                width: parent.width * root.progress
+                width: root.width
                 height: parent.height
-                radius: 1.5
-                color: root.destructive ? Theme.danger : Theme.text
+                radius: Theme.radiusCard
+                color: root.destructive ? Theme.tint(Theme.danger, 0.28) : Theme.accentSoft
             }
 
         }
@@ -117,8 +121,8 @@ C.Button {
 
         C.Icon {
             name: root.glyph
-            size: Theme.iconLarge
-            color: root.destructive ? Theme.danger : Theme.text
+            size: root.description !== "" ? Theme.iconLarge : Theme.icon
+            color: root.destructive ? Theme.dangerText : Theme.text
         }
 
         ColumnLayout {
@@ -128,13 +132,14 @@ C.Button {
             C.Label {
                 text: root.text
                 font.weight: Font.DemiBold
+                color: root.destructive ? Theme.dangerText : Theme.text
                 Layout.fillWidth: true
             }
 
             C.Label {
                 visible: root.description !== ""
                 text: root.description
-                color: Theme.muted
+                color: root.destructive ? Theme.tint(Theme.dangerText, 0.75) : Theme.textDim
                 font.pixelSize: Theme.small
                 Layout.fillWidth: true
             }
@@ -146,7 +151,7 @@ C.Button {
             text: Math.max(0, (root.delay * (1 - root.progress)) / 1000).toFixed(1) + "s"
             font.pixelSize: Theme.small
             font.family: Theme.mono
-            color: root.destructive ? Theme.danger : Theme.muted
+            color: root.destructive ? Theme.dangerText : Theme.textDim
         }
 
     }

@@ -28,13 +28,16 @@ QtObject {
     // The media equalizer's filter nodes are routed automatically and are not devices or apps.
     readonly property var audioOutputs: Pipewire.nodes.values.filter(n => (n.type & PwNodeType.Audio) && n.isSink && !n.isStream && !n.name.startsWith("shale_eq"))
     readonly property var audioInputs: Pipewire.nodes.values.filter(n => (n.type & PwNodeType.Audio) && !n.isSink && !n.isStream)
-    readonly property var audioStreams: Pipewire.nodes.values.filter(n => (n.type & PwNodeType.Audio) && n.isStream && !n.isSink && !n.name.startsWith("shale_eq"))
+    // Apps playing sound. A playback stream carries the Sink flag (AudioOutStream); recording streams, such as the
+    // visualizer's cava listening to the output, are AudioInStream and are not apps to mix.
+    readonly property var audioStreams: Pipewire.nodes.values.filter(n => (n.type & PwNodeType.AudioOutStream) === PwNodeType.AudioOutStream && !n.name.startsWith("shale_eq"))
     // Apps recording a microphone or receiving a shared screen: PipeWire links from a device or
     // portal source into an app's stream. Sink monitors (the visualizer) start at a sink and don't count.
     readonly property var captureLinks: Pipewire.linkGroups.values.filter(g => !!g.source && !!g.target && g.target.isStream && !g.source.isStream && !g.source.isSink)
     // Only these few nodes are bound, for their application names and device API.
     property PwObjectTracker captureTracker: PwObjectTracker {
-        objects: root.captureLinks.reduce((nodes, g) => nodes.concat([g.source, g.target]), [])
+        // A node can go between the link list's update and this one, and the list itself while the shell reloads.
+        objects: (root.captureLinks || []).reduce((nodes, g) => nodes.concat([g.source, g.target]), []).filter(node => !!node)
     }
     function captureApps(links) {
         const names = links.map(g => g.target.properties["application.name"] || g.target.description || g.target.name);
@@ -62,7 +65,8 @@ QtObject {
     readonly property bool batteryCharging: UPower.displayDevice.state === UPowerDeviceState.Charging
     readonly property bool onBattery: UPower.onBattery
     readonly property real batterySeconds: batteryCharging ? UPower.displayDevice.timeToFull : UPower.displayDevice.timeToEmpty
-    property string lastError: ""
+    // Something a service couldn't do, in words for a toast; said each time it happens.
+    signal failed(string message)
     signal osdRequested(string kind, real value, bool muted)
     signal batteryWarning(int percent)
     property var batteryWarnings: []
@@ -96,7 +100,8 @@ QtObject {
             osdRequested("volume", volume, muted);
     }
     onMutedChanged: {
-        if (initializedAudio)
+        // Without an output `muted` reads true: an unplugged device isn't a mute to announce.
+        if (initializedAudio && output && output.audio)
             osdRequested("volume", volume, muted);
     }
     function setVolume(value) {
@@ -135,7 +140,8 @@ QtObject {
             bluetoothAdapter.enabled = enabled;
     }
     function bluetoothScan(enabled) {
-        if (bluetoothAdapter)
+        // BlueZ refuses to stop a scan it isn't running (Control stops one each time it closes).
+        if (bluetoothAdapter && bluetoothAdapter.discovering !== enabled)
             bluetoothAdapter.discovering = enabled;
     }
     function workspace(id) {
@@ -181,7 +187,7 @@ QtObject {
         interval: 1500
         onTriggered: {
             root.pendingMoveAddress = "";
-            root.lastError = "Could not focus the window to move it.";
+            root.failed("Could not focus the window to move it.");
         }
     }
 
@@ -351,10 +357,6 @@ QtObject {
         if (record && record.original)
             record.original.dismiss();
     }
-    function dismissAllNotifications() {
-        for (const item of notifications.slice())
-            dismissNotification(item.id);
-    }
     function dismissApplication(appName) {
         for (const item of notifications.slice())
             if (item.appName === appName)
@@ -408,13 +410,13 @@ QtObject {
         }
     }
     // The helper reports an equalizer filter it gave up restarting (at login or after a crash). The setting
-    // stays on: PipeWire may only have been slow, and the equalizer starts again when Media is opened.
+    // stays on: PipeWire may only have been slow, and the equalizer starts again when Sound is opened.
     property Connections backendEvents: Connections {
         target: Backend
         function onEventReceived(name, data) {
             if (name !== "eq" || !data || data.enabled || !ShellState.setting("eqEnabled", false))
                 return;
-            ShellState.message("The equalizer could not start. Open Media in the control center to try again.", "error");
+            ShellState.message("The equalizer could not start. Open Sound in Control to try again.", "error");
         }
     }
 }

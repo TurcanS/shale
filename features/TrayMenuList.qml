@@ -12,6 +12,12 @@ FocusScope {
     property bool canOpen: true
     // Title of the open submenu, or "" at the top level.
     property string submenu: ""
+    // Folding out (TrayMenu): each row unfolds on its hinge under the one above, foldGap ms after it; foldAt is how
+    // far into the fold the menu is, in ms.
+    property bool foldActive: false
+    property real foldAt: 0
+    property int foldGap: 60
+    property int foldSpan: 260
     signal openRequested()
     signal quitRequested()
     signal entryChosen(var entry)
@@ -66,6 +72,14 @@ FocusScope {
         else
             closeRequested();
     }
+    // Scrolls a row the keyboard reached into view.
+    function reveal(item) {
+        const y = item.mapToItem(column, 0, 0).y;
+        if (y < scroller.contentY)
+            scroller.contentY = y;
+        else if (y + item.height > scroller.contentY + scroller.height)
+            scroller.contentY = y + item.height - scroller.height;
+    }
     function focusFirst() {
         for (let i = 0; i < repeater.count; i++) {
             const row = repeater.itemAt(i) ? repeater.itemAt(i).item : null;
@@ -89,85 +103,107 @@ FocusScope {
             return;
         event.accepted = true;
     }
-    ColumnLayout {
-        id: column
-        width: parent.width
-        spacing: 2
-        C.Label {
-            visible: root.submenu !== ""
-            text: root.submenu
-            color: Theme.muted
-            font.pixelSize: Theme.small
-            elide: Text.ElideRight
-            Layout.fillWidth: true
-            Layout.leftMargin: 10
-            Layout.topMargin: 4
-            Layout.bottomMargin: 2
-        }
-        Repeater {
-            id: repeater
-            model: root.rows
-            delegate: Loader {
-                id: rowLoader
-                required property var modelData
+    // A long menu (a chat app's, a game launcher's) scrolls inside the screen instead of running off it.
+    Flickable {
+        id: scroller
+        anchors.fill: parent
+        contentHeight: column.implicitHeight
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        clip: true
+        ColumnLayout {
+            id: column
+            width: scroller.width
+            spacing: 2
+            C.Label {
+                visible: root.submenu !== ""
+                text: root.submenu
+                color: Theme.textDim
+                font.pixelSize: 12
+                elide: Text.ElideRight
                 Layout.fillWidth: true
-                sourceComponent: modelData.kind === "separator" ? separator : button
-                Component {
-                    id: separator
-                    Item {
-                        implicitHeight: 9
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width
-                            height: 1
-                            color: Theme.border
+                Layout.leftMargin: 10
+                Layout.topMargin: 4
+                Layout.bottomMargin: 2
+            }
+            Repeater {
+                id: repeater
+                model: root.rows
+                delegate: Loader {
+                    id: rowLoader
+                    required property var modelData
+                    required property int index
+                    readonly property real fold: root.foldActive ? Motion.clamp((root.foldAt - index * root.foldGap) / Math.max(1, root.foldSpan), 0, 1) : 1
+                    opacity: Math.min(1, fold * 3)
+                    transform: Rotation {
+                        origin.x: rowLoader.width / 2
+                        origin.y: 0
+                        axis { x: 1; y: 0; z: 0 }
+                        angle: rowLoader.fold >= 1 ? 0 : 92 * (1 - Motion.seat(Motion.ov(1.4), rowLoader.fold))
+                    }
+                    Layout.fillWidth: true
+                    sourceComponent: modelData.kind === "separator" ? separator : button
+                    Component {
+                        id: separator
+                        Item {
+                            implicitHeight: 9
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 1
+                                color: Theme.separator
+                            }
                         }
                     }
-                }
-                Component {
-                    id: button
-                    C.Button {
-                        id: rowButton
-                        readonly property var row: rowLoader.modelData
-                        readonly property var entry: row.entry || null
-                        flat: true
-                        danger: row.kind === "quit"
-                        enabled: row.kind !== "entry" || entry.enabled !== false
-                        implicitHeight: Math.max(32, Theme.body + 18)
-                        hint: text
-                        text: row.kind === "back" ? "Back" : row.kind === "open" ? "Open " + root.appName
-                            : row.kind === "quit" ? "Quit " + root.appName : root.label(entry.text)
-                        onClicked: root.activate(row)
-                        Keys.onReturnPressed: root.activate(row)
-                        Keys.onEnterPressed: root.activate(row)
-                        contentItem: RowLayout {
-                            spacing: Theme.gapM
-                            // Checkbox and radio entries keep one column for their mark, so labels line up.
-                            C.Icon {
-                                visible: row.kind === "back" || (!!entry && entry.buttonType > 0)
-                                name: row.kind === "back" ? "back" : entry && entry.checkState === Qt.Checked ? "check" : ""
-                                size: 14
-                                Layout.preferredWidth: 14
-                            }
-                            Image {
-                                visible: !!entry && !!entry.icon
-                                source: entry && entry.icon ? entry.icon : ""
-                                sourceSize.width: 16
-                                sourceSize.height: 16
-                                Layout.preferredWidth: 16
-                                Layout.preferredHeight: 16
-                                fillMode: Image.PreserveAspectFit
-                            }
-                            C.Label {
-                                text: rowButton.text
-                                color: !rowButton.enabled ? Theme.disabled : row.kind === "quit" ? Theme.danger : Theme.text
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            C.Icon {
-                                visible: !!entry && !!entry.hasChildren
-                                name: "chevron"
-                                size: 14
+                    Component {
+                        id: button
+                        C.Button {
+                            id: rowButton
+                            readonly property var row: rowLoader.modelData
+                            readonly property var entry: row.entry || null
+                            flat: true
+                            danger: row.kind === "quit"
+                            enabled: row.kind !== "entry" || entry.enabled !== false
+                            implicitHeight: Math.max(32, Theme.body + 18)
+                            cornerRadius: 8
+                            leftPadding: 10
+                            rightPadding: 10
+                            hint: text
+                            text: row.kind === "back" ? "Back" : row.kind === "open" ? "Open " + root.appName
+                                : row.kind === "quit" ? "Quit " + root.appName : root.label(entry.text)
+                            onClicked: root.activate(row)
+                            onActiveFocusChanged: if (activeFocus) root.reveal(rowButton)
+                            Keys.onReturnPressed: root.activate(row)
+                            Keys.onEnterPressed: root.activate(row)
+                            contentItem: RowLayout {
+                                spacing: Theme.gapM
+                                // Checkbox and radio entries keep one column for their mark, so labels line up.
+                                C.Icon {
+                                    visible: row.kind === "back" || (!!entry && entry.buttonType > 0)
+                                    name: row.kind === "back" ? "back" : entry && entry.checkState === Qt.Checked ? "check" : ""
+                                    size: 14
+                                    Layout.preferredWidth: 14
+                                }
+                                Image {
+                                    visible: !!entry && !!entry.icon
+                                    source: entry && entry.icon ? entry.icon : ""
+                                    sourceSize.width: 16
+                                    sourceSize.height: 16
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                                C.Label {
+                                    text: rowButton.text
+                                    color: rowButton.foreground
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                C.Icon {
+                                    visible: !!entry && !!entry.hasChildren
+                                    name: "chevron"
+                                    size: 14
+                                }
                             }
                         }
                     }

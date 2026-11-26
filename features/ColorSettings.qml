@@ -3,11 +3,14 @@ import QtQuick.Layouts
 import "../core"
 import "../components" as C
 
+// Settings → Appearance → Colour: the accent from the wallpaper or a fixed swatch, any hex colour, and the tone of
+// the panels.
 ColumnLayout {
     id: root
-    spacing: Theme.gapS + 2
+    spacing: 8
     property string error: ""
     readonly property bool fromWallpaper: ShellState.setting("accentFromWallpaper", false)
+    readonly property string accentColor: ShellState.setting("accentColor", Theme.defaultAccent).toLowerCase()
     // Picking an accent by hand ends wallpaper matching.
     function setAccent(value) {
         if (fromWallpaper)
@@ -45,117 +48,135 @@ ColumnLayout {
     function applyCustom() {
         const value = customField.text.trim().toLowerCase();
         if (!validAccent(value)) {
-            error = "Use a bright six-digit hex color, such as " + Theme.defaultAccent + ".";
+            error = "Use a bright six-digit hex colour, such as " + Theme.defaultAccent + ".";
             return;
         }
         error = "";
         customField.text = value;
         setAccent(value);
     }
-    C.SectionHeader { text: "Accent color" }
-    C.Toggle {
-        Layout.fillWidth: true
-        text: "Match wallpaper"
-        description: root.fromWallpaper ? "Follows the wallpaper on the focused screen" : "Take the accent from your wallpaper"
-        selected: root.fromWallpaper
-        onClicked: root.setFromWallpaper(!root.fromWallpaper)
+    // A chosen swatch or the wallpaper key wears a 2 px ring of its colour, a little away from its edge.
+    component Ring: Rectangle {
+        property color tint: Theme.accent
+        anchors.fill: parent
+        anchors.margins: -4
+        radius: height / 2
+        color: "transparent"
+        border.width: 2
+        border.color: tint
     }
-    GridLayout {
-        Layout.fillWidth: true
-        columns: 3
-        rowSpacing: Theme.gapS
-        columnSpacing: Theme.gapS
-        Repeater {
-            model: root.accents
-            C.Button {
-                id: accentButton
-                required property var modelData
-                text: modelData.name
-                selected: !root.fromWallpaper && ShellState.setting("accentColor", Theme.defaultAccent).toLowerCase() === modelData.color
-                implicitHeight: Theme.controlLarge
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                onClicked: {
-                    root.setAccent(modelData.color);
-                    customField.text = modelData.color;
-                    root.error = "";
-                }
-                contentItem: RowLayout {
-                    spacing: Theme.gapS
-                    Rectangle {
-                        Layout.preferredWidth: 20
-                        Layout.preferredHeight: 20
-                        radius: 6
-                        color: accentButton.modelData.color
-                        C.Icon { anchors.centerIn: parent; visible: accentButton.selected; name: "check"; color: Theme.background; size: 12 }
-                    }
-                    C.Label { text: accentButton.text; color: accentButton.selected ? Theme.accentText : Theme.text; font.pixelSize: Theme.small; Layout.fillWidth: true }
-                }
+    C.SectionHeader {
+        text: "Colour"
+        C.Button {
+            text: "Reset colours"
+            flat: true
+            implicitHeight: 28
+            labelSize: Theme.small
+            foreground: enabled ? (hovered || visualFocus ? Theme.text : Theme.textDim) : Theme.textFaint
+            enabled: root.fromWallpaper || root.accentColor !== Theme.defaultAccent || ShellState.setting("surfaceTone", "charcoal") !== "charcoal"
+            onClicked: {
+                root.setAccent(Theme.defaultAccent);
+                ShellState.setSetting("surfaceTone", "charcoal");
+                customField.text = Theme.defaultAccent;
+                root.error = "";
             }
         }
     }
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Theme.gapS
-        C.Field {
-            id: customField
-            Layout.fillWidth: true
-            text: ShellState.setting("accentColor", Theme.defaultAccent)
-            placeholderText: "#RRGGBB"
-            Accessible.name: "Custom accent color"
-            maximumLength: 7
-            onAccepted: root.applyCustom()
-        }
-        Rectangle {
-            Layout.preferredWidth: 24
-            Layout.preferredHeight: 24
-            radius: 6
-            color: root.validAccent(customField.text.trim()) ? customField.text.trim() : Theme.raised
-        }
-        C.Button { text: "Apply"; onClicked: root.applyCustom() }
-    }
-    C.Label { visible: root.error !== ""; text: root.error; color: Theme.danger; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-    C.SectionHeader { text: "Surface"; Layout.topMargin: Theme.gapS }
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Theme.gapS
-        Repeater {
-            model: root.tones
+    C.Group {
+        C.SettingRow {
+            label: "Accent colour"
+            description: root.fromWallpaper ? "Follows the wallpaper on the focused screen" : "Taken from the wallpaper, or fixed"
             C.Button {
-                id: toneButton
-                required property var modelData
-                text: modelData.name
-                selected: ShellState.setting("surfaceTone", "charcoal") === modelData.key
-                implicitHeight: Theme.controlLarge
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                onClicked: ShellState.setSetting("surfaceTone", modelData.key)
-                contentItem: RowLayout {
-                    spacing: Theme.gapS
-                    Rectangle {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        radius: 6
-                        color: Theme.surfacePalettes[toneButton.modelData.key].panel
-                        border.width: 1
-                        border.color: Theme.border
-                        C.Icon { anchors.centerIn: parent; visible: toneButton.selected; name: "check"; size: 11; color: Theme.accentText }
+                id: wallpaperKey
+                text: "From wallpaper"
+                selected: root.fromWallpaper
+                implicitHeight: 28
+                leftPadding: 10
+                rightPadding: 10
+                labelSize: 12
+                cornerRadius: 14
+                foreground: Theme.text
+                Layout.rightMargin: 4
+                Accessible.role: Accessible.RadioButton
+                Accessible.checkable: true
+                Accessible.checked: selected
+                onClicked: root.setFromWallpaper(true)
+                background: Rectangle {
+                    radius: 14
+                    color: wallpaperKey.hovered || wallpaperKey.visualFocus || wallpaperKey.down ? Theme.keyHover : Theme.key
+                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                    Ring {
+                        visible: wallpaperKey.selected
                     }
-                    C.Label { text: toneButton.text; color: toneButton.selected ? Theme.accentText : Theme.text; font.pixelSize: Theme.small; Layout.fillWidth: true }
+                }
+            }
+            Repeater {
+                model: root.accents
+                C.Button {
+                    id: swatch
+                    required property var modelData
+                    selected: !root.fromWallpaper && root.accentColor === modelData.color
+                    hint: modelData.name + " · " + modelData.color
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    padding: 0
+                    cornerRadius: 14
+                    Layout.leftMargin: 2
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.checkable: true
+                    Accessible.checked: selected
+                    onClicked: {
+                        root.setAccent(modelData.color);
+                        customField.text = modelData.color;
+                        root.error = "";
+                    }
+                    background: Rectangle {
+                        radius: 14
+                        color: swatch.modelData.color
+                        Ring {
+                            visible: swatch.selected || swatch.hovered
+                            tint: swatch.selected ? swatch.modelData.color : Theme.edge
+                        }
+                    }
+                    contentItem: Item {}
                 }
             }
         }
-    }
-    C.Button {
-        text: "Reset colors"
-        flat: true
-        Layout.alignment: Qt.AlignRight
-        enabled: root.fromWallpaper || ShellState.setting("accentColor", Theme.defaultAccent) !== Theme.defaultAccent || ShellState.setting("surfaceTone", "charcoal") !== "charcoal"
-        onClicked: {
-            root.setAccent(Theme.defaultAccent);
-            ShellState.setSetting("surfaceTone", "charcoal");
-            customField.text = Theme.defaultAccent;
-            root.error = "";
+        C.SettingRow {
+            label: "Custom colour"
+            description: root.error || "Any bright six-digit hex colour"
+            descriptionColor: root.error ? Theme.dangerText : Theme.textDim
+            Rectangle {
+                implicitWidth: 20
+                implicitHeight: 20
+                radius: 10
+                color: root.validAccent(customField.text.trim()) ? customField.text.trim() : Theme.key
+            }
+            C.Field {
+                id: customField
+                Layout.preferredWidth: 120
+                implicitHeight: 32
+                font.family: Theme.mono
+                font.pixelSize: Theme.small
+                text: ShellState.setting("accentColor", Theme.defaultAccent)
+                placeholderText: "#RRGGBB"
+                Accessible.name: "Custom accent colour"
+                maximumLength: 7
+                onAccepted: root.applyCustom()
+            }
+            C.Button {
+                text: "Apply"
+                implicitHeight: 32
+                onClicked: root.applyCustom()
+            }
+        }
+        C.ChoiceRow {
+            settingKey: "surfaceTone"
+            label: "Surface"
+            description: "The tone of every panel"
+            model: root.tones.map(tone => ({key: tone.key, text: tone.name}))
+            current: ShellState.setting("surfaceTone", "charcoal")
+            onActivated: key => ShellState.setSetting("surfaceTone", key)
         }
     }
 }

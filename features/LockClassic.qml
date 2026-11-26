@@ -4,7 +4,8 @@ import Quickshell
 import "../core"
 import "../components" as C
 
-// The classic lock screen: a large clock over the blurred wallpaper, your picture and the password field.
+// The classic lock screen: the date and a large clock near the top with the glance chips under them, the unlock
+// group at the bottom centre, what's playing and the keyboard layout bottom left, the power keys bottom right.
 Item {
     id: root
     required property var context
@@ -14,7 +15,7 @@ Item {
     opacity: context.unlocking ? 0 : reveal
     Behavior on opacity {
         NumberAnimation {
-            duration: Theme.reduced ? 0 : 220
+            duration: Theme.enter
             easing.type: Easing.OutCubic
         }
     }
@@ -27,103 +28,85 @@ Item {
         anchors.fill: parent
         screenName: root.screenName
     }
-    LockStatus {
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.margins: 28
-    }
 
     ColumnLayout {
-        id: centre
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: -30
-        width: Math.min(parent.width - 48, 360)
-        spacing: 0
+        anchors.top: parent.top
+        anchors.topMargin: Math.round(root.height * 0.145)
+        spacing: 6
         transform: Translate { y: Theme.reduced ? 0 : (1 - root.reveal) * 14 }
         C.Label {
-            text: Qt.formatDateTime(clock.date, "dddd · d MMMM").toUpperCase()
-            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.95)
-            font.pixelSize: 13
-            font.weight: Font.DemiBold
-            font.letterSpacing: 3
-            elide: Text.ElideNone
-            Layout.alignment: Qt.AlignHCenter
-        }
-        // Tabular figures keep the clock from shifting as the minutes change.
-        C.Label {
-            text: Qt.formatDateTime(clock.date, ShellState.setting("clock24h", true) ? "HH:mm" : "h:mm")
-            font.pixelSize: 132
-            font.weight: Font.ExtraLight
-            font.letterSpacing: -4
-            font.features: {"tnum": 1}
-            elide: Text.ElideNone
-            Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: -6
-            Layout.bottomMargin: 36
-        }
-        LockAvatar {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 72
-            Layout.preferredHeight: 72
-        }
-        C.Label {
-            text: Quickshell.env("USER") || ""
-            font.pixelSize: Theme.body + 1
+            text: Qt.formatDateTime(clock.date, "dddd, d MMMM")
+            color: Theme.tint(Theme.text, 0.85)
+            font.pixelSize: 22
             font.weight: Font.Medium
             elide: Text.ElideNone
             Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: 12
-            Layout.bottomMargin: 18
         }
-        LockField {
-            id: field
-            context: root.context
+        // A 168 px box with the digits centred in it, as the design's line-height 1. Tabular figures keep the
+        // clock from shifting as the minutes change.
+        Item {
+            implicitWidth: time.implicitWidth
+            implicitHeight: 168
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: Math.min(centre.width, 330)
-            Layout.preferredHeight: 52
-            // A short shake on a wrong password; reduced motion keeps only the message.
-            transform: Translate { id: shakeOffset }
-            SequentialAnimation {
-                id: shake
-                NumberAnimation { target: shakeOffset; property: "x"; to: -10; duration: 45 }
-                NumberAnimation { target: shakeOffset; property: "x"; to: 9; duration: 70 }
-                NumberAnimation { target: shakeOffset; property: "x"; to: -6; duration: 60 }
-                NumberAnimation { target: shakeOffset; property: "x"; to: 3; duration: 50 }
-                NumberAnimation { target: shakeOffset; property: "x"; to: 0; duration: 40 }
+            FontMetrics {
+                id: timeMetrics
+                font: time.font
             }
-            Connections {
-                target: root.context
-                function onFailed() {
-                    if (!Theme.reduced)
-                        shake.restart();
-                }
+            C.Label {
+                id: time
+                // Read through the metrics' font, so it is measured again once the bundled font has loaded.
+                readonly property rect digits: timeMetrics.font.family !== "" ? timeMetrics.tightBoundingRect("0123456789") : Qt.rect(0, 0, 0, 0)
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: Math.round(parent.height / 2 + digits.height / 2 - baselineOffset)
+                text: Qt.formatDateTime(clock.date, ShellState.setting("clock24h", true) ? "HH:mm" : "h:mm")
+                font.pixelSize: 168
+                font.weight: Font.DemiBold
+                font.letterSpacing: -6.7
+                font.features: {"tnum": 1}
+                elide: Text.ElideNone
             }
         }
-        LockNote {
-            context: root.context
-            Layout.fillWidth: true
+        LockStatus {
+            Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: 12
-            Layout.preferredHeight: Math.max(implicitHeight, 18)
         }
     }
 
-    // Bottom row: what's playing (with controls) and the power button.
+    LockPrompt {
+        id: prompt
+        context: root.context
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Math.max(48, Math.round(root.height * 0.133))
+        transform: Translate { y: Theme.reduced ? 0 : (1 - root.reveal) * 14 }
+    }
+
+    // Bottom left: what's playing (with play/pause and next) and the keyboard layout.
     RowLayout {
         anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 32
+        anchors.bottomMargin: 28
+        spacing: 8
+        LockMedia {
+            maxWidth: Math.max(160, Math.min(360, root.width - 420))
+        }
+        LockKeyboard {}
+    }
+    // Top right: AirDrop requests, answered without unlocking.
+    LockAirDrop {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: 32
+        anchors.topMargin: 28
+    }
+    LockPower {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 28
-        spacing: Theme.gapL
-        LockMedia {
-            Layout.preferredWidth: Math.min(360, root.width / 2 - 40)
-        }
-        Item {
-            Layout.fillWidth: true
-        }
-        LockPower {
-            context: root.context
-            onReleased: field.focusField()
-        }
+        anchors.rightMargin: 32
+        anchors.bottomMargin: 28
+        context: root.context
+        onReleased: prompt.focusField()
     }
 }

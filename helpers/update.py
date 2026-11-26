@@ -4,6 +4,7 @@ GitHub is asked at most every 12 hours, with one anonymous request, and never fo
 without a recorded commit. After an update, the commits it brought stay listed until the user has seen them."""
 import datetime
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -133,7 +134,7 @@ def _read(path):
 def _write(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_suffix('.tmp')
+    temporary = path.with_suffix(f'.{os.getpid()}.tmp')  # the installed and the dev helper share this folder
     temporary.write_text(json.dumps(value))
     temporary.replace(path)
 

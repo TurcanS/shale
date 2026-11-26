@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
+import QtQuick.Window
 import "../core"
 import "../core/icons.js" as Icons
 
@@ -31,7 +32,9 @@ Item {
         anchors.fill: parent
         preferredRendererType: Shape.CurveRenderer
         // Qt's software renderer draws shapes past their ancestors' clip; a layer is an ordinary texture it clips.
-        layer.enabled: GraphicsInfo.api === GraphicsInfo.Software
+        // Only at a scale of 1: with fractional or double scaling the software renderer draws the shape off the
+        // layer's texture, cutting the icon or losing it.
+        layer.enabled: GraphicsInfo.api === GraphicsInfo.Software && Screen.devicePixelRatio === 1
         Layer { source: root.layers[0] || null }
         Layer { source: root.layers[1] || null }
         Layer { source: root.layers[2] || null }

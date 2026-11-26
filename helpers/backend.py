@@ -2,8 +2,11 @@
 """Shale JSON-lines backend. Credentials and clipboard data never enter logs."""
 import ast
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import datetime
+import hashlib
 import importlib.util
+import ipaddress
 import json
 import math
 import operator
@@ -14,6 +17,7 @@ import select
 import shutil
 import signal
 import sqlite3
+import struct
 import subprocess
 import sys
 import tempfile
@@ -30,10 +34,60 @@ from runtime import runtime_base
 import bluetooth_keep
 import clipboard_watch
 import equalizer
+import displays
 import weather
 import units
 import shortcuts
 import update
+
+def airdrop_command():
+    """The `airdrop` CLI (AirDrop for Linux) as an absolute path, or "" when it isn't installed. ~/.local/bin is often
+    missing from a compositor's PATH, so it is looked in as well."""
+    found = shutil.which("airdrop")
+    if found:
+        return found
+    local = Path.home() / ".local/bin/airdrop"
+    return str(local) if os.access(local, os.X_OK) else ""
+
+
+# What a file is, for an icon: by its extension, as AirDrop's own sheet does.
+FILE_KINDS = {"image": ("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "raw", "dng"),
+              "video": ("mp4", "mov", "m4v", "mkv", "webm", "avi", "hevc"),
+              "audio": ("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus"),
+              "pdf": ("pdf",),
+              "archive": ("zip", "tar", "gz", "xz", "zst", "7z", "rar", "bz2"),
+              "text": ("txt", "md", "rtf", "doc", "docx", "odt", "pages", "csv", "json", "log")}
+
+
+def file_kind(path):
+    if path.is_dir():
+        return "folder"
+    ext = path.suffix.lower().lstrip(".")
+    return next((kind for kind, exts in FILE_KINDS.items() if ext in exts), "file")
+
+
+def staged_item(text):
+    """One file or folder picked for AirDrop: its name, size (a folder's files, counted up to 20000 of them) and kind.
+    None when it is not an existing absolute path."""
+    if not isinstance(text, str) or not text.startswith("/") or "\0" in text or len(text) > 4096:
+        return None
+    path = Path(text)
+    try:
+        if not path.exists():
+            return None
+        size = 0
+        if path.is_dir():
+            for count, child in enumerate(path.rglob("*")):
+                if count >= 20000:
+                    break
+                if child.is_file() and not child.is_symlink():
+                    size += child.stat().st_size
+        else:
+            size = path.stat().st_size
+    except OSError:
+        return None
+    return {"path": str(path), "name": path.name or str(path), "size": size, "dir": path.is_dir(), "kind": file_kind(path)}
+
 
 def user_dir(name, fallback, home=None):
     """An XDG user directory such as PICTURES from user-dirs.dirs (localized, e.g. ~/Bilder), as ~/path."""
@@ -53,20 +107,23 @@ def user_dir(name, fallback, home=None):
         return "~/" + str(path.relative_to(home)) if path.is_relative_to(home) else str(path)
     return fallback
 
-DEFAULTS = {"version": 1, "reducedMotion": False, "clock24h": True,
+DEFAULTS = {"version": 1, "reducedMotion": False, "motion": "lively", "clock24h": True,
             "dnd": False, "amplification": False, "persistNotifications": False,
-            "fontSize": 14, "batterySaving": False, "saverRefresh": True, "windowPreviews": True,
+            "fontSize": 14, "panelSize": 85, "batterySaving": False, "saverRefresh": True, "windowPreviews": True,
             "hideFullscreen": True, "hiddenOutputs": [], "pinnedApps": [], "appUsage": {}, "captureDelay": 0,
             "accentColor": "#9ad6c6", "surfaceTone": "charcoal", "accentFromWallpaper": False, "accentManual": "#9ad6c6",
             "eqEnabled": False, "eqPreset": "flat", "eqBands": [0] * len(equalizer.BANDS), "visualizer": True, "barMedia": True, "trackChangeCard": True, "mediaRemaining": False,
             "weatherLocation": {}, "weatherUnits": "metric", "updateCheck": True, "emojiUsage": {}, "searchEngine": "duckduckgo", "lockScreen": "builtin", "lockStyle": "particles", "bluetoothAutoConnect": [],
             "recordAudio": "none", "activityTracking": "ask", "systemWindow": 60,
             "focusMinutes": 25, "focusSession": {}, "timers": [], "runHistory": [],
-            "barLayout": {}, "controlLayout": {}, "clockFormat": "day-time", "clockSeconds": False, "workspaceStyle": "numbers",
+            "widgets": False, "widgetCards": ["clock", "sky", "note", "system"], "widgetSaved": [], "widgetCorner": "bottom-left",
+            "barLayout": {}, "controlLayout": {}, "clockFormat": "date-time", "clockSeconds": False, "workspaceStyle": "dots",
             "workspaceSlots": 0, "trayIcons": -1, "batteryPercent": "auto", "barStyle": "floating", "weekStart": "locale", "terminal": "auto", "shortcuts": {},
             "screenshotDirectory": user_dir("PICTURES", "~/Pictures") + "/Screenshots",
             "recordingDirectory": user_dir("VIDEOS", "~/Videos") + "/Recordings",
-            "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers"}
+            "wallpaperDirectory": user_dir("PICTURES", "~/Pictures") + "/Wallpapers", "wallpaperFit": "cover", "activityKeep": 0, "quietHours": [],
+            "airdropMode": "off", "airdropAsk": "ask", "airdropTimeout": 60,
+            "airdropFolder": user_dir("DOWNLOAD", "~/Downloads") + "/AirDrop"}
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shale/config.json"
 RUNTIME = runtime_base() / "shale"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shale"
@@ -85,18 +142,39 @@ RECORD_AUDIO = {"none": None, "system": "@DEFAULT_MONITOR@", "microphone": "@DEF
 # "ask" until the user chooses in the Activity panel; nothing is recorded until "on".
 # Bar items and control center parts, as core/barItems.js and core/controlItems.js name them. A layout lists
 # only what the user arranged; the shell puts anything it doesn't mention in its default place.
-BAR_ITEMS = ("launcher", "workspaces", "windowTitle", "clock", "media", "tray", "recording", "privacy", "focus", "timer",
-             "stayAwake", "keyboard", "vpn", "wifi", "audio", "battery", "notifications", "control")
+BAR_ITEMS = ("workspaces", "windowTitle", "clock", "media", "tray", "recording", "privacy", "focus", "timer",
+             "stayAwake", "airdrop", "keyboard", "vpn", "wifi", "audio", "battery", "notifications", "control",
+             # No longer on the bar, but layouts saved before may still list them; the shell skips them.
+             "launcher", "wallpapers", "lock")
 # Never hidden: what is recording or listening stays visible, and the control center leads back to Settings.
 BAR_REQUIRED = ("recording", "privacy", "control")
-CONTROL_TILES = ("wifi", "bluetooth", "dnd", "awake", "grayscale", "lid")
+CONTROL_TILES = ("wifi", "bluetooth", "airdrop", "dnd", "awake", "grayscale", "lid")
 CONTROL_SECTIONS = ("focus", "levels", "media")
 CONTROL_FOOTER = ("capture", "settings", "lock", "session")
-# Personal history and state, and this computer's folders; a settings export leaves them out and an import
-# ignores them, so a file from elsewhere can't redirect where screenshots, recordings or downloads are saved.
+# Desktop widget cards, as core/parts.js names them, and the corners they can sit in.
+WIDGET_CARDS = ("clock", "sky", "note", "system", "player", "timers")
+WIDGET_CORNERS = ("top-left", "top-right", "bottom-left", "bottom-right")
+MAX_WIDGET_CARDS = 6
+# Personal history and state, and this computer's folders and screens; a settings export leaves them out and an
+# import ignores them, so a file from elsewhere can't redirect where screenshots, recordings or downloads are saved,
+# hide a bar here, or turn activity recording on without the question the Activity panel asks.
 PRIVATE_KEYS = ("appUsage", "emojiUsage", "runHistory", "pinnedApps", "focusSession", "timers", "weatherLocation",
-                "screenshotDirectory", "recordingDirectory", "wallpaperDirectory", "bluetoothAutoConnect")
+                "screenshotDirectory", "recordingDirectory", "wallpaperDirectory", "airdropFolder", "bluetoothAutoConnect",
+                "activityTracking", "hiddenOutputs")
+# What a restore of the settings from before leaves as it is now: shortcuts are bound in the compositor, and a
+# session or timer from then would be stale.
+RESTORE_KEEPS = ("shortcuts", "focusSession", "timers")
+# How each terminal takes a command to run; $TERMINAL is assumed to follow the common -e convention.
+TERMINALS = (("xdg-terminal-exec",), ("foot",), ("kitty",), ("alacritty", "-e"), ("wezterm", "start", "--"),
+             ("ghostty", "-e"), ("konsole", "-e"), ("gnome-terminal", "--"))
 ACTIVITY_TRACKING = ("ask", "on", "off")
+# Days of activity kept; 0 keeps everything until it is cleared.
+ACTIVITY_KEEP = (0, 30, 90, 365)
+# AirDrop (the optional `airdrop` command): what runs when the shell starts (Visible is never restored, it is for ten
+# minutes at a time), whether to ask before saving, and how long a question waits before it declines.
+AIRDROP_MODES = ("off", "background")
+AIRDROP_ASK = ("ask", "all")
+AIRDROP_TIMEOUTS = (30, 60, 120, 300)
 
 def keyboard_state(devices):
     """The layouts of the main keyboard from `hyprctl devices -j`: {layouts: [{code, variant}], index, name}."""
@@ -190,6 +268,8 @@ class BackendError(Exception):
 
 def atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.parent == STATE and path.parent.stat().st_mode & 0o077:
+        path.parent.chmod(0o700)  # made by an earlier installer with the usual permissions
     fd, name = tempfile.mkstemp(prefix=".shale-", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as stream:
@@ -213,6 +293,16 @@ def check_ids(lists, known, what):
     if not all(isinstance(item, str) and item in known for item in ids) or len(ids) != len(set(ids)):
         raise BackendError("invalid", f"Incorrect {what}.")
 
+def check_names(value, count, length):
+    """A list of up to `count` different, non-empty strings of up to `length` characters."""
+    return (len(value) <= count and all(isinstance(item, str) and 0 < len(item) <= length for item in value)
+            and len(set(value)) == len(value))
+
+def check_counts(value, count, length):
+    """How often something was used: up to `count` names, each with a whole number up to 1000 (the shell's cap)."""
+    return len(value) <= count and all(isinstance(name, str) and 0 < len(name) <= length and type(uses) is int
+                                       and 0 <= uses <= 1000 for name, uses in value.items())
+
 def check_setting(key, value):
     """Raises an "invalid" error for a value of a known setting that the shell can't use."""
     if type(value) is not type(DEFAULTS[key]):
@@ -221,14 +311,44 @@ def check_setting(key, value):
         raise BackendError("invalid", "Unsupported settings version.")
     if key == "fontSize" and value not in (12, 14, 16, 18):
         raise BackendError("invalid", "Choose a supported text size.")
+    if key == "panelSize" and value not in (80, 85, 90, 100):
+        raise BackendError("invalid", "Choose a supported panel size.")
     if key == "captureDelay" and value not in (0, 3, 5, 10):
         raise BackendError("invalid", "Choose a supported capture delay.")
     if key == "surfaceTone" and value not in ("charcoal", "midnight", "warm"):
         raise BackendError("invalid", "Choose a supported surface tone.")
+    if key == "motion" and value not in ("calm", "lively", "playful"):
+        raise BackendError("invalid", "Choose Calm, Lively or Playful motion.")
     if key in ("accentColor", "accentManual") and ((luminance := accent_luminance(value)) is None or luminance < 0.28):
-        raise BackendError("invalid", "Choose a brighter six-digit hex color.")
-    if key in ("screenshotDirectory", "recordingDirectory", "wallpaperDirectory") and not (value.startswith("~/") or Path(value).is_absolute()):
-        raise BackendError("invalid", "Capture folders must be absolute paths or start with ~/.")
+        raise BackendError("invalid", "Choose a brighter six-digit hex colour.")
+    if key == "airdropMode" and value not in AIRDROP_MODES:
+        raise BackendError("invalid", "Choose Off or Background for AirDrop.")
+    if key == "airdropAsk" and value not in AIRDROP_ASK:
+        raise BackendError("invalid", "Choose whether AirDrop asks first.")
+    if key == "airdropTimeout" and value not in AIRDROP_TIMEOUTS:
+        raise BackendError("invalid", "Choose how long AirDrop waits for an answer.")
+    if key in ("screenshotDirectory", "recordingDirectory", "wallpaperDirectory", "airdropFolder") and (
+            not (value.startswith("~/") or value.startswith("/")) or re.search(r"[\0\r\n]", value) or len(value) > 4096):
+        raise BackendError("invalid", "Folders must be absolute paths or start with ~/.")
+    if key == "wallpaperFit" and value not in wallpaper.FITS:
+        raise BackendError("invalid", "Choose how the wallpaper fits the screen.")
+    # [from, to] in whole hours; [] when off. 22 to 7 runs over midnight.
+    if key == "quietHours" and value and not (len(value) == 2 and all(type(hour) is int and 0 <= hour <= 23 for hour in value)
+                                               and value[0] != value[1]):
+        raise BackendError("invalid", "Choose when quiet hours start and end.")
+    if key == "activityKeep" and value not in ACTIVITY_KEEP:
+        raise BackendError("invalid", "Choose how long to keep activity.")
+    if key == "systemWindow" and value not in (60, 300):
+        raise BackendError("invalid", "Choose one minute or five for the system monitor.")
+    if key == "hiddenOutputs" and not check_names(value, 16, 64):
+        raise BackendError("invalid", "Incorrect list of screens without a bar.")
+    if key == "pinnedApps" and not check_names(value, 200, 300):
+        raise BackendError("invalid", "Incorrect pinned apps.")
+    # The shell keeps the 200 most used apps and the 60 most used emoji.
+    if key == "appUsage" and not check_counts(value, 250, 300):
+        raise BackendError("invalid", "Incorrect app history.")
+    if key == "emojiUsage" and not check_counts(value, 100, 64):
+        raise BackendError("invalid", "Incorrect emoji history.")
     if key == "eqPreset" and value not in (*equalizer.PRESETS, "custom"):
         raise BackendError("invalid", "Choose a supported equalizer preset.")
     if key == "lockScreen" and value not in ("builtin", "hyprlock"):
@@ -248,10 +368,13 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose whether to record activity.")
     if key == "focusMinutes" and value not in (25, 50, 90):
         raise BackendError("invalid", "Choose a supported focus length.")
-    # "recorded": where Activity's record already ends, for a session resumed with Undo.
-    if key == "focusSession" and value and not (set(value) in ({"started", "ends"}, {"started", "ends", "recorded"})
+    # "recorded": where Activity's record already ends, for a session resumed with Undo. "paused": when a paused
+    # session stopped counting down; "pausedFor": how long it was paused before, which its ring leaves out.
+    if key == "focusSession" and value and not ({"started", "ends"} <= set(value) <= {"started", "ends", "recorded", "paused", "pausedFor"}
                                                 and all(is_time(value[k]) for k in value) and value["started"] < value["ends"]
-                                                and value["started"] <= value.get("recorded", value["started"]) <= value["ends"]):
+                                                and value["started"] <= value.get("recorded", value["started"]) <= value["ends"]
+                                                and value["started"] <= value.get("paused", value["started"]) <= value["ends"]
+                                                and value.get("pausedFor", 0) < value["ends"] - value["started"]):
         raise BackendError("invalid", "Incorrect focus session.")
     if key == "timers" and (len(value) > 10 or not all(isinstance(t, dict) and set(t) == {"label", "ends", "seconds"}
                                                          and isinstance(t["label"], str) and len(t["label"]) <= 60
@@ -265,23 +388,28 @@ def check_setting(key, value):
             raise BackendError("invalid", "Incorrect bar layout.")
         check_ids(list(value.values()), BAR_ITEMS, "bar layout")
         if set(value.get("hidden", [])) & set(BAR_REQUIRED):
-            raise BackendError("invalid", "The recording, privacy and control center items can't be hidden.")
+            raise BackendError("invalid", "The recording, privacy and Control items can't be hidden.")
     if key == "controlLayout":
         if not set(value) <= {"tiles", "hiddenTiles", "sections", "footer", "hiddenFooter"}:
-            raise BackendError("invalid", "Incorrect control center layout.")
-        check_ids([value.get("tiles", []), value.get("hiddenTiles", [])], CONTROL_TILES, "control center tiles")
-        check_ids([value.get("footer", []), value.get("hiddenFooter", [])], CONTROL_FOOTER, "control center buttons")
+            raise BackendError("invalid", "Incorrect Control layout.")
+        check_ids([value.get("tiles", []), value.get("hiddenTiles", [])], CONTROL_TILES, "Control tiles")
+        check_ids([value.get("footer", []), value.get("hiddenFooter", [])], CONTROL_FOOTER, "Control buttons")
         sections = value.get("sections", {})
         if not isinstance(sections, dict) or not set(sections) <= set(CONTROL_SECTIONS) or not all(type(v) is bool for v in sections.values()):
-            raise BackendError("invalid", "Incorrect control center sections.")
+            raise BackendError("invalid", "Incorrect Control sections.")
         if "settings" in value.get("hiddenFooter", []):
             raise BackendError("invalid", "The Settings button can't be hidden.")
+    if key in ("widgetCards", "widgetSaved") and (len(value) > MAX_WIDGET_CARDS or not all(isinstance(card, str) and card in WIDGET_CARDS for card in value)
+                                 or len(set(value)) != len(value)):
+        raise BackendError("invalid", f"Choose up to {MAX_WIDGET_CARDS} widget cards, each once.")
+    if key == "widgetCorner" and value not in WIDGET_CORNERS:
+        raise BackendError("invalid", "Choose a corner for the widgets.")
     if key == "clockFormat" and value not in ("time", "day-time", "date-time"):
         raise BackendError("invalid", "Choose a supported clock format.")
     if key == "workspaceStyle" and value not in ("numbers", "dots"):
         raise BackendError("invalid", "Choose numbers or dots.")
     if key == "workspaceSlots" and value not in (0, 5, 10):
-        raise BackendError("invalid", "Choose how many workspaces to show.")
+        raise BackendError("invalid", "Choose how many pages to show.")
     if key == "trayIcons" and not -1 <= value <= 5:
         raise BackendError("invalid", "Choose up to five tray icons.")
     if key == "batteryPercent" and value not in ("auto", "always", "never"):
@@ -290,7 +418,7 @@ def check_setting(key, value):
         raise BackendError("invalid", "Choose a floating or edge-to-edge bar.")
     if key == "weekStart" and value not in ("locale", "monday", "sunday", "saturday"):
         raise BackendError("invalid", "Choose the first day of the week.")
-    if key == "terminal" and value != "auto" and value not in (prefix[0] for prefix in Backend.TERMINALS):
+    if key == "terminal" and value != "auto" and value not in (prefix[0] for prefix in TERMINALS):
         raise BackendError("invalid", "Choose a supported terminal.")
     try:
         if key == "weatherLocation":
@@ -302,7 +430,21 @@ def check_setting(key, value):
     except ValueError as error:
         raise BackendError("invalid", str(error)) from None
 
+# The file as last read and checked, with what identified it then; settings() is asked for many times a minute.
+SETTINGS_READ = {"mark": None, "value": None}
+
 def settings():
+    """Every setting. The file is read and checked again only when it has changed."""
+    try:
+        status = CONFIG.stat()
+        mark = (status.st_mtime_ns, status.st_size, status.st_ino)
+    except OSError:
+        mark = None
+    if mark is None or SETTINGS_READ["mark"] != mark:
+        SETTINGS_READ.update(mark=mark, value=read_settings())
+    return dict(SETTINGS_READ["value"])
+
+def read_settings():
     try:
         value = json.loads(CONFIG.read_text())
         if not isinstance(value, dict) or value.get("version", 1) != 1:
@@ -323,20 +465,51 @@ def settings():
         return {**DEFAULTS, **value, "diagnostic": "Some settings could not be loaded and use their defaults: " + ", ".join(rejected) + "."}
     return {**DEFAULTS, **value}
 
-def save_settings(changes):
-    """Saves the known keys of `changes` after validating them; returns every setting."""
+PREVIOUS = CONFIG.with_suffix(".previous.json")
+# Named copies of the settings (Settings → Backup → Profiles): exports kept next to the settings, under a name.
+PROFILES = CONFIG.parent / "profiles"
+PROFILE_NAME = re.compile(r"[\w][\w .'-]{0,39}")
+
+def profile_path(name):
+    """The file of a profile, or an "invalid" error for a name that can't be one."""
+    if not isinstance(name, str) or not PROFILE_NAME.fullmatch(name.strip()) or name.strip() in (".", ".."):
+        raise BackendError("invalid", "Name the profile with up to 40 letters, digits, spaces, dots or dashes.")
+    return PROFILES / (name.strip() + ".json")
+
+def profiles():
+    """The saved profiles, newest first: [{name, saved}]."""
+    found = []
+    for path in PROFILES.glob("*.json"):
+        if PROFILE_NAME.fullmatch(path.stem):
+            found.append({"name": path.stem, "saved": stamp(path)})
+    return {"profiles": sorted(found, key=lambda item: item["saved"], reverse=True)}
+
+def save_settings(changes, rejected=None, keep_previous=False):
+    """Saves the known keys of `changes` after validating them; returns every setting.
+
+    A value that can't be used raises, or with a `rejected` list is left as it was and added to the list as
+    {key, message}, so one bad value doesn't hold back the rest. `keep_previous` first copies the settings as
+    they are to config.previous.json: a reset or an import can be taken back with restore_settings()."""
     current = settings()
     unreadable = current.pop("diagnostic", None) is not None
     # Only known keys are saved; this also keeps the load diagnostic out of the file.
     changes = {key: value for key, value in changes.items() if key in DEFAULTS}
-    for key, value in changes.items():
-        check_setting(key, value)
+    for key, value in list(changes.items()):
+        try:
+            check_setting(key, value)
+        except BackendError as error:
+            if rejected is None:
+                raise
+            rejected.append({"key": key, "message": error.message})
+            del changes[key]
     if CONFIG.exists():
         if unreadable:
             # Keep the file with its rejected values instead of replacing the last good backup.
             shutil.copy2(CONFIG, CONFIG.with_suffix(".invalid.json"))
-        else:
-            atomic_json(CONFIG.with_suffix(".previous.json"), changed_only(current))
+        elif keep_previous:
+            atomic_json(PREVIOUS, changed_only(current))
+    elif keep_previous:
+        atomic_json(PREVIOUS, {"version": 1})
     current.update(changes)
     atomic_json(CONFIG, changed_only(current))
     return current
@@ -345,7 +518,53 @@ def reset_settings(keys):
     """Puts `keys` back to their defaults; returns every setting."""
     if not isinstance(keys, list) or not all(isinstance(key, str) and key in DEFAULTS and key not in ("version", "shortcuts") for key in keys):
         raise BackendError("invalid", "Choose settings to reset.")
-    return save_settings({key: DEFAULTS[key] for key in keys})
+    return save_settings({key: DEFAULTS[key] for key in keys}, keep_previous=True)
+
+def restore_settings():
+    """Puts back the settings from before the last reset or import, and keeps today's in their place, so a
+    second restore undoes the first; returns every setting."""
+    try:
+        previous = json.loads(PREVIOUS.read_text())
+        if not isinstance(previous, dict) or previous.get("version") != 1:
+            raise ValueError("not settings")
+    except FileNotFoundError:
+        raise BackendError("unavailable", "There are no earlier settings to put back.") from None
+    except (OSError, ValueError):
+        raise BackendError("failed", "The earlier settings can't be read.") from None
+    current = settings()
+    current.pop("diagnostic", None)
+    restored = dict(DEFAULTS)
+    for key, value in previous.items():
+        if key not in DEFAULTS or key in RESTORE_KEEPS:
+            continue
+        try:
+            check_setting(key, value)
+            restored[key] = value
+        except BackendError:
+            pass  # written by another version; that setting takes its default
+    for key in RESTORE_KEEPS:
+        restored[key] = current[key]
+    atomic_json(PREVIOUS, changed_only(current))
+    atomic_json(CONFIG, changed_only(restored))
+    return restored
+
+def stamp(path):
+    """When a file was last written, as local ISO time, or "" without one."""
+    try:
+        return datetime.datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+    except OSError:
+        return ""
+
+def backup_state(value):
+    """What the Backup page shows: when the settings from before were kept, and when the file was exported."""
+    exported = ""
+    try:
+        data = json.loads(export_path(value).read_text())
+        if isinstance(data, dict) and data.get("version") == 1 and isinstance(data.get("exported"), str):
+            exported = data["exported"][:40]
+    except (BackendError, OSError, ValueError):
+        pass
+    return {"previous": stamp(PREVIOUS), "exported": exported}
 
 def export_path(value):
     """An absolute or ~/ path to a .json file whose folder exists."""
@@ -359,6 +578,16 @@ def export_path(value):
 def export_settings(value):
     """Writes what the user changed, without history or location, to a file another computer can import."""
     path = export_path(value)
+    # An export replaces an earlier export, never the settings in use or a file of something else.
+    if path.resolve().parent == CONFIG.resolve().parent:
+        raise BackendError("invalid", "Choose a file outside Shale's own settings folder.")
+    if path.exists():
+        try:
+            old = json.loads(path.read_text())
+        except (OSError, ValueError):
+            old = None
+        if not (isinstance(old, dict) and old.get("version") == 1 and "exported" in old):
+            raise BackendError("invalid", f"{path} already exists and isn't a Shale settings export. Choose another name.")
     current = settings()
     current.pop("diagnostic", None)
     data = {key: value for key, value in changed_only(current).items() if key not in PRIVATE_KEYS}
@@ -392,7 +621,7 @@ def import_settings(value):
             usable[key] = item
         except BackendError:
             skipped.append(key)
-    return {"settings": save_settings(usable), "applied": sorted(usable), "skipped": sorted(skipped), "shortcuts": data.get("shortcuts")}
+    return {"settings": save_settings(usable, keep_previous=True), "applied": sorted(usable), "skipped": sorted(skipped), "shortcuts": data.get("shortcuts")}
 
 def migrated_settings():
     """settings(), after upgrades that depend on more than the file. History recorded before
@@ -497,6 +726,29 @@ async def run(*args, data=None, timeout=15, cancel_ok=False):
         raise BackendError("cancelled" if cancel_ok else "failed", "Action cancelled." if cancel_ok else f"{args[0]} failed (exit {process.returncode}).")
     return out
 
+async def hypr_json(*args):
+    """Hyprland's answer to `hyprctl <args>` as JSON, or a "failed" error when it can't be read."""
+    try:
+        return json.loads(await run("hyprctl", *args))
+    except ValueError:
+        raise BackendError("failed", "Hyprland gave an answer Shale can't read.") from None
+
+# Looks at the disk for the clipboard (is this text a file?). A hung network mount can hold these threads for
+# good, so they are kept apart from the ones weather, wallpapers and the system monitor share.
+PROBES = ThreadPoolExecutor(max_workers=2, thread_name_prefix="probe")
+
+async def probe(function, *args, timeout):
+    return await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(PROBES, function, *args), timeout)
+
+ENTRY_ID = re.compile(r"[0-9]+")
+
+def clipboard_entry(value):
+    """A cliphist list line ("id<TAB>preview") from a request, or an "invalid" error."""
+    entry = str(value or "")
+    if not ENTRY_ID.fullmatch(entry.partition("\t")[0]) or "\n" in entry:
+        raise BackendError("invalid", "Select a clipboard entry.")
+    return entry
+
 
 BINARY_ENTRY = re.compile(r"^\[\[ binary data (?P<size>[\d.]+ \w+) (?P<kind>\w+)(?: (?P<width>\d+)x(?P<height>\d+))? \]\]$")
 
@@ -589,6 +841,83 @@ def clipboard_target(text):
     return None
 
 
+# Pinned clipboard entries live outside cliphist, so a wipe or cliphist's own trimming never takes them: an index of
+# {"pin", "text" (cliphist's preview line), "file"} and each entry's full contents beside it, readable by you only.
+CLIPBOARD_PINS = STATE / "clipboard-pins"
+PIN_ID = re.compile(r"[0-9a-f]{16}")
+PIN_FILE = re.compile(r"[0-9a-f]{16}\.(png|jpg|data)")
+MAX_PINS = 50
+
+
+def clipboard_pins():
+    try:
+        pins = json.loads((CLIPBOARD_PINS / "pins.json").read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(pins, list):
+        return []
+    pins = [pin for pin in pins if isinstance(pin, dict) and isinstance(pin.get("text"), str)
+            and PIN_ID.fullmatch(str(pin.get("pin", ""))) and PIN_FILE.fullmatch(str(pin.get("file", "")))]
+    for pin in pins:
+        # Pins saved before they carried their contents' hash get it from their file.
+        if not re.fullmatch(r"[0-9a-f]{40}", str(pin.get("sha", ""))):
+            if pin["pin"] not in PIN_HASHES:
+                try:
+                    PIN_HASHES[pin["pin"]] = hashlib.sha1((CLIPBOARD_PINS / pin["file"]).read_bytes()).hexdigest()
+                except OSError:
+                    PIN_HASHES[pin["pin"]] = ""
+            pin["sha"] = PIN_HASHES[pin["pin"]]
+    return pins
+
+
+PIN_HASHES = {}
+
+
+def ambiguous_preview(text):
+    """cliphist's preview line doesn't settle what an entry holds: images of one size share a line, and long
+    text is cut."""
+    return text.endswith("…") or bool(clipboard_label(text))
+
+
+def clipboard_pin(pins, identity):
+    """The pin with this id, else an error; the file name was checked when the index was read."""
+    pin = next((pin for pin in pins if pin["pin"] == identity), None) if PIN_ID.fullmatch(str(identity)) else None
+    if pin is None:
+        raise BackendError("invalid", "That pin is gone.")
+    return pin
+
+
+def pin_data(pin):
+    try:
+        return (CLIPBOARD_PINS / pin["file"]).read_bytes()
+    except OSError:
+        raise BackendError("failed", "This pin's contents are missing. Unpin it.") from None
+
+
+# Installed by scripts/install-power-max.py; Control → Power offers Max performance when it is there.
+POWER_MAX_UNIT = Path("/etc/systemd/system/shale-power-max.service")
+# The desktop Note card's one running note: lines with a done mark, readable by you only.
+NOTE = STATE / "note.json"
+MAX_NOTE_LINES = 50
+MAX_NOTE_TEXT = 200
+
+
+def note_line(line):
+    """A note line as stored, or None: one line of text and whether it is done."""
+    if not (isinstance(line, dict) and set(line) == {"text", "done"} and isinstance(line["text"], str) and type(line["done"]) is bool):
+        return None
+    text = " ".join(line["text"].split())
+    return {"text": text, "done": line["done"]} if 0 < len(text) <= MAX_NOTE_TEXT else None
+
+
+def note_lines():
+    try:
+        lines = json.loads(NOTE.read_text())
+    except (OSError, ValueError):
+        return []
+    return [line for line in map(note_line, lines) if line][-MAX_NOTE_LINES:] if isinstance(lines, list) else []
+
+
 PROPERTIES = "org.freedesktop.DBus.Properties"
 SERVICE_MISSING = ("org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner")
 FLATPAK_SCOPE = re.compile(r"app-flatpak-([A-Za-z0-9_.-]+?)-\d+\.scope")
@@ -613,6 +942,94 @@ def key_management(rsn_flags):
     """NetworkManager key-mgmt for a new password network: sae when the access point offers only WPA3
     (SAE without PSK); WPA2/WPA3 transition networks keep wpa-psk."""
     return "sae" if rsn_flags & 0x400 and not rsn_flags & 0x100 else "wpa-psk"
+
+# The DNS a Wi-Fi network can use besides its own, as in Omarchy's DNS setup: IPv4 servers first.
+DNS_PRESETS = {"cloudflare": ("1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"),
+               "google": ("8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844")}
+
+def dns_choice(mode, servers):
+    """The DNS servers a choice stands for: none for the network's own ("auto"), a preset's, or the addresses typed
+    in ("custom"), separated by spaces or commas."""
+    if not isinstance(mode, str):
+        raise BackendError("invalid", "Choose where this network gets its DNS from.")
+    if mode == "auto":
+        return []
+    if mode in DNS_PRESETS:
+        return [ipaddress.ip_address(server) for server in DNS_PRESETS[mode]]
+    if mode != "custom" or not isinstance(servers, str):
+        raise BackendError("invalid", "Choose where this network gets its DNS from.")
+    words = [word for word in re.split(r"[\s,]+", servers[:500]) if word]
+    if not words:
+        raise BackendError("invalid", "Enter at least one DNS server, like 9.9.9.9.")
+    found = []
+    for word in words:
+        try:
+            # A zone ("%wlan0") can't be saved in the profile's DNS list.
+            address = ipaddress.ip_address(word) if "%" not in word else None
+        except ValueError:
+            address = None
+        if address is None or address.is_unspecified or address.is_multicast:
+            raise BackendError("invalid", f"{word[:60]} isn't a DNS server address.")
+        if address not in found:
+            found.append(address)
+    if len(found) > 8:
+        raise BackendError("invalid", "Enter up to 8 DNS servers.")
+    return found
+
+def dns_state(config):
+    """Where a saved connection (as GetSettings returns it) gets its DNS: {"mode", "servers"}, the mode being "auto",
+    a preset's name or "custom"."""
+    servers = []
+    for family in ("ipv4", "ipv6"):
+        section = config.get(family, {})
+        if "dns-data" in section:
+            # Newer NetworkManagers may add a DoT server name: "1.1.1.1#cloudflare-dns.com".
+            servers += [entry.partition("#")[0] for entry in section["dns-data"].value]
+        elif "dns" in section:
+            servers += [str(ipaddress.IPv4Address(struct.pack("=I", value))) if family == "ipv4" else str(ipaddress.IPv6Address(bytes(value)))
+                        for value in section["dns"].value]
+    if not servers:
+        return {"mode": "auto", "servers": []}
+    for preset, addresses in DNS_PRESETS.items():
+        if set(servers) in (set(addresses), set(addresses[:2])):
+            return {"mode": preset, "servers": servers}
+    return {"mode": "custom", "servers": servers}
+
+def dns_settings(config, servers, encrypted):
+    """A saved connection's settings (as GetSettings returns them) with these DNS servers in place of the network's
+    own, or with the network's own again when there are none. `encrypted` asks for DNS over TLS where the servers
+    offer it, falling back to plain DNS where they don't."""
+    from dbus_next import Variant  # importable once interface() has found dbus-next
+    used, off = 0, []
+    for family, kind in (("ipv4", ipaddress.IPv4Address), ("ipv6", ipaddress.IPv6Address)):
+        section = config.setdefault(family, {})
+        # NetworkManager reads a legacy key over its replacement when both come back, so only the replacements go,
+        # and the servers go in the legacy `dns` alone, which every version reads.
+        for legacy, current in (("addresses", "address-data"), ("routes", "route-data")):
+            if current in section:
+                section.pop(legacy, None)
+        section.pop("dns", None)
+        section.pop("dns-data", None)
+        if section.get("method", Variant("s", "auto")).value in ("disabled", "ignore"):
+            off.append(family)
+            continue  # this family is off for the network: it takes no servers
+        mine = [address for address in servers if isinstance(address, kind)]
+        if mine:
+            section["dns"] = (Variant("au", [struct.unpack("=I", address.packed)[0] for address in mine]) if family == "ipv4"
+                              else Variant("aay", [address.packed for address in mine]))
+            used += len(mine)
+        # With servers of its own the network's DNS is left out, for both families, as Omarchy does.
+        section["ignore-auto-dns"] = Variant("b", bool(servers))
+    if servers and not used:
+        if len(off) == 2:
+            raise BackendError("invalid", "This network has IPv4 and IPv6 turned off.")
+        family, other = ("IPv6", "IPv4") if off == ["ipv6"] else ("IPv4", "IPv6")
+        raise BackendError("invalid", f"This network has {family} turned off. Add an {other} server.")
+    if encrypted:
+        config.setdefault("connection", {})["dns-over-tls"] = Variant("i", 1)  # opportunistic
+    else:
+        config.get("connection", {}).pop("dns-over-tls", None)
+    return config
 
 async def tray_owner(call, item_id, title=""):
     """The pid of the process that owns a tray item, found through the StatusNotifierWatcher.
@@ -665,6 +1082,7 @@ async def quit_process(pid, proc=Path("/proc"), kill=os.kill, command=None, prot
 class Backend:
     def __init__(self):
         self.activity = None
+        self.activity_trimmed = ""
         self.activity_snapshot = None
         # Keeps the previous counters for the system monitor's rates.
         self.sysmon = sysmon.Sampler(run=run)
@@ -692,27 +1110,74 @@ class Backend:
         self.update_lock = asyncio.Lock()
         self.lock_hint_lock = asyncio.Lock()
         self.shortcut_lock = asyncio.Lock()
+        self.display_lock = asyncio.Lock()
+        # Outputs changed in Settings → Displays and not yet kept: {name: {"previous": rule, "task": revert task}}.
+        self.display_pending = {}
         # Clipboard entries deleted, and wipes so far: a preview still being decoded for one must not be saved after.
         self.clipboard_deleted = set()
         self.clipboard_wipes = 0
+        self.clipboard_pin_lock = asyncio.Lock()
+        # sha1 of history entries' contents by cliphist id, worked out only for entries that look like a pin.
+        self.clipboard_hashes = {}
+        # Counts the system buses connected so far: watches set up on an earlier one are set up again.
+        self.bus_generation = 0
+        # Introspection of objects that all look alike (access points, saved connections), by a caller's key.
+        self.introspection = {}
         # Leaves the key-recording submap if Settings never says it's done.
         self.record_timeout = None
         # Closes links left open after a device switched off and runs auto-connect; set up by watch_bluetooth.
         self.bluetooth = None
 
-    async def interface(self, name, path, interface, timeout=25):
-        """A system bus interface whose method calls time out after `timeout` seconds (None: never)."""
+    async def interface(self, name, path, interface, timeout=25, alike=None):
+        """A system bus interface whose method calls time out after `timeout` seconds (None: never).
+
+        `alike` names a kind of object whose instances all have the same interfaces (an access point, a saved
+        connection): the first one is introspected and the rest reuse its description, which halves the calls
+        of a list."""
         try:
             from dbus_next.aio import MessageBus
             from dbus_next import BusType
         except ImportError:
             raise BackendError("unavailable", "Install python-dbus-next to enable system controls.") from None
-        async with self.bus_lock:
-            if self.bus is None or not self.bus.connected:
-                self.bus = await MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True).connect()
-        intro = await self.bus.introspect(name, path)
+        try:
+            async with self.bus_lock:
+                if self.bus is None or not self.bus.connected:
+                    self.bus = await asyncio.wait_for(MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True).connect(), 10)
+                    self.bus_generation += 1
+                    self.introspection = {}
+            intro = self.introspection.get(alike) if alike else None
+            if intro is None:
+                # A service that hangs must not hold the request for its whole allowance.
+                intro = await asyncio.wait_for(self.bus.introspect(name, path), 10 if timeout is None else min(10, timeout))
+                if alike:
+                    self.introspection[alike] = intro
+        except asyncio.TimeoutError:
+            raise BackendError("timeout", "A system service did not answer in time.") from None
         proxy = self.bus.get_proxy_object(name, path, intro).get_interface(interface)
         return proxy if timeout is None else TimedInterface(proxy, timeout)
+
+    async def entry_hash(self, line):
+        """sha1 of a history entry's contents ("" if it can't be read), remembered by its cliphist id."""
+        identity = line.partition("\t")[0]
+        if identity not in self.clipboard_hashes:
+            if len(self.clipboard_hashes) > 2000:
+                self.clipboard_hashes.clear()
+            try:
+                self.clipboard_hashes[identity] = hashlib.sha1(await run("cliphist", "decode", data=line.encode())).hexdigest()
+            except BackendError:
+                return ""
+        return self.clipboard_hashes[identity]
+
+    async def same_as_pin(self, line, pins):
+        """Whether a history line holds what one of `pins` holds. The preview line settles it for short text;
+        images and cut text are compared by their contents."""
+        text = line.partition("\t")[2]
+        matches = [pin for pin in pins if pin["text"] == text]
+        if not matches:
+            return False
+        if not ambiguous_preview(text) or not all(pin["sha"] for pin in matches):
+            return True
+        return await self.entry_hash(line) in {pin["sha"] for pin in matches}
 
     async def session_call(self, destination, path, interface, member, signature="", body=()):
         """One call on the session bus, without introspection; returns the reply body."""
@@ -733,6 +1198,17 @@ class Backend:
         if reply.message_type == MessageType.ERROR:
             raise BackendError("unavailable", (reply.body or [reply.error_name])[0])
         return reply.body
+
+    async def refit_wallpapers(self, fit):
+        """Shows each screen's wallpaper again in a new fit; a screen that fails keeps the old one."""
+        try:
+            daemon = await self.wallpaper_daemon()
+            async with self.wallpaper_lock:
+                for monitor, path in (await wallpaper.active(run, daemon)).items():
+                    if path and Path(path).is_file():
+                        await wallpaper.apply(run, path, monitor, BackendError, daemon, fit)
+        except BackendError as error:
+            print(f"Wallpaper fit: {error.message}", file=sys.stderr, flush=True)
 
     async def wallpaper_daemon(self):
         """hyprpaper, awww or swww, started if none runs yet; an "unavailable" error otherwise."""
@@ -812,9 +1288,7 @@ class Backend:
     COMMANDS = ["hyprctl", "cliphist", "wl-copy", "wl-paste", "grim", "slurp", "hyprpicker", "wf-recorder", "brightnessctl",
                 "hyprlock", "hypridle", "fd", "cava", "hyprpaper", "awww", "swww", "xdg-terminal-exec"]
 
-    # How each terminal takes a command to run; $TERMINAL is assumed to follow the common -e convention.
-    TERMINALS = (("xdg-terminal-exec",), ("foot",), ("kitty",), ("alacritty", "-e"), ("wezterm", "start", "--"),
-                 ("ghostty", "-e"), ("konsole", "-e"), ("gnome-terminal", "--"))
+    TERMINALS = TERMINALS
 
     def terminal(self):
         """The command prefix that runs a program in a terminal, or [] when none is installed."""
@@ -830,7 +1304,7 @@ class Backend:
     async def capabilities(self):
         """What this machine offers, so the shell can hide controls instead of failing on click."""
         try:
-            monitors = json.loads(await run("hyprctl", "monitors", "-j"))
+            monitors = await hypr_json("monitors", "-j")
             builtin_panel = any(BUILTIN_PANEL.fullmatch(str(m.get("name", ""))) for m in monitors)
         except (BackendError, ValueError, TypeError):
             builtin_panel = None
@@ -839,7 +1313,7 @@ class Backend:
                 "lid": any(Path("/proc/acpi/button/lid").glob("*")),
                 "terminal": self.terminal(),
                 "terminals": [prefix[0] for prefix in self.TERMINALS if shutil.which(prefix[0])],
-                "builtinPanel": builtin_panel, "version": 1}
+                "builtinPanel": builtin_panel, "airdrop": airdrop_command(), "version": 1}
 
     async def hypr_eval(self, code):
         """Runs Lua in Hyprland; False when it reports an error."""
@@ -850,7 +1324,7 @@ class Backend:
 
     async def live_binds(self):
         try:
-            return json.loads(await run("hyprctl", "binds", "-j"))
+            return await hypr_json("binds", "-j")
         except (BackendError, ValueError):
             return []
 
@@ -911,20 +1385,22 @@ class Backend:
         return shortcuts.listing(bound, changed, ready)
 
     async def import_shortcuts(self, wanted):
-        """Applies imported shortcuts when all of them fit this computer; True if they did."""
+        """Applies imported shortcuts when all of them fit this computer; "" if they did, or why not."""
         bound, ready = shortcuts.installed(HYPR)
         try:
             shortcuts.check(wanted)
         except ValueError:
-            return False
+            return "the file's shortcuts can't be read"
+        if not ready:
+            return "shortcuts aren't set up on this computer; run the installer"
         current = shortcuts.effective(bound, settings()["shortcuts"])
         after = shortcuts.effective(bound, wanted)
         binds = await self.live_binds()
-        if not ready or any(keys and shortcuts.clash(keys, n, current, binds, after) for n, keys in after.items() if keys != current[n]):
-            return False
+        if any(keys and shortcuts.clash(keys, n, current, binds, after) for n, keys in after.items() if keys != current[n]):
+            return "their keys are taken here"
         await self.save_shortcuts({n: keys for n, keys in wanted.items() if keys != bound.get(n, "")},
                                   {n: (current[n], after[n]) for n in after})
-        return True
+        return ""
 
     async def record_keys(self, active):
         """Enters or leaves the empty submap shale.lua defines, so pressing keys that are already bound reaches the
@@ -946,11 +1422,107 @@ class Backend:
 
     async def leave_recording(self):
         try:
-            current = json.loads(await run("hyprctl", "-j", "submap"))
+            current = await hypr_json("-j", "submap")
         except (BackendError, ValueError):
             return
         if current == shortcuts.RECORD_SUBMAP:
             await self.hypr_eval('hl.dispatch(hl.dsp.submap("reset"))')
+
+    DISPLAY_REVERT = 15
+    DISPLAYS_SAVED = CONFIG.parent / "displays.json"
+
+    def saved_displays(self):
+        try:
+            value = json.loads(self.DISPLAYS_SAVED.read_text())
+            return {name: entry for name, entry in value.items() if isinstance(entry, dict)} if isinstance(value, dict) else {}
+        except (FileNotFoundError, ValueError):
+            return {}
+
+    def write_displays(self, entries):
+        """Keeps the confirmed rules as JSON (to merge later) and as the Lua file shale.lua applies at start."""
+        CONFIG.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        atomic_json(self.DISPLAYS_SAVED, entries)
+        target = CONFIG.parent / "displays.lua"
+        fd, name = tempfile.mkstemp(prefix=".shale-", dir=target.parent)
+        try:
+            with os.fdopen(fd, "w") as stream:
+                stream.write(displays.saved_lua(entries))
+            os.replace(name, target)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+
+    async def apply_display(self, entry):
+        if not await self.hypr_eval(displays.rule_lua(entry)):
+            raise BackendError("failed", "Hyprland didn't accept that display setting.")
+
+    async def revert_display_later(self, name):
+        try:
+            await asyncio.sleep(self.DISPLAY_REVERT)
+        except asyncio.CancelledError:
+            return
+        async with self.display_lock:
+            pending = self.display_pending.pop(name, None)
+            if pending:
+                try:
+                    await self.apply_display(pending["previous"])
+                except BackendError:
+                    pass
+                emit("display.reverted", {"output": name})
+
+    async def displays(self, action, p):
+        """Settings → Displays. `set` applies a resolution, refresh rate and scale at once and puts the old ones back
+        after DISPLAY_REVERT seconds unless `keep` confirms them; `reset` forgets a kept choice."""
+        monitors = [m for m in await hypr_json("monitors", "-j") if not m.get("disabled")]
+        if action == "list":
+            saved = self.saved_displays()
+            now = time.monotonic()
+            return {"displays": [{**displays.describe(m), "saved": m["name"] in saved,
+                                  "pending": max(1, math.ceil(self.display_pending[m["name"]]["until"] - now)) if m["name"] in self.display_pending else 0}
+                                 for m in monitors],
+                    "revertSeconds": self.DISPLAY_REVERT,
+                    # False until an install or update brings the shale.lua that applies kept displays at start.
+                    "startup": "displays.lua" in await asyncio.to_thread(lambda: (HYPR / "shale.lua").read_text() if (HYPR / "shale.lua").exists() else "")}
+        name = p.get("output")
+        monitor = next((m for m in monitors if m["name"] == name), None)
+        if monitor is None:
+            raise BackendError("invalid", "That display is no longer connected.")
+        if action == "set":
+            width, height, rate, scale = p.get("width"), p.get("height"), p.get("rate"), p.get("scale")
+            try:
+                displays.check(monitor, width, height, rate, scale)
+            except ValueError as error:
+                raise BackendError("invalid", str(error)) from None
+            current = displays.describe(monitor)
+            # A second change before keeping still reverts to what was there before the first.
+            pending = self.display_pending.pop(name, None)
+            previous = pending["previous"] if pending else displays.rule(monitor, current["width"], current["height"], current["rate"], current["scale"])
+            if pending:
+                pending["task"].cancel()
+            await self.apply_display(displays.rule(monitor, width, height, float(rate), float(scale)))
+            self.display_pending[name] = {"previous": previous, "until": time.monotonic() + self.DISPLAY_REVERT,
+                                          "task": asyncio.create_task(self.revert_display_later(name))}
+            return {"pending": True, "seconds": self.DISPLAY_REVERT}
+        pending = self.display_pending.pop(name, None)
+        if pending:
+            pending["task"].cancel()
+        if action == "revert":
+            if pending:
+                await self.apply_display(pending["previous"])
+            return {"done": True}
+        saved = self.saved_displays()
+        if action == "keep":
+            current = displays.describe(monitor)
+            saved[name] = displays.rule(monitor, current["width"], current["height"], current["rate"], current["scale"])
+            await asyncio.to_thread(self.write_displays, saved)
+            return {"done": True}
+        # reset: Hyprland goes back to its own config for this output.
+        saved.pop(name, None)
+        await asyncio.to_thread(self.write_displays, saved)
+        if pending:
+            await self.apply_display(pending["previous"])
+        await run("hyprctl", "reload")
+        return {"done": True}
 
     async def compositor_saver(self, saver, refresh):
         """Turn off blur and shadows and drop built-in panels to their lowest refresh rate in power
@@ -976,7 +1548,7 @@ class Backend:
             return "hl.monitor({" + ", ".join(fields) + "})"
         changes, keep = [], {}
         for option in ("blur", "shadow"):
-            current = json.loads(await run("hyprctl", "getoption", f"decoration:{option}:enabled", "-j")).get("bool", False)
+            current = (await hypr_json("getoption", f"decoration:{option}:enabled", "-j")).get("bool", False)
             if saver:
                 # After a config reload the compositor is back at the user's value; record it again.
                 keep[option] = current or options.get(option, False)
@@ -985,7 +1557,7 @@ class Backend:
             elif options.get(option) and not current:
                 changes.append(f"hl.config({{decoration = {{{option} = {{enabled = true}}}}}})")
         monitors_kept = {}
-        for monitor in json.loads(await run("hyprctl", "monitors", "-j")):
+        for monitor in await hypr_json("monitors", "-j"):
             name = str(monitor.get("name", ""))
             if not BUILTIN_PANEL.fullmatch(name):
                 continue
@@ -1027,8 +1599,8 @@ class Backend:
 
     async def bluetooth_call(self, path, member, timeout=25):
         """Device1.Connect or Disconnect on one device, without introspecting it."""
-        from dbus_next import Message, MessageType
         await self.interface("org.bluez", "/", "org.freedesktop.DBus.ObjectManager")  # connects the bus, checks BlueZ is there
+        from dbus_next import Message, MessageType  # importable once interface() has found dbus-next
         reply = await asyncio.wait_for(self.bus.call(Message(destination="org.bluez", path=path, interface="org.bluez.Device1", member=member)), timeout)
         if reply.message_type == MessageType.ERROR:
             if reply.error_name in ("org.bluez.Error.AlreadyConnected", "org.bluez.Error.NotConnected"):
@@ -1039,8 +1611,8 @@ class Backend:
 
     async def watch_bluetooth(self):
         """Follows BlueZ's objects and properties for bluetooth_keep, from login until the helper stops."""
-        from dbus_next import Message, MessageType
         manager = await self.interface("org.bluez", "/", "org.freedesktop.DBus.ObjectManager")
+        from dbus_next import Message, MessageType  # importable once interface() has found dbus-next
         if self.bluetooth is None:
             self.bluetooth = bluetooth_keep.Keeper(lambda path: self.bluetooth_call(path, "Connect"),
                                                    lambda path: self.bluetooth_call(path, "Disconnect"),
@@ -1094,7 +1666,7 @@ class Backend:
         settings = await self.interface(name, "/org/freedesktop/NetworkManager/Settings", name + ".Settings")
         profiles = {}
         for path in await settings.call_list_connections():
-            connection = await self.interface(name, path, name + ".Settings.Connection")
+            connection = await self.interface(name, path, name + ".Settings.Connection", alike="nm-connection")
             try:
                 config = await connection.call_get_settings()
             except Exception:
@@ -1108,7 +1680,7 @@ class Backend:
             profiles[path] = {"path": path, "name": section.get("id", Variant("s", "VPN")).value,
                               "kind": service.rsplit(".", 1)[-1] or kind, "state": "off", "active": ""}
         for active in (await manager_props.call_get(name, "ActiveConnections")).value:
-            props = await self.interface(name, active, "org.freedesktop.DBus.Properties")
+            props = await self.interface(name, active, "org.freedesktop.DBus.Properties", alike="nm-active")
             try:
                 connection = (await props.call_get(name + ".Connection.Active", "Connection")).value
                 state = (await props.call_get(name + ".Connection.Active", "State")).value
@@ -1173,11 +1745,67 @@ class Backend:
             if (await device_props.call_get(name + ".Device", "State")).value == 100:
                 await device.call_disconnect()
             return {"done": True}
+        if action == "hidden":
+            # A network that doesn't announce its name: NetworkManager looks for it by name ("hidden"), with a
+            # password for WPA2/WPA3 Personal or none for an open one. A profile that never connects is removed again.
+            ssid = p.get("ssid")
+            password = p.get("password") or ""
+            if not isinstance(ssid, str) or not 0 < len(ssid.encode()) <= 32 or "\n" in ssid:
+                raise BackendError("invalid", "Enter the network's name, up to 32 characters.")
+            if not isinstance(password, str) or (password and not 8 <= len(password) <= 63):
+                raise BackendError("invalid", "Wi-Fi passwords are 8 to 63 characters; leave it empty for an open network.")
+            config = {"connection": {"id": Variant("s", ssid), "type": Variant("s", "802-11-wireless")},
+                      "802-11-wireless": {"ssid": Variant("ay", ssid.encode()), "hidden": Variant("b", True)}}
+            if password:
+                config["802-11-wireless-security"] = {"key-mgmt": Variant("s", "wpa-psk"), "psk": Variant("s", password)}
+            profile, active_path = await manager.call_add_and_activate_connection(config, device_path, "/")
+            active_props = await self.interface(name, active_path, "org.freedesktop.DBus.Properties")
+            for _ in range(60):
+                try:
+                    state = (await active_props.call_get(name + ".Connection.Active", "State")).value
+                except Exception:
+                    state = 4  # the attempt is gone: it failed
+                if state == 2:
+                    return {"done": True}
+                if state == 4:
+                    break
+                await asyncio.sleep(0.5)
+            try:
+                await (await self.interface(name, profile, name + ".Settings.Connection")).call_delete()
+            except Exception:
+                pass
+            raise BackendError("failed", f"Couldn't join {ssid}. Check its name and password.")
+        if action == "dns":
+            # The DNS of the network in use, kept in its own profile: every other network, and the sign-in page of
+            # a café or campus network, keeps the DNS it gives out.
+            mode = p.get("mode")
+            servers = dns_choice(mode, p.get("servers"))
+            active = (await device_props.call_get(name + ".Device", "ActiveConnection")).value
+            if (await device_props.call_get(name + ".Device", "State")).value != 100 or active == "/":
+                raise BackendError("unavailable", "Connect to the network first.")
+            if p.get("path") != (await device_props.call_get(name + ".Device.Wireless", "ActiveAccessPoint")).value:
+                raise BackendError("unavailable", "The network changed while you were choosing. Try again.")
+            active_props = await self.interface(name, active, "org.freedesktop.DBus.Properties", alike="nm-active")
+            profile = (await active_props.call_get(name + ".Connection.Active", "Connection")).value
+            connection = await self.interface(name, profile, name + ".Settings.Connection", alike="nm-connection")
+            try:
+                # Settings sent without secrets keep the saved password.
+                await connection.call_update(dns_settings(await connection.call_get_settings(), servers, mode in DNS_PRESETS))
+            except Exception as error:
+                if "PermissionDenied" not in str(getattr(error, "type", "")):
+                    raise
+                raise BackendError("permission", "NetworkManager didn't let you change this network's settings.") from None
+            try:
+                await device.call_reapply({}, 0, 0)
+            except Exception:
+                # A change NetworkManager can't apply to a live link: join the network again to use it.
+                await manager.call_activate_connection(profile, device_path, "/")
+            return {"done": True}
 
         settings = await self.interface(name, "/org/freedesktop/NetworkManager/Settings", name + ".Settings")
-        profiles = {}
+        profiles, configs = {}, {}
         for path in await settings.call_list_connections():
-            connection = await self.interface(name, path, name + ".Settings.Connection")
+            connection = await self.interface(name, path, name + ".Settings.Connection", alike="nm-connection")
             try:
                 config = await connection.call_get_settings()
             except Exception:
@@ -1186,30 +1814,57 @@ class Backend:
                 continue
             ssid = bytes(config.get("802-11-wireless", {}).get("ssid", Variant("ay", b"")).value)
             security = config.get("802-11-wireless-security", {}).get("key-mgmt")
-            profiles[(ssid, "open" if security is None else "8021x" if security.value == "wpa-eap" else "secured")] = path
+            profiles[(ssid, "open" if security is None or security.value == "owe" else "8021x" if security.value == "wpa-eap" else "secured")] = path
+            configs[path] = config
 
         active_ap = (await device_props.call_get(name + ".Device.Wireless", "ActiveAccessPoint")).value
         state = (await device_props.call_get(name + ".Device", "State")).value
         powered = (await manager_props.call_get(name, "WirelessEnabled")).value
+        # The profile in use, whose DNS the network in use shows.
+        in_use = None
+        if state == 100:
+            try:
+                active = (await device_props.call_get(name + ".Device", "ActiveConnection")).value
+                active_props = await self.interface(name, active, "org.freedesktop.DBus.Properties", alike="nm-active")
+                in_use = (await active_props.call_get(name + ".Connection.Active", "Connection")).value
+            except Exception:
+                pass  # the link dropped while being read
         networks, rsn = {}, {}
         for path in await wireless.call_get_all_access_points():
-            props = await self.interface(name, path, "org.freedesktop.DBus.Properties")
-            ap = await props.call_get_all(name + ".AccessPoint")
+            props = await self.interface(name, path, "org.freedesktop.DBus.Properties", alike="nm-access-point")
+            try:
+                ap = await props.call_get_all(name + ".AccessPoint")
+            except Exception:
+                continue  # out of range since the list was read
             ssid = bytes(ap["Ssid"].value)
             if not ssid:
                 continue
             rsn[path] = ap["RsnFlags"].value
             flags = ap["WpaFlags"].value | ap["RsnFlags"].value
-            kind = "8021x" if flags & 0x200 else "open" if not (ap["Flags"].value & 1 or flags) else "secured"
+            # Enhanced Open (OWE, 0x800 and its transition mode 0x1000) encrypts without a password.
+            owe = bool(flags & 0x1800) and not flags & 0x700
+            kind = "8021x" if flags & 0x200 else "open" if owe or not (ap["Flags"].value & 1 or flags) else "secured"
             connected = path == active_ap and state == 100
-            network = {"path": path, "name": ssid.decode("utf-8", "replace"), "type": kind,
+            frequency = ap["Frequency"].value if "Frequency" in ap else 0
+            network = {"path": path, "name": ssid.decode("utf-8", "replace"), "type": kind, "owe": owe,
                        "connected": connected, "saved": (ssid, kind) in profiles,
-                       "signal": ap["Strength"].value}
+                       "signal": ap["Strength"].value,
+                       # MHz to the band people know it by; "" when the access point doesn't say.
+                       "band": "" if not frequency else "2.4 GHz" if frequency < 3000 else "5 GHz" if frequency < 5925 else "6 GHz"}
+            if connected:
+                try:
+                    # The speed of the link as it is now, in Mbit/s (NetworkManager counts in kbit/s).
+                    network["speed"] = round((await device_props.call_get(name + ".Device.Wireless", "Bitrate")).value / 1000)
+                except Exception:
+                    pass  # an older NetworkManager, or the link just dropped
+                if in_use in configs:
+                    network["dns"] = dns_state(configs[in_use])
             key = (ssid, kind)
             if key not in networks or connected or (not networks[key]["connected"] and network["signal"] > networks[key]["signal"]):
                 networks[key] = network
         if action == "list":
-            return {"networks": sorted(networks.values(), key=lambda n: (-n["connected"], -n["signal"], n["name"])),
+            return {"networks": sorted(({key: value for key, value in n.items() if key != "owe"} for n in networks.values()),
+                                       key=lambda n: (-n["connected"], -n["signal"], n["name"])),
                     "state": "connected" if state == 100 else "disconnected", "powered": powered}
 
         path = p.get("path", "")
@@ -1227,13 +1882,27 @@ class Backend:
         if action != "connect":
             raise BackendError("invalid", "Unknown wireless operation.")
         if profile:
-            active_path = await manager.call_activate_connection(profile, device_path, path)
+            try:
+                active_path = await manager.call_activate_connection(profile, device_path, path)
+            except Exception as error:
+                if "UnknownConnection" not in str(getattr(error, "type", "")):
+                    raise
+                # NetworkManager says a saved network isn't available when this access point has gone since the
+                # list was read: let it pick one of the network's access points itself.
+                try:
+                    active_path = await manager.call_activate_connection(profile, device_path, "/")
+                except Exception as again:
+                    if "UnknownConnection" not in str(getattr(again, "type", "")):
+                        raise
+                    raise BackendError("unavailable", f"{network['name']} isn't in range right now. Scan and try again.") from None
         else:
             if network["type"] == "8021x":
                 raise BackendError("invalid", "Configure enterprise credentials in NetworkManager first.")
             config = {"connection": {"id": Variant("s", network["name"]), "type": Variant("s", "802-11-wireless")},
                       "802-11-wireless": {"ssid": Variant("ay", ssid)}}
-            if network["type"] != "open":
+            if network["owe"]:
+                config["802-11-wireless-security"] = {"key-mgmt": Variant("s", "owe")}
+            elif network["type"] != "open":
                 password = p.get("password")
                 if not isinstance(password, str) or not password:
                     raise BackendError("invalid", "Enter the Wi-Fi password.")
@@ -1241,7 +1910,10 @@ class Backend:
             profile, active_path = await manager.call_add_and_activate_connection(config, device_path, path)
         active_props = await self.interface(name, active_path, "org.freedesktop.DBus.Properties")
         for _ in range(60):
-            state = (await active_props.call_get(name + ".Connection.Active", "State")).value
+            try:
+                state = (await active_props.call_get(name + ".Connection.Active", "State")).value
+            except Exception:
+                state = 4  # the attempt is gone: it failed
             if state == 2:
                 return {"done": True}
             if state == 4:
@@ -1250,9 +1922,9 @@ class Backend:
         raise BackendError("timeout", "Wi-Fi connection timed out.")
 
     async def bluetooth_pair(self, p):
-        from dbus_next.service import ServiceInterface, method
-        from dbus_next import DBusError
         objects = await self.objects("org.bluez")
+        from dbus_next.service import ServiceInterface, method  # importable once interface() has found dbus-next
+        from dbus_next import DBusError
         path = p.get("path", "")
         if path not in objects or "org.bluez.Device1" not in objects[path]:
             raise BackendError("invalid", "Select an available Bluetooth device.")
@@ -1363,6 +2035,11 @@ class Backend:
             try:
                 if self.activity is None:
                     self.activity = activity.ActivityStore(STATE / "activity.sqlite3")
+                    self.activity_trimmed = ""
+                # Old days go once a day, while recording or when the panel opens.
+                if self.activity_trimmed != datetime.date.today().isoformat():
+                    self.activity.trim(settings()["activityKeep"])
+                    self.activity_trimmed = datetime.date.today().isoformat()
                 if method == "activity.update":
                     self.activity_snapshot = dict(p)
                     return self.activity.ingest({**p, "unlocked": bool(p.get("unlocked")) and not self.activity_locked and not self.activity_sleeping})
@@ -1372,8 +2049,6 @@ class Backend:
                     return self.activity.overview(first)
                 if method == "activity.day":
                     return self.activity.day(str(p.get("date", "")))
-                if method == "activity.week":
-                    return self.activity.week(str(p.get("date", "")), first)
                 if method == "activity.apps":
                     return self.activity.apps(str(p.get("range", "")), str(p.get("date", "")), first)
                 if method == "activity.app":
@@ -1398,8 +2073,11 @@ class Backend:
             if not isinstance(changes, dict):
                 raise BackendError("invalid", "Settings must be an object.")
             # The shell echoes every setting back; shortcuts change only through shortcuts.set, which binds them.
-            before = settings()["bluetoothAutoConnect"]
-            current = save_settings({key: value for key, value in changes.items() if key != "shortcuts"})
+            before_settings = settings()
+            before = before_settings["bluetoothAutoConnect"]
+            # A value the shell can't use is reported and left as it was; the others are saved.
+            rejected = []
+            current = save_settings({key: value for key, value in changes.items() if key != "shortcuts"}, rejected)
             added = [address for address in current["bluetoothAutoConnect"] if address not in before]
             if added and self.bluetooth:
                 # A device just marked for auto-connect is tried straight away, even one disconnected by hand.
@@ -1407,7 +2085,21 @@ class Backend:
                 self.bluetooth.trigger("auto-connect turned on")
             if current["activityTracking"] != "on":
                 self.close_activity()
-            return current
+            if current["activityKeep"] != before_settings["activityKeep"]:
+                self.activity_trimmed = ""  # the next activity request trims to the new length
+            if current["wallpaperFit"] != before_settings["wallpaperFit"]:
+                await self.refit_wallpapers(current["wallpaperFit"])
+            return {**current, "rejected": rejected} if rejected else current
+        if method == "settings.restore":
+            before = settings()
+            current = restore_settings()
+            problem = await self.settings_replaced(before, current)
+            return {"settings": current, "problem": problem}
+        if method == "settings.defaults":
+            # How Shale comes, for the reset key beside each changed setting.
+            return {key: value for key, value in DEFAULTS.items() if key not in ("version", "shortcuts")}
+        if method == "settings.backup":
+            return backup_state(p.get("path"))
         if method == "settings.reset":
             before = settings()
             current = reset_settings(p.get("keys"))
@@ -1415,14 +2107,30 @@ class Backend:
             return current
         if method == "settings.export":
             return export_settings(p.get("path"))
+        if method == "settings.profiles":
+            return profiles()
+        if method == "settings.profile.save":
+            path = profile_path(p.get("name"))
+            PROFILES.mkdir(parents=True, exist_ok=True, mode=0o700)
+            return {**export_settings(str(path)), **profiles()}
+        if method == "settings.profile.delete":
+            profile_path(p.get("name")).unlink(missing_ok=True)
+            return profiles()
+        if method == "settings.profile.load":
+            # A profile is an export; loading it is an import, shortcuts included, with Undo through restore.
+            path = profile_path(p.get("name"))
+            if not path.exists():
+                raise BackendError("invalid", "That profile is gone.")
+            return await self.dispatch("settings.import", {"path": str(path)})
         if method == "settings.import":
             before = settings()
             result = import_settings(p.get("path"))
             wanted = result.pop("shortcuts")
             if wanted is not None:
                 async with self.shortcut_lock:
-                    applied = await self.import_shortcuts(wanted)
-                (result["applied"] if applied else result["skipped"]).append("shortcuts")
+                    reason = await self.import_shortcuts(wanted)
+                (result["skipped"] if reason else result["applied"]).append("shortcuts")
+                result["shortcutsReason"] = reason
                 result["settings"] = settings()
             result["problem"] = await self.settings_replaced(before, result["settings"])
             return result
@@ -1506,7 +2214,8 @@ class Backend:
                 return {"active": {}}
         if method == "wallpaper.apply":
             async with self.wallpaper_lock:
-                result = await wallpaper.apply(run, p.get("path", ""), p.get("monitor", ""), BackendError, await self.wallpaper_daemon())
+                result = await wallpaper.apply(run, p.get("path", ""), p.get("monitor", ""), BackendError, await self.wallpaper_daemon(),
+                                               settings()["wallpaperFit"])
                 state_file = STATE / "wallpapers.json"
                 try:
                     saved = json.loads(state_file.read_text())
@@ -1526,7 +2235,7 @@ class Backend:
                 saved = {}
             if not isinstance(saved, dict) or not saved:
                 return {"restored": restored, "failed": failed}
-            names = [monitor["name"] for monitor in json.loads((await run("hyprctl", "monitors", "-j")).decode())]
+            names = [monitor["name"] for monitor in await hypr_json("monitors", "-j")]
             if not any(name in saved for name in names):
                 return {"restored": restored, "failed": failed}
             daemon = await self.wallpaper_daemon()
@@ -1546,7 +2255,7 @@ class Backend:
                     if not isinstance(path, str) or not Path(path).is_file() or shown.get(name) == path:
                         continue
                     try:
-                        await wallpaper.apply(run, path, name, BackendError, daemon)
+                        await wallpaper.apply(run, path, name, BackendError, daemon, settings()["wallpaperFit"])
                         restored.append(name)
                     except BackendError as error:
                         failed[name] = error.message
@@ -1587,7 +2296,7 @@ class Backend:
             return calculate(p.get("expression", ""))
         if method.startswith("wifi."):
             action = method.split(".")[1]
-            if action == "connect":
+            if action in ("connect", "hidden", "dns"):
                 if self.wifi_lock.locked():
                     raise BackendError("busy", "A Wi-Fi connection is already in progress.")
                 async with self.wifi_lock:
@@ -1668,7 +2377,7 @@ class Backend:
                 return {"enabled": self.lid_fd is not None}
         if method in ("display.grayscale.get", "display.grayscale.toggle"):
             shader = str(Path(__file__).resolve().parents[1] / "assets/grayscale.frag")
-            current = json.loads(await run("hyprctl", "getoption", "decoration:screen_shader", "-j"))["str"]
+            current = (await hypr_json("getoption", "decoration:screen_shader", "-j"))["str"]
             enabled = current == shader
             if method.endswith(".toggle"):
                 saved = RUNTIME / "grayscale.json"
@@ -1686,14 +2395,17 @@ class Backend:
                 result = (await run("hyprctl", "eval", 'hl.config({decoration = {screen_shader = ' + literal + '}})')).decode().strip()
                 if result != "ok":
                     raise BackendError("failed", "Could not change the screen shader.")
-                actual = json.loads(await run("hyprctl", "getoption", "decoration:screen_shader", "-j"))["str"]
+                actual = (await hypr_json("getoption", "decoration:screen_shader", "-j"))["str"]
                 enabled = actual == shader
             return {"enabled": enabled}
+        if method.startswith("display.") and method[8:] in ("list", "set", "keep", "revert", "reset"):
+            async with self.display_lock:
+                return await self.displays(method[8:], p)
         if method in ("keyboard.get", "keyboard.next"):
             if method == "keyboard.next":
                 # Every keyboard, so an external one and the laptop's never disagree.
                 await run("hyprctl", "switchxkblayout", "all", "next")
-            return keyboard_state(json.loads(await run("hyprctl", "devices", "-j")))
+            return keyboard_state(await hypr_json("devices", "-j"))
         if method == "brightness.get":
             return self.brightness()
         if method == "brightness.set":
@@ -1708,10 +2420,8 @@ class Backend:
             await run("wl-copy", data=str(p.get("text", "")).encode())
             return {"done": True}
         if method == "clipboard.thumbnail":
-            entry = str(p.get("entry", ""))
+            entry = clipboard_entry(p.get("entry"))
             identity = entry.partition("\t")[0]
-            if not identity.isdigit() or "\n" in entry:
-                raise BackendError("invalid", "Select a clipboard entry.")
             wipes = self.clipboard_wipes
             data = await run("cliphist", "decode", data=entry.encode())
             if identity in self.clipboard_deleted or wipes != self.clipboard_wipes:
@@ -1724,8 +2434,15 @@ class Backend:
             for stale in sorted(folder.glob("*"), key=modified, reverse=True)[31:]:
                 stale.unlink(missing_ok=True)
             path = folder / (identity + extension)
-            path.write_bytes(data)
-            path.chmod(0o600)
+            # Written whole and private before it takes its name: the shell may be loading the old one.
+            fd, name = tempfile.mkstemp(prefix=".shale-", dir=folder)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(data)
+                os.replace(name, path)
+            finally:
+                if os.path.exists(name):
+                    os.unlink(name)
             return {"path": str(path)}
         if method == "notifications.get":
             if not settings()["persistNotifications"]:
@@ -1748,6 +2465,30 @@ class Backend:
             allowed = ("id", "summary", "body", "appName", "appIcon", "urgency", "timestamp")
             atomic_json(path, [{k: x[k] for k in allowed if k in x} for x in entries[:200] if isinstance(x, dict) and x.get("timestamp", 0) > cutoff])
             return {"done": True}
+        # Files dropped or picked for AirDrop: which exist, and their sizes for the share card.
+        if method == "airdrop.stat":
+            paths = p.get("paths")
+            if not isinstance(paths, list) or len(paths) > 200:
+                raise BackendError("invalid", "Expected up to 200 paths.")
+            items = await asyncio.to_thread(lambda: [staged_item(path) for path in paths])
+            return {"items": [item for item in items if item]}
+        if method == "note.get":
+            return {"lines": note_lines()}
+        if method == "note.set":
+            lines = p.get("lines")
+            checked = [note_line(line) for line in lines] if isinstance(lines, list) and len(lines) <= MAX_NOTE_LINES else [None]
+            if None in checked:
+                raise BackendError("invalid", f"A note holds up to {MAX_NOTE_LINES} lines of up to {MAX_NOTE_TEXT} characters.")
+            atomic_json(NOTE, checked)
+            return {"lines": checked}
+        # A line from Find ("note …") or the card; the oldest lines make room once the note is full.
+        if method == "note.add":
+            line = note_line({"text": p.get("text"), "done": False})
+            if line is None:
+                raise BackendError("invalid", f"Write a line of up to {MAX_NOTE_TEXT} characters.")
+            lines = (note_lines() + [line])[-MAX_NOTE_LINES:]
+            atomic_json(NOTE, lines)
+            return {"lines": lines}
         if method == "power.compositor":
             return await self.compositor_saver(bool(p.get("saver")), bool(p.get("refresh", True)))
         if method.startswith("power."):
@@ -1757,26 +2498,74 @@ class Backend:
             interface = await self.interface(name, "/net/hadess/PowerProfiles", "org.freedesktop.DBus.Properties")
             properties = await interface.call_get_all(name)
             available = [x["Profile"].value for x in properties["Profiles"].value]
+            platform = Path("/sys/firmware/acpi/platform_profile")
+            def firmware_custom():
+                try:
+                    return platform.read_text().strip() == "custom"
+                except OSError:
+                    return False
+            def charger_in():
+                # As integration/power-max/shale-power-max checks it: a mains adapter (AC*, ADP*) online.
+                for online in Path("/sys/class/power_supply").glob("A*/online"):
+                    try:
+                        if online.read_text().strip() == "1":
+                            return True
+                    except OSError:
+                        pass
+                return False
+            from dbus_next import Variant
             if method == "power.set":
                 profile = p.get("profile")
                 if profile not in available:
                     raise BackendError("invalid", "Select an available power profile.")
-                from dbus_next import Variant
+                # Leaving Max performance for Performance: the daemon skips an unchanged profile, so step through Balanced
+                # to make it write the firmware's own limits back.
+                if firmware_custom() and properties["ActiveProfile"].value == profile and "balanced" in available:
+                    await interface.call_set(name, "ActiveProfile", Variant("s", "balanced"))
                 await interface.call_set(name, "ActiveProfile", Variant("s", profile))
+                properties = await interface.call_get_all(name)
+            # Max performance: Performance, then shale-power-max.service (scripts/install-power-max.py) raises the
+            # Lenovo firmware limits to the highest values the firmware allows.
+            if method == "power.max":
+                if not POWER_MAX_UNIT.exists():
+                    raise BackendError("unavailable", "Install Max performance first: sudo python3 scripts/install-power-max.py --apply")
+                if "performance" in available:
+                    await interface.call_set(name, "ActiveProfile", Variant("s", "performance"))
+                try:
+                    # Without the polkit rule, the polkit agent asks for a password: give it time.
+                    await run("systemctl", "start", "shale-power-max.service", timeout=120)
+                except BackendError as error:
+                    if error.code != "failed":
+                        raise
+                    # The helper refuses on battery; any other refusal or write error is in its journal.
+                    raise BackendError("failed", "Max performance needs the charger plugged in." if not charger_in()
+                                       else "Could not raise the firmware power limits. See why: journalctl -u shale-power-max") from None
                 properties = await interface.call_get_all(name)
             try:
                 tuned = "=shale-" in Path("/etc/tuned/ppd.conf").read_text()
             except OSError:
                 tuned = None  # not tuned-ppd (e.g. power-profiles-daemon): Shale's profiles don't apply
-            return {"active": properties["ActiveProfile"].value, "profiles": available, "tuned": tuned}
+            return {"active": properties["ActiveProfile"].value, "profiles": available, "tuned": tuned,
+                    "max": firmware_custom(), "maxAvailable": POWER_MAX_UNIT.exists()}
         if method == "clipboard.list":
             data = (await run("cliphist", "list")).decode(errors="replace")
             query = str(p.get("query", "")).casefold()
             limit = min(1000, max(1, int(number(p, "limit", 100))))
+            saved, pins = clipboard_pins(), []
+            for pin in saved:
+                if query in pin["text"].casefold():
+                    entry = {"pin": pin["pin"], "text": pin["text"]}
+                    if label := clipboard_label(pin["text"]):
+                        entry["label"] = label
+                        if not pin["file"].endswith(".data"):
+                            entry["image"] = str(CLIPBOARD_PINS / pin["file"])
+                    pins.append(entry)
+            # Copying a pin puts it back in cliphist; it shows once, as the pin.
+            pinned = {pin["text"] for pin in saved}
             entries = []
             for line in data.splitlines():
                 identity, _, text = line.partition("\t")
-                if query in text.casefold():
+                if query in text.casefold() and not (text in pinned and await self.same_as_pin(line, saved)):
                     entry = {"id": identity, "text": text, "raw": line}
                     label = clipboard_label(text)
                     if label:
@@ -1785,7 +2574,7 @@ class Backend:
                 if len(entries) >= limit:
                     break
             paths = []
-            for entry in entries:
+            for entry in pins + entries:
                 text = entry["text"].strip()
                 if "label" in entry:
                     continue
@@ -1795,18 +2584,81 @@ class Backend:
                     paths.append((entry, text))
             if paths:
                 try:
-                    kinds = await asyncio.wait_for(asyncio.to_thread(path_kinds, [text for _, text in paths]), 1)
+                    kinds = await probe(path_kinds, [text for _, text in paths], timeout=1)
                 except asyncio.TimeoutError:
                     # A hung network mount must not hold up the list; paths just go unmarked.
                     kinds = []
                 for (entry, _), kind in zip(paths, kinds):
                     if kind:
                         entry.update(kind)
-            return {"entries": entries}
+            return {"entries": entries, "pins": pins}
+        if method == "clipboard.pin":
+            entry = clipboard_entry(p.get("entry"))
+            text = entry.partition("\t")[2]
+            async with self.clipboard_pin_lock:
+                pins = clipboard_pins()
+                if any(pin["text"] == text for pin in pins) and not ambiguous_preview(text):
+                    return {"done": True}
+                if len(pins) >= MAX_PINS:
+                    raise BackendError("invalid", f"Up to {MAX_PINS} pins. Unpin one first.")
+                data = await run("cliphist", "decode", data=entry.encode())
+                if len(data) > 20 * 1024 * 1024:
+                    raise BackendError("invalid", "This entry is too large to pin.")
+                # Two images of one size share a preview line; what they hold tells them apart.
+                sha = hashlib.sha1(data).hexdigest()
+                if any(pin["sha"] == sha for pin in pins):
+                    return {"done": True}
+                extension = ".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg" if data.startswith(b"\xff\xd8\xff") else ".data"
+                identity = os.urandom(8).hex()
+                CLIPBOARD_PINS.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path = CLIPBOARD_PINS / (identity + extension)
+                with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as stream:
+                    stream.write(data)
+                atomic_json(CLIPBOARD_PINS / "pins.json", [{"pin": identity, "text": text, "file": path.name, "sha": sha}] + pins)
+            return {"done": True}
+        if method == "clipboard.unpin":
+            async with self.clipboard_pin_lock:
+                pins = clipboard_pins()
+                pin = clipboard_pin(pins, p.get("pin"))
+                atomic_json(CLIPBOARD_PINS / "pins.json", [x for x in pins if x is not pin])
+                (CLIPBOARD_PINS / pin["file"]).unlink(missing_ok=True)
+            # Removing (not just unpinning) also takes the copies the pin hid from history.
+            if p.get("forget") is True:
+                for line in (await run("cliphist", "list")).decode(errors="replace").splitlines():
+                    if ENTRY_ID.fullmatch(line.partition("\t")[0]) and await self.same_as_pin(line, [pin]):
+                        await run("cliphist", "delete", data=line.encode())
+            return {"done": True}
+        if method == "clipboard.text":
+            # The full text for the preview (cliphist's list line is cut and flattened); "" for images and other data.
+            if "pin" in p:
+                data = pin_data(clipboard_pin(clipboard_pins(), p.get("pin")))
+            else:
+                entry = clipboard_entry(p.get("entry"))
+                data = await run("cliphist", "decode", data=entry.encode())
+            try:
+                text = data[:65536].decode()
+            except UnicodeDecodeError as error:
+                # Cut inside a character: keep what came before it; anything else isn't text.
+                text = data[:error.start].decode() if len(data) > 65536 and error.start > 65532 else ""
+            return {"text": text, "cut": len(data) > 65536 and text != ""}
+        if method in ("clipboard.copy", "clipboard.open") and "pin" in p:
+            data = pin_data(clipboard_pin(clipboard_pins(), p.get("pin")))
+            if method.endswith("copy"):
+                await run("wl-copy", data=data)
+                return {"done": True}
+            try:
+                text = data.decode().strip() if len(data) <= 65536 else ""
+            except UnicodeDecodeError:
+                text = ""
+            try:
+                target = await probe(clipboard_target, text, timeout=3)
+            except asyncio.TimeoutError:
+                raise BackendError("failed", "That location isn't responding.")
+            if not target:
+                raise BackendError("invalid", "This entry can't be opened.")
+            return target
         if method in ("clipboard.copy", "clipboard.delete", "clipboard.open"):
-            entry = str(p.get("entry", ""))
-            if not entry.partition("\t")[0].isdigit() or "\n" in entry:
-                raise BackendError("invalid", "Select a clipboard entry.")
+            entry = clipboard_entry(p.get("entry"))
             data = await run("cliphist", "delete" if method.endswith("delete") else "decode", data=entry.encode())
             if method.endswith("delete"):
                 # The preview is a full copy of the image; it goes with the entry.
@@ -1821,7 +2673,7 @@ class Backend:
                 except UnicodeDecodeError:
                     text = ""
                 try:
-                    target = await asyncio.wait_for(asyncio.to_thread(clipboard_target, text), 3)
+                    target = await probe(clipboard_target, text, timeout=3)
                 except asyncio.TimeoutError:
                     raise BackendError("failed", "That location isn't responding.")
                 if not target:
@@ -1840,7 +2692,19 @@ class Backend:
             await run("wl-copy", data=value.encode())
             return {"color": value}
         if method == "system.sample":
-            return await self.sysmon.sample(nvidia=p.get("nvidia") is True, history=p.get("history") is True)
+            return await self.sysmon.sample(nvidia=p.get("nvidia") is True, history=p.get("history") is True,
+                                            processes=p.get("processes") if p.get("processes") in ("cpu", "memory") else None)
+        if method == "system.end":
+            pid, start = p.get("pid"), p.get("start")
+            if type(pid) is not int or type(start) is not int:
+                raise BackendError("invalid", "Choose a process.")
+            # The start time must still match: the pid may have been reused since the list was read.
+            found = self.sysmon.process(pid)
+            if not found or found["start"] != start:
+                raise BackendError("unavailable", "The process has already exited.")
+            if pid in self.sysmon.lineage(os.getpid()) or found["name"] in sysmon.PROTECTED_PROCESSES:
+                raise BackendError("unavailable", "Ending this would end your session.")
+            return await quit_process(pid)
         if method == "capture.screenshot":
             async with self.capture_lock:
                 return await self.screenshot(p)
@@ -1856,14 +2720,14 @@ class Backend:
         if mode == "region":
             return ["-g", (await run("slurp", timeout=120, cancel_ok=True)).decode().strip()]
         if mode == "window":
-            window = json.loads(await run("hyprctl", "-j", "activewindow"))
+            window = await hypr_json("-j", "activewindow")
             if not window.get("at") or not window.get("size"):
                 raise BackendError("unavailable", "No active window.")
             x, y = window["at"]
             w, h = window["size"]
             return ["-g", f"{x},{y} {w}x{h}"]
         if mode == "output":
-            outputs = json.loads(await run("hyprctl", "-j", "monitors"))
+            outputs = await hypr_json("-j", "monitors")
             output = next((x for x in outputs if x.get("focused")), None)
             if not output:
                 raise BackendError("unavailable", "No focused output.")
@@ -2058,6 +2922,32 @@ async def watch_brightness(backend, recheck=10, poll=1, unavailable=30):
             watch.close()
 
 
+# The shell writes a request's id, then its method.
+QUICK_REQUEST = re.compile(rb'"method"\s*:\s*"(settings\.|note\.|notifications\.|activity\.(update|focus)")')
+
+async def watch_capslock(leds=Path("/sys/class/leds"), every=0.4, rescan=30):
+    """Reports Caps Lock as it changes, from the keyboards' Caps Lock lights: the shell sees no keys outside its own
+    windows. The kernel gives no notice when a light changes, so the few small files are read a few times a second;
+    without any light (some laptops) it only looks again now and then for a keyboard plugged in later."""
+    previous, files, scanned = None, [], -rescan
+    while True:
+        now = time.monotonic()
+        if now - scanned >= rescan:
+            files, scanned = sorted(leds.glob("*::capslock/brightness")), now
+        if not files:
+            await asyncio.sleep(rescan)
+            continue
+        on = False
+        for path in files:
+            try:
+                on = on or int(path.read_text().strip() or 0) > 0
+            except (OSError, ValueError):
+                scanned = -rescan  # a keyboard went away
+        if previous is not None and on != previous:
+            emit("capslock", {"on": on})
+        previous = on
+        await asyncio.sleep(every)
+
 async def watch_with_retries(name, setup, delays=(5, 10, 30, 60, 120, 300)):
     """Sets up a D-Bus watch, again after each delay while it fails: the service may start after the shell."""
     for delay in (0, *delays):
@@ -2074,7 +2964,7 @@ async def watch_with_retries(name, setup, delays=(5, 10, 30, 60, 120, 300)):
 
 async def main():
     backend = Backend()
-    tasks = set()
+    tasks, quick = set(), set()
     async def watch_session():
         """Gate activity at external locks and immediately before suspend. Until it works, the shell's
         own lock state and monotonic gap detection remain available."""
@@ -2141,7 +3031,22 @@ async def main():
             if code == "failed":
                 log_unexpected(error, method if isinstance(method, str) else "Request")
             response = {"id": identity, "ok": False, "error": {"code": code, "message": message}}
-        print(json.dumps(response, ensure_ascii=False), flush=True)
+        try:
+            print(json.dumps(response, ensure_ascii=False), flush=True)
+        except (UnicodeError, ValueError, TypeError) as error:
+            # A file name that isn't valid text, or a value JSON can't carry: the request still gets its answer.
+            log_unexpected(error, method if isinstance(method, str) else "Request")
+            print(json.dumps({"id": identity, "ok": False, "error": {"code": "failed", "message": "The answer couldn't be sent."}}), flush=True)
+
+    async def keep_watches():
+        """Sets the D-Bus watches up again on a system bus that had to be reconnected: they died with the old one."""
+        seen = backend.bus_generation
+        while True:
+            await asyncio.sleep(30)
+            if backend.bus_generation != seen and backend.bus and backend.bus.connected:
+                seen = backend.bus_generation
+                for name, setup in (("Session watch", watch_session), ("Power profile watch", watch_power), ("Bluetooth watch", backend.watch_bluetooth)):
+                    await watch_with_retries(name, setup, delays=())
 
     async def keep_equalizer():
         backend.equalizer.reap_stale()
@@ -2174,12 +3079,14 @@ async def main():
 
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, terminate)
     watcher = asyncio.create_task(watch_brightness(backend))
+    caps_watcher = asyncio.create_task(watch_capslock())
     equalizer_keeper = asyncio.create_task(keep_equalizer())
     session_watcher = asyncio.create_task(watch_with_retries("Session watch", watch_session))
     power_watcher = asyncio.create_task(watch_with_retries("Power profile watch", watch_power))
     bluetooth_watcher = asyncio.create_task(watch_with_retries("Bluetooth watch", backend.watch_bluetooth))
     clipboard_keeper = asyncio.create_task(keep_clipboard_history(clipboard))
     system_keeper = asyncio.create_task(keep_system_history(backend))
+    watch_keeper = asyncio.create_task(keep_watches())
     reader = asyncio.StreamReader(limit=1024 * 1024 + 1)
     transport, _ = await asyncio.get_running_loop().connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
     try:
@@ -2190,15 +3097,22 @@ async def main():
             if isinstance(line, tuple):
                 print(json.dumps({"id": line[1], "ok": False, "error": {"code": "invalid", "message": "Request is too large."}}), flush=True)
                 continue
-            if len(tasks) >= 32:
+            # Up to 32 requests run at once; some wait a long time on purpose (a colour pick, a pairing, a VPN
+            # password). Saving settings and notes is quick and never waits behind them.
+            if len(tasks) >= 32 and not QUICK_REQUEST.search(line[:160]):
                 await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             task = asyncio.create_task(handle(line))
-            tasks.add(task)
-            task.add_done_callback(tasks.discard)
-        if tasks:
-            await asyncio.gather(*tasks)
+            if QUICK_REQUEST.search(line[:160]):
+                quick.add(task)
+                task.add_done_callback(quick.discard)
+            else:
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
+        if tasks or quick:
+            await asyncio.gather(*tasks, *quick)
     finally:
         watcher.cancel()
+        caps_watcher.cancel()
         session_watcher.cancel()
         power_watcher.cancel()
         bluetooth_watcher.cancel()
@@ -2206,13 +3120,15 @@ async def main():
             backend.bluetooth.stop()
         clipboard_keeper.cancel()
         system_keeper.cancel()
+        watch_keeper.cancel()
         equalizer_keeper.cancel()
         backend.equalizer.stop()
         clipboard.stop()
         leave_recording()
         transport.close()
-    if backend.bus:
-        backend.bus.disconnect()
+    for bus in (backend.bus, backend.session_bus):
+        if bus:
+            bus.disconnect()
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "record-worker":

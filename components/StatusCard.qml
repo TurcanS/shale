@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import "../core"
 
+// A module with a large glyph tile, a headline and an optional level meter (accent from soft to full, danger when low).
 Rectangle {
     id: root
     property string title: ""
@@ -10,8 +11,8 @@ Rectangle {
     property real level: -1
     property bool positive: false
     implicitHeight: content.implicitHeight + 2 * Theme.gapL
-    radius: Theme.controlRadius
-    color: Theme.surface
+    radius: Theme.radiusModule
+    color: Theme.module
     ColumnLayout {
         id: content
         anchors.left: parent.left
@@ -31,15 +32,16 @@ Rectangle {
                 spacing: Theme.gapXs
                 Label {
                     text: root.title
-                    font.pixelSize: root.level >= 0 ? Theme.heading + 8 : Theme.heading
-                    font.weight: Font.DemiBold
+                    font.pixelSize: root.level >= 0 ? Theme.heading + 6 : Theme.heading
+                    font.weight: 650
+                    font.features: {"tnum": 1}
                     Layout.fillWidth: true
                 }
                 Label {
                     visible: root.subtitle !== ""
                     text: root.subtitle
                     font.pixelSize: Theme.label
-                    color: Theme.muted
+                    color: Theme.textDim
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -48,16 +50,21 @@ Rectangle {
         Rectangle {
             visible: root.level >= 0
             Layout.fillWidth: true
-            implicitHeight: 8
-            radius: 4
-            color: Theme.raised
+            implicitHeight: 6
+            radius: 3
+            color: Theme.key
             Rectangle {
-                width: parent.width * Math.max(0, Math.min(1, root.level))
+                id: levelFill
+                readonly property bool low: root.level < 0.15
+                width: Math.max(height, parent.width * Math.max(0, Math.min(1, root.level)))
                 height: parent.height
-                radius: 4
-                color: root.level < 0.15 ? Theme.warning : Theme.fill
+                radius: 3
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: levelFill.low ? Theme.dangerSoft : Theme.accentSoft }
+                    GradientStop { position: 1; color: levelFill.low ? Theme.danger : Theme.accent }
+                }
                 Behavior on width { NumberAnimation { duration: Theme.enter; easing.type: Easing.OutCubic } }
-                Behavior on color { ColorAnimation { duration: Theme.fast } }
             }
         }
     }

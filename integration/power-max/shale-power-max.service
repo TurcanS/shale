@@ -1,0 +1,8 @@
+[Unit]
+Description=Shale: raise the firmware power limits to their maximum
+# Dynamic Boost lends the GPU the CPU's spare watts; harmless when not installed.
+Wants=nvidia-powerd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/shale-power-max

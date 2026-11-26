@@ -25,6 +25,14 @@ end
 for action, keys in pairs(changed) do
     if type(action) == "string" and action:match("^[%w ]+$") and type(keys) == "string" then bind(keys, action) end
 end
+-- Resolution, refresh rate and scale kept in Settings → Displays: one rule per output, after your own monitor lines.
+local displays = loadfile(((config and config ~= "") and config or os.getenv("HOME") .. "/.config") .. "/shale/displays.lua")
+local loaded, rules = pcall(displays or function() return {} end)
+if loaded and type(rules) == "table" then
+    for _, rule in ipairs(rules) do
+        if type(rule) == "table" then pcall(hl.monitor, rule) end
+    end
+end
 -- Settings records a new shortcut in this empty submap, so keys that are already bound reach it instead of acting.
 -- Escape always leaves, and Settings still sees it to cancel.
 hl.define_submap("shale-record", function()
@@ -33,6 +41,8 @@ end)
 -- Lets hyprlock take over if the shell's lock screen stops while the session is locked.
 hl.config({ misc = { allow_session_lock_restore = true } })
 hl.layer_rule({ name = "shale-motion", match = { namespace = "^shale.*" }, no_anim = true })
+-- Desktop widgets: the wallpaper blurs behind the cards (78% opaque) but not under their shadows or between them.
+hl.layer_rule({ name = "shale-widgets-blur", match = { namespace = "^shale-widgets$" }, blur = true, ignore_alpha = 0.5 })
 hl.on("hyprland.start", function()
     hl.exec_cmd(command .. "start")
 end)

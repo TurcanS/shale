@@ -13,7 +13,7 @@ Controls.ScrollBar {
         implicitWidth: 4
         implicitHeight: 24
         radius: 2
-        color: root.pressed ? Theme.text : root.hovered ? Theme.muted : Theme.disabled
+        color: root.pressed ? Theme.textSecondary : root.hovered ? Theme.textDim : Theme.textFaint
         opacity: root.size <= 0 || root.size >= 1 || root.policy === Controls.ScrollBar.AlwaysOff ? 0 : root.active || root.hovered || root.pressed ? 0.65 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.fast } }
         Behavior on color { ColorAnimation { duration: Theme.fast } }

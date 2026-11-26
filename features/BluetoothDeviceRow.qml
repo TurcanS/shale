@@ -1,14 +1,12 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Shapes
 import Quickshell.Bluetooth
 import "../core"
 import "../components" as C
 
-// One Bluetooth device. Tapping it connects or disconnects (or pairs one found nearby); its badge shows the
-// battery as a ring and spins while something is under way. A paired device's ⋯ opens auto-connect, trust and
-// forget.
+// One Bluetooth device: a type tile (accent wash when connected), name and state, a battery badge (danger under
+// 15%), and Connect, Disconnect or Pair. The tile turns while something is under way. A paired device's ⋯ opens
+// auto-connect, trust and forget.
 Rectangle {
     id: root
     required property var device
@@ -30,10 +28,26 @@ Rectangle {
         const name = device.name || "";
         return !name || /^([0-9a-f]{2}[-:]){5}[0-9a-f]{2}$/i.test(name) ? "Unnamed device" : name;
     }
-    readonly property string glyph: {
+    // BlueZ's icon names the kind of device; headphones are often only known by their name.
+    readonly property var kind: {
         const icon = device.icon || "";
-        return /headset|headphone/.test(icon) || /head(phone|set)|earbud|airpods|buds/i.test(device.name || "") ? "headphones"
-             : /audio|speaker/.test(icon) ? "speaker" : /computer/.test(icon) ? "laptop" : /video|display/.test(icon) ? "monitor" : "bluetooth";
+        if (/headset|headphone/.test(icon) || /head(phone|set)|earbud|airpods|buds/i.test(device.name || ""))
+            return {text: "Headphones", glyph: "headphones"};
+        if (/audio|speaker/.test(icon))
+            return {text: "Speaker", glyph: "speaker"};
+        if (/mouse|tablet/.test(icon))
+            return {text: "Mouse", glyph: "mouse"};
+        if (/keyboard/.test(icon))
+            return {text: "Keyboard", glyph: "keyboard"};
+        if (/gaming|joystick/.test(icon))
+            return {text: "Controller", glyph: "gamepad"};
+        if (/computer/.test(icon))
+            return {text: "Computer", glyph: "laptop"};
+        if (/video|display/.test(icon))
+            return {text: "Display", glyph: "monitor"};
+        if (/phone/.test(icon))
+            return {text: "Phone", glyph: "bluetooth"};
+        return {text: "Device", glyph: "bluetooth"};
     }
     readonly property string status: {
         if (device.pairing)
@@ -43,14 +57,14 @@ Rectangle {
         if (working === "connect" || device.state === BluetoothDeviceState.Connecting)
             return "Connecting…";
         if (!paired)
-            return name === "Unnamed device" ? device.address : "Tap to pair";
-        const battery = device.batteryAvailable ? " · " + Math.round(device.battery * 100) + "%" : "";
-        return (connected ? "Connected" + battery : "Tap to connect") + (autoConnect ? " · Auto-connect" : "");
+            return name === "Unnamed device" ? device.address : kind.text + " · nearby";
+        return kind.text + (connected ? " · connected" : " · paired") + (autoConnect ? " · auto-connect" : "");
     }
+    readonly property bool lowBattery: device.batteryAvailable && device.battery < 0.15
 
     implicitHeight: column.implicitHeight
-    radius: Theme.controlRadius
-    color: connected ? (tap.containsMouse ? Theme.selectionHover : Theme.selection) : tap.containsMouse ? Theme.hover : Theme.surface
+    radius: Theme.radiusKey
+    color: connected || expanded ? Theme.mix(Theme.module, Theme.text, 0.03) : "transparent"
     Behavior on color { ColorAnimation { duration: Theme.fast } }
     clip: true
     Behavior on implicitHeight {
@@ -61,105 +75,113 @@ Rectangle {
         id: column
         width: parent.width
         spacing: 0
-        Item {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
-            MouseArea {
-                id: tap
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: root.busy || root.locked ? Qt.ArrowCursor : Qt.PointingHandCursor
+            Layout.preferredHeight: 48
+            Layout.leftMargin: 10
+            Layout.rightMargin: 6
+            spacing: Theme.gapM
+            Rectangle {
+                implicitWidth: 32
+                implicitHeight: 32
+                radius: Theme.radiusKey
+                color: root.connected ? Theme.accentSoft : Theme.key
+                C.Icon {
+                    id: kindIcon
+                    anchors.centerIn: parent
+                    name: root.busy ? "spinner" : root.kind.glyph
+                    size: 16
+                    color: root.connected || root.busy ? Theme.accentText : Theme.textMuted
+                    RotationAnimator on rotation {
+                        running: root.busy && !Theme.reduced
+                        from: 0
+                        to: 360
+                        duration: 900
+                        loops: Animation.Infinite
+                        onRunningChanged: if (!running) kindIcon.rotation = 0
+                    }
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                C.Label {
+                    text: root.name
+                    font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                }
+                C.Label {
+                    text: root.status
+                    color: Theme.textDim
+                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                }
+            }
+            // Battery: a small cell drawn to its level, and the percentage.
+            Rectangle {
+                visible: root.connected && root.device.batteryAvailable
+                implicitWidth: batteryRow.implicitWidth + 16
+                implicitHeight: 22
+                radius: 8
+                color: root.lowBattery ? Theme.dangerSoft : Theme.key
+                Accessible.name: "Battery " + Math.round(root.device.battery * 100) + "%"
+                Row {
+                    id: batteryRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 16
+                        height: 8
+                        radius: 2.5
+                        color: "transparent"
+                        border.width: 1.5
+                        border.color: batteryText.color
+                        Rectangle {
+                            x: 2.5
+                            y: 2.5
+                            width: Math.max(1, (parent.width - 5) * root.device.battery)
+                            height: parent.height - 5
+                            radius: 0.5
+                            color: batteryText.color
+                        }
+                    }
+                    C.Label {
+                        id: batteryText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Math.round(root.device.battery * 100) + "%"
+                        color: root.lowBattery ? Theme.dangerText : Theme.textSecondary
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        font.features: {"tnum": 1}
+                    }
+                }
+            }
+            C.Button {
+                id: actionKey
+                text: !root.paired ? "Pair" : root.connected ? "Disconnect" : "Connect"
+                accent: !root.connected
+                implicitHeight: 30
+                leftPadding: 10
+                rightPadding: 10
+                topPadding: 0
+                bottomPadding: 0
+                labelSize: 12
+                cornerRadius: 8
                 enabled: !root.busy && !root.locked
+                Accessible.name: text + " " + root.name
                 onClicked: root.activated()
             }
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Theme.gapM - 2
-                anchors.rightMargin: Theme.gapS
-                spacing: Theme.gapM
-                // The badge: a ring for the battery, a turning arc while busy.
-                Item {
-                    Layout.preferredWidth: 40
-                    Layout.preferredHeight: 40
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 34
-                        height: 34
-                        radius: 17
-                        color: root.connected ? Theme.selectionHover : Theme.raised
-                        C.Icon {
-                            anchors.centerIn: parent
-                            name: root.glyph
-                            size: 17
-                            color: root.connected ? Theme.accentText : Theme.text
-                        }
-                    }
-                    Shape {
-                        anchors.fill: parent
-                        visible: !root.busy && root.connected && root.device.batteryAvailable
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeColor: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.12)
-                            strokeWidth: 2.5
-                            fillColor: "transparent"
-                            PathAngleArc { centerX: 20; centerY: 20; radiusX: 18.5; radiusY: 18.5; startAngle: 0; sweepAngle: 360 }
-                        }
-                        ShapePath {
-                            strokeColor: root.device.battery <= 0.15 ? Theme.danger : root.device.battery <= 0.3 ? Theme.warning : Theme.success
-                            strokeWidth: 2.5
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            PathAngleArc { centerX: 20; centerY: 20; radiusX: 18.5; radiusY: 18.5; startAngle: -90; sweepAngle: 360 * root.device.battery }
-                        }
-                    }
-                    Shape {
-                        id: spinner
-                        anchors.fill: parent
-                        visible: root.busy
-                        preferredRendererType: Shape.CurveRenderer
-                        ShapePath {
-                            strokeColor: Theme.accent
-                            strokeWidth: 2.5
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            PathAngleArc { centerX: 20; centerY: 20; radiusX: 18.5; radiusY: 18.5; startAngle: 0; sweepAngle: 100 }
-                        }
-                        RotationAnimator on rotation {
-                            running: spinner.visible && !Theme.reduced
-                            from: 0
-                            to: 360
-                            duration: 900
-                            loops: Animation.Infinite
-                        }
-                    }
-                }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    C.Label {
-                        text: root.name
-                        color: root.connected ? Theme.accentText : Theme.text
-                        font.weight: Font.Medium
-                        Layout.fillWidth: true
-                    }
-                    C.Label {
-                        text: root.status
-                        color: Theme.muted
-                        font.pixelSize: Theme.small
-                        Layout.fillWidth: true
-                    }
-                }
-                C.Button {
-                    visible: root.paired
-                    glyph: "more"
-                    flat: true
-                    selected: root.expanded
-                    implicitWidth: 34
-                    implicitHeight: 34
-                    hint: root.expanded ? "Fewer options" : "Options"
-                    Accessible.name: "Options for " + root.name
-                    onClicked: root.optionsRequested()
-                }
+            C.Button {
+                visible: root.paired
+                glyph: "more"
+                flat: true
+                selected: root.expanded
+                implicitWidth: 30
+                implicitHeight: 30
+                hint: root.expanded ? "Fewer options" : "Options"
+                Accessible.name: "Options for " + root.name
+                onClicked: root.optionsRequested()
             }
         }
         // Auto-connect, trust and forget for a paired device.
@@ -175,7 +197,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 Layout.bottomMargin: Theme.gapXs
-                color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08)
+                color: Theme.separator
             }
             C.Toggle {
                 Layout.fillWidth: true

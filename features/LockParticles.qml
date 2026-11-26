@@ -543,7 +543,7 @@ Item {
         anchors.fill: parent
         screenName: root.screenName
         sharp: true
-        darken: 0.2
+        darken: 0.1
         blur: root.veil
         dim: root.veil
         onReadyChanged: settle.restart()
@@ -565,7 +565,7 @@ Item {
         }
         onPressed: {
             root.wake();
-            field.focusField();
+            prompt.focusField();
         }
     }
 
@@ -743,78 +743,72 @@ Item {
         }
     }
 
-    // Under the clock: the date, then the password field once someone is there.
-    Item {
-        id: below
-        x: root.clockCx
-        y: root.clockY + root.digitHeight + 3.5 * root.step
+    // Over the clock the date, under it the glance chips.
+    C.Label {
+        x: root.clockCx - width / 2
+        y: root.clockY - height - 2.2 * root.step
+        text: Qt.formatDateTime(clock.date, "dddd, d MMMM")
+        color: Theme.tint(Theme.text, 0.85)
+        font.pixelSize: 22
+        font.weight: Font.Medium
+        elide: Text.ElideNone
         opacity: root.textIn
+        transform: Translate {
+            x: root.leanX * 4
+            y: root.leanY * 4 - (1 - root.textIn) * 12
+        }
+    }
+    LockStatus {
+        x: root.clockCx - width / 2
+        y: root.clockY + root.digitHeight + 2.2 * root.step
+        opacity: root.textIn * (1 - 0.4 * root.idleness)
         transform: Translate {
             x: root.leanX * 4
             y: root.leanY * 4 + (1 - root.textIn) * 12
         }
-        C.Label {
-            text: Qt.formatDateTime(clock.date, "dddd · d MMMM").toUpperCase()
-            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.95)
-            font.pixelSize: Math.max(12, Math.round(root.digitHeight * 0.065))
-            font.weight: Font.DemiBold
-            font.letterSpacing: 4
-            elide: Text.ElideNone
-            x: -width / 2
-        }
-        LockField {
-            id: field
-            context: root.context
-            leftInset: 54
-            width: 300
-            height: 48
-            x: -width / 2
-            y: 52 + 10 * root.idleness
-            opacity: 1 - root.idleness
-            onKeyPressed: root.wake()
-            LockAvatar {
-                anchors.left: parent.left
-                anchors.leftMargin: 7
-                anchors.verticalCenter: parent.verticalCenter
-                width: 34
-                height: 34
-                border.width: 1
-            }
-        }
-        LockNote {
-            context: root.context
-            width: 340
-            x: -width / 2
-            y: field.y + field.height + 12
-            opacity: note !== "" ? 1 - root.idleness : 0
-        }
+    }
+    // The unlock group at the bottom centre; after ten quiet seconds it fades and only the clock stays.
+    LockPrompt {
+        id: prompt
+        context: root.context
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Math.max(48, Math.round(root.height * 0.133))
+        opacity: root.textIn * (1 - root.idleness)
+        onKeyPressed: root.wake()
+        transform: Translate { y: (1 - root.textIn) * 12 + 10 * root.idleness }
     }
 
     // Around the edges, as in the classic style.
-    LockStatus {
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.margins: 28
-        opacity: root.chrome * (1 - 0.4 * root.idleness)
-        transform: Translate { y: -(1 - root.chrome) * 20 }
-    }
     RowLayout {
         anchors.left: parent.left
-        anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 28
-        spacing: Theme.gapL
+        anchors.leftMargin: 32
+        anchors.bottomMargin: 28
+        spacing: 8
         opacity: root.chrome * (1 - 0.4 * root.idleness)
         transform: Translate { y: (1 - root.chrome) * 20 }
         LockMedia {
-            Layout.preferredWidth: Math.min(360, root.width / 2 - 40)
+            maxWidth: Math.max(160, Math.min(360, root.width - 420))
         }
-        Item {
-            Layout.fillWidth: true
-        }
-        LockPower {
-            context: root.context
-            onReleased: field.focusField()
-        }
+        LockKeyboard {}
+    }
+    // Top right: AirDrop requests, answered without unlocking. They stay clear while the rest fades when idle.
+    LockAirDrop {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: 32
+        anchors.topMargin: 28
+        opacity: root.chrome
+    }
+    LockPower {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 32
+        anchors.bottomMargin: 28
+        context: root.context
+        opacity: root.chrome * (1 - 0.4 * root.idleness)
+        transform: Translate { y: (1 - root.chrome) * 20 }
+        onReleased: prompt.focusField()
     }
 }

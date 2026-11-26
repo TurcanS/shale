@@ -14,10 +14,12 @@ PopupWindow {
     readonly property string text: target ? target.hint : ""
     readonly property bool live: shown && !!target && target.visible && text !== "" && !ShellState.locked
     property real reveal: live ? 1 : 0
+    // Slides a few pixels out of its key and seats (a plain fade and drop under Calm).
     Behavior on reveal {
         NumberAnimation {
-            duration: root.live ? Theme.fast : Theme.leave
-            easing.type: Easing.OutCubic
+            duration: root.live ? (Motion.calm ? Theme.fast : Motion.ms(170)) : Theme.leave
+            easing.type: root.live && !Motion.calm ? Easing.BezierSpline : Easing.OutCubic
+            easing.bezierCurve: Motion.seatCurve(Motion.ov(1.2))
         }
     }
     function show(item) {
@@ -72,12 +74,12 @@ PopupWindow {
     mask: Region {}
     Rectangle {
         anchors.fill: parent
-        radius: 8
-        color: Theme.raised
+        radius: Theme.radiusSegment + 1
+        color: Theme.keySelected
         border.width: 1
-        border.color: Theme.border
-        opacity: root.reveal
-        transform: Translate { y: Theme.reduced ? 0 : (1 - root.reveal) * -4 }
+        border.color: Theme.edge
+        opacity: Math.min(1, root.reveal)
+        transform: Translate { y: Theme.reduced || Theme.lowPower ? 0 : (1 - root.reveal) * -4 }
         Label {
             id: label
             anchors.fill: parent

@@ -1,3 +1,4 @@
 singleton Theme 1.0 Theme.qml
 singleton ShellState 1.0 ShellState.qml
 singleton Backend 1.0 Backend.qml
+singleton Motion 1.0 Motion.qml

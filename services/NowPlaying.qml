@@ -3,12 +3,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "../core"
-import "../core/palette.js" as Palette
 import "." as S
 import "../core/paths.js" as Paths
 
 // Shared state for everything that shows the current track: one cava process for every
-// visualizer, the cover's colours, and a signal when the track changes.
+// visualizer, the cover as a local file, and a signal when the track changes.
 Singleton {
     id: root
     readonly property var player: S.Services.player
@@ -37,11 +36,9 @@ Singleton {
             root.levels = []
     }
 
-    // Two tones from the cover: its most vivid colour and a contrasting one.
-    // Greyscale covers get soft white; no cover falls back to the accent.
-    // The quantizer only reads files, so the helper saves https:// and data: covers first. It exists only while
-    // there is a file: an empty source makes it try to open "". Every cover shown uses this file too, never the
-    // player's address: the helper fetches only from public addresses, and the display must not bypass that.
+    // The cover as a local file: the helper saves https:// and data: covers first. Every cover shown uses this file,
+    // never the player's address: the helper fetches only from public addresses, and the display must not bypass
+    // that.
     property string artFile: ""
     property int artRequest: 0
     onArtUrlChanged: resolveArt()
@@ -53,7 +50,7 @@ Singleton {
         if (/^file:\/\//i.test(url)) {
             artFile = url;
         } else if (/^(https?:|data:image\/)/i.test(url) && Backend.ready) {
-            // The accent until the new cover arrives, never the previous track's colours.
+            // No cover until the new one arrives, never the previous track's.
             artFile = "";
             Backend.request("media.art", {url: url}, (result, error) => {
                 if (request === root.artRequest)
@@ -70,25 +67,6 @@ Singleton {
                 root.resolveArt();
         }
     }
-    LazyLoader {
-        id: quantizer
-        active: root.artFile !== ""
-        ColorQuantizer {
-            source: root.artFile
-            depth: 3
-            rescaleSize: 64
-        }
-    }
-    readonly property var artColors: {
-        const pair = root.artUrl !== "" && quantizer.item ? Palette.vividPair(quantizer.item.colors) : null;
-        if (!pair)
-            return [Theme.accent, Theme.accentHover];
-        if (pair.grey)
-            return [Qt.hsla(0, 0, 0.9, 1), Qt.hsla(0, 0, 0.6, 1)];
-        // Lift lightness and saturation so bars read over the artwork itself.
-        return [Palette.tone(pair.first, 0.66), Palette.tone(pair.second, 0.5)];
-    }
-
     // Players fill metadata in several steps, so a change is announced once it has settled.
     // The first track seen after start-up (or after the player appears) is never announced.
     signal trackChanged()

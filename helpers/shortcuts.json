@@ -1,9 +1,9 @@
 [
-    {"action": "launcher", "title": "Launcher", "keys": "SUPER + SPACE"},
+    {"action": "launcher", "title": "Find", "keys": "SUPER + SPACE"},
     {"action": "clipboard", "title": "Clipboard", "keys": "SUPER + V"},
-    {"action": "control", "title": "Control center", "keys": "SUPER + A"},
+    {"action": "control", "title": "Control", "keys": "SUPER + A"},
     {"action": "notifications", "title": "Notifications", "keys": "SUPER + N"},
-    {"action": "overview", "title": "Workspace overview", "keys": "SUPER + O"},
+    {"action": "overview", "title": "Pages", "keys": "SUPER + O"},
     {"action": "settings", "title": "Settings", "keys": "SUPER + COMMA"},
     {"action": "activity", "title": "Activity", "keys": "SUPER + SHIFT + A"},
     {"action": "system", "title": "System monitor", "keys": "CTRL + SHIFT + Escape"},
@@ -13,9 +13,13 @@
     {"action": "screenshot output", "title": "Display screenshot", "keys": "SHIFT + Print"},
     {"action": "capture", "title": "Capture", "keys": "SUPER + Print"},
     {"action": "wallpaper", "title": "Wallpapers", "keys": "SUPER + SHIFT + W", "optIn": true},
-    {"action": "calendar", "title": "Calendar", "keys": ""},
-    {"action": "color", "title": "Color picker", "keys": ""},
+    {"action": "calendar", "title": "Clock and sky", "keys": ""},
+    {"action": "color", "title": "Colour picker", "keys": ""},
     {"action": "dnd", "title": "Do not disturb", "keys": ""},
     {"action": "focus toggle", "title": "Start or end focus", "keys": ""},
+    {"action": "airdrop", "title": "AirDrop", "keys": ""},
+    {"action": "airdrop toggle", "title": "AirDrop visible for 10 minutes", "keys": ""},
+    {"action": "airdrop accept", "title": "Accept an AirDrop", "keys": ""},
+    {"action": "airdrop decline", "title": "Decline an AirDrop", "keys": ""},
     {"action": "close", "title": "Close panel", "keys": ""}
 ]

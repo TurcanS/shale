@@ -48,6 +48,34 @@ Scope {
             }
         }
     }
+    // Restarting and sleeping the same way. Sleep leaves this lock screen up: session-action finds the session
+    // already locked before it suspends, so the password is still needed after waking.
+    function reboot() {
+        if (!restartProcess.running)
+            restartProcess.running = true;
+    }
+    function suspend() {
+        if (!sleepProcess.running)
+            sleepProcess.running = true;
+    }
+    Process {
+        id: restartProcess
+        command: [Paths.localPath(Qt.resolvedUrl("../scripts/session-action")), "reboot"]
+        onExited: code => {
+            if (code !== 0) {
+                root.status = "Could not restart. Another user or app may be preventing it.";
+                root.powerFailed();
+            }
+        }
+    }
+    Process {
+        id: sleepProcess
+        command: [Paths.localPath(Qt.resolvedUrl("../scripts/session-action")), "suspend"]
+        onExited: code => {
+            if (code !== 0)
+                root.status = "Could not sleep. The system refused.";
+        }
+    }
 
     function submit() {
         if (prompt !== "" && pam.active && !busy) {

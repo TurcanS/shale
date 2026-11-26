@@ -1,27 +1,29 @@
 .pragma library
 // What the bar can show, in its default places and order. helpers/backend.py (BAR_ITEMS) checks saved layouts
 // against these IDs. Required items can move but never hide: what is recording or listening stays visible, and the
-// control center button always leads back to Settings.
+// Control button always leads back to Settings.
 const items = [
-    {id: "launcher", title: "Applications", icon: "grid", zone: "left", description: "Opens the launcher"},
-    {id: "workspaces", title: "Workspaces", icon: "window", zone: "left", description: "The workspaces on this screen"},
+    {id: "workspaces", title: "Pages", icon: "grid", zone: "left", description: "The pages on this screen"},
     {id: "windowTitle", title: "Window title", icon: "window", zone: "left", description: "On screens wider than 1400 px"},
-    {id: "clock", title: "Clock", icon: "calendar", zone: "center", description: "Opens the calendar"},
-    {id: "media", title: "Now playing", icon: "music", zone: "right", description: "While something plays"},
-    {id: "tray", title: "Tray icons", icon: "more", zone: "right", description: "Apps in the system tray"},
+    {id: "clock", title: "Clock", icon: "clock", zone: "center", description: "Opens Clock and sky"},
     {id: "recording", title: "Recording", icon: "record", zone: "right", required: true, description: "While recording the screen"},
-    {id: "privacy", title: "Microphone and screen sharing", icon: "mic", zone: "right", required: true, description: "While an app listens or watches"},
+    {id: "privacy", title: "Microphone, camera and screen sharing", icon: "mic", zone: "right", required: true, description: "While an app listens or watches"},
+    {id: "media", title: "Now playing", icon: "music", zone: "right", description: "While something plays"},
+    {id: "tray", title: "Tray icons", icon: "tray", zone: "right", description: "Apps in the system tray"},
     {id: "focus", title: "Focus", icon: "focus", zone: "right", description: "During a focus session"},
     {id: "timer", title: "Timers", icon: "timer", zone: "right", description: "While a timer runs"},
     {id: "stayAwake", title: "Stay awake", icon: "moon", zone: "right", description: "While the screen is kept on"},
-    {id: "keyboard", title: "Keyboard layout", icon: "region", zone: "right", description: "With two or more layouts"},
+    {id: "airdrop", title: "AirDrop", icon: "airdrop", zone: "right", description: "While visible, listening or sending"},
+    {id: "keyboard", title: "Keyboard layout", icon: "keyboard", zone: "right", description: "With two or more layouts"},
     {id: "vpn", title: "VPN", icon: "shield", zone: "right", description: "While a VPN is connected"},
     {id: "wifi", title: "Wi-Fi", icon: "wifi", zone: "right"},
     {id: "audio", title: "Volume", icon: "volume", zone: "right", description: "Scroll to change, middle-click to mute"},
     {id: "battery", title: "Battery", icon: "battery", zone: "right", description: "On laptops"},
-    {id: "notifications", title: "Notifications", icon: "bell", zone: "right"},
-    {id: "control", title: "Control center", icon: "settings", zone: "right", required: true}
+    {id: "control", title: "Control", icon: "sliders", zone: "right", required: true},
+    {id: "notifications", title: "Notifications", icon: "bell", zone: "right"}
 ];
+// Status items next to each other in a zone share one key on the bar; each keeps its own click and scroll.
+const status = ["vpn", "wifi", "audio", "battery", "control"];
 const zones = ["left", "center", "right", "hidden"];
 
 function find(id) {
@@ -72,4 +74,18 @@ function moved(saved, id, zone, step) {
         current[from].splice(to, 0, id);
     }
     return current;
+}
+
+// A zone's items as the bar draws them: each on its own, except runs of status items, which share a key.
+function runs(ids) {
+    const result = [];
+    for (const id of ids) {
+        const joined = status.indexOf(id) >= 0;
+        const last = result[result.length - 1];
+        if (joined && last && last.status)
+            last.ids.push(id);
+        else
+            result.push({status: joined, ids: [id]});
+    }
+    return result;
 }

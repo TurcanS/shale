@@ -4,9 +4,10 @@
 const tiles = [
     {id: "wifi", title: "Wi-Fi", icon: "wifi", description: "Opens networks from its arrow"},
     {id: "bluetooth", title: "Bluetooth", icon: "bluetooth", description: "Opens devices from its arrow"},
+    {id: "airdrop", title: "AirDrop", icon: "airdrop", description: "Visible for 10 minutes; opens AirDrop from its arrow"},
     {id: "dnd", title: "Do not disturb", icon: "bell-off"},
     {id: "awake", title: "Stay awake", icon: "moon"},
-    {id: "grayscale", title: "Grayscale", icon: "palette"},
+    {id: "grayscale", title: "Greyscale", icon: "palette"},
     {id: "lid", title: "Lid closed", icon: "laptop", description: "On laptops"}
 ];
 const sections = [
@@ -14,12 +15,13 @@ const sections = [
     {id: "levels", title: "Volume and brightness", icon: "volume"},
     {id: "media", title: "Now playing", icon: "music"}
 ];
-// Settings stays: it is the way back to this page.
+// The power row at the foot of the page. Settings stays (it is the way back to this page) and sits in the header;
+// Session is Sleep, Restart and Hold to power off.
 const footer = [
     {id: "capture", title: "Capture", icon: "camera"},
     {id: "settings", title: "Settings", icon: "settings", required: true},
     {id: "lock", title: "Lock", icon: "lock"},
-    {id: "session", title: "Session", icon: "power"}
+    {id: "session", title: "Session", icon: "power", description: "Sleep, Restart and Hold to power off"}
 ];
 
 function find(list, id) {

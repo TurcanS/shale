@@ -22,7 +22,9 @@ QtObject {
     }
     property string lastError: ""
     signal eventReceived(string name, var data)
-    function request(method, params, callback) {
+    // `options.owner`: the page asking. Once it is gone (its panel closed) the answer is dropped instead of reaching
+    // a callback that would touch a destroyed page. `options.silent`: a failure is the caller's to show.
+    function request(method, params, callback, options) {
         if (!ready) {
             if (callback)
                 callback(null, {
@@ -32,11 +34,20 @@ QtObject {
             return;
         }
         const id = ++sequence;
-        pending[id] = {
+        const item = {
             callback: callback,
             method: method,
+            silent: !!(options && options.silent),
             time: Date.now()
         };
+        if (options && options.owner) {
+            try {
+                options.owner.Component.destruction.connect(() => item.callback = null);
+            } catch (e) {
+                console.warn("Backend.request: owner of", method, "can't be followed:", e);
+            }
+        }
+        pending[id] = item;
 
         process.write(JSON.stringify({
             id: id,
@@ -44,22 +55,32 @@ QtObject {
             params: params || {}
         }) + "\n");
     }
+    // These fail in the ordinary course of typing or polling; their views show it themselves.
+    readonly property var quietMethods: ["calculator", "units.convert", "files.search", "weather.get", "weather.search", "wallhaven.search", "wallpaperscom.search", "media.art", "system.sample"]
     function receive(line) {
+        let msg;
         try {
-            const msg = JSON.parse(line);
-            if (msg.event) {
-                eventReceived(msg.event, msg.data);
-                return;
-            }
-            const item = pending[msg.id];
-            delete pending[msg.id];
-            if (!msg.ok && msg.error && msg.error.code !== "cancelled" && (!item || ["calculator", "units.convert", "files.search", "weather.get", "weather.search", "wallhaven.search", "wallpaperscom.search", "media.art", "system.sample"].indexOf(item.method) < 0)) {
-                lastError = msg.error.message || "Operation failed";
-            }
-            if (item && item.callback)
-                item.callback(msg.result, msg.ok ? null : msg.error);
+            msg = JSON.parse(line);
         } catch (e) {
             lastError = "Invalid response from desktop helper";
+            return;
+        }
+        if (msg.event) {
+            eventReceived(msg.event, msg.data);
+            return;
+        }
+        const item = pending[msg.id];
+        delete pending[msg.id];
+        // An answer to a request that already timed out is late news, not a new error.
+        if (item && !msg.ok && msg.error && msg.error.code !== "cancelled" && !item.silent && quietMethods.indexOf(item.method) < 0)
+            lastError = msg.error.message || "Operation failed";
+        if (!item || !item.callback)
+            return;
+        // A mistake in a caller's callback is that caller's, with its own trace, not a bad answer from the helper.
+        try {
+            item.callback(msg.result, msg.ok ? null : msg.error);
+        } catch (e) {
+            console.warn("Backend: the callback of", item.method, "failed:", e, e.stack || "");
         }
     }
     property Process process: Process {
@@ -114,6 +135,7 @@ QtObject {
                     delete root.pending[key];
                     if (cb)
                         cb(null, {
+                            code: "timeout",
                             message: "Operation timed out"
                         });
                 }

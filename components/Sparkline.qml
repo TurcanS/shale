@@ -4,8 +4,9 @@ import "../core"
 
 // A history line with a soft fill. `values` are [time, value] pairs, oldest first; the last `span` seconds up to
 // `end` span the width, so a short history grows in from the right. A null value breaks the line (the helper
-// wasn't sampling). An optional second series draws as a plain line. The owner may append to the arrays in place
-// and bump `revision` instead of handing over new ones.
+// wasn't sampling). An optional second series draws as a plain line in the design's `second` colour. The owner may
+// append to the arrays in place and bump `revision` instead of handing over new ones. `filled: false` draws the line
+// alone (a device that is asleep).
 Item {
     id: root
     property var values: []
@@ -15,8 +16,9 @@ Item {
     property real end: 0
     property int revision: 0
     property color color: Theme.accent
-    property color secondaryColor: Theme.activityWatching
+    property color secondaryColor: Theme.second
     property real lineWidth: 1.5
+    property bool filled: true
     clip: true
     // Runs of [x, y] points, newest first. Walks back from the newest point and stops one point past the left edge,
     // so a one-minute graph never looks at the rest of a longer history.
@@ -56,7 +58,7 @@ Item {
         ShapePath {
             strokeWidth: 0
             strokeColor: "transparent"
-            fillColor: Qt.rgba(root.color.r, root.color.g, root.color.b, 0.16)
+            fillColor: root.filled ? Theme.tint(root.color, 0.16) : "transparent"
             PathSvg { path: root.area(root.mainRuns) }
         }
         ShapePath {

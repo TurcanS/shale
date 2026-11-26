@@ -21,8 +21,8 @@ Item {
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: Theme.mix(Theme.background, Theme.selection, 0.55) }
-            GradientStop { position: 1; color: Theme.background }
+            GradientStop { position: 0; color: Theme.mix(Theme.backdrop, Theme.selection, 0.55) }
+            GradientStop { position: 1; color: Theme.backdrop }
         }
     }
     // Cropped like the desktop's wallpaper, so the hand-off lines up.
@@ -56,14 +56,13 @@ Item {
         saturation: -0.1 * root.dim
         brightness: -root.darken * root.dim
     }
-    // Darker at the edges so the clock and the bottom controls stay readable on any wallpaper.
+    // Darkening toward the bottom, so the clock and the password field stay readable on any wallpaper.
     Rectangle {
         anchors.fill: parent
         opacity: root.dim
         gradient: Gradient {
-            GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0.32) }
-            GradientStop { position: 0.45; color: Qt.rgba(0, 0, 0, 0.1) }
-            GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.5) }
+            GradientStop { position: 0; color: Qt.rgba(0.02, 0.027, 0.039, 0.35) }
+            GradientStop { position: 1; color: Qt.rgba(0.02, 0.027, 0.039, 0.65) }
         }
     }
 }

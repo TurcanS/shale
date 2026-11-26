@@ -42,11 +42,12 @@ ShellRoot {
         });
     }
     Component.onCompleted: {
-        // A focus session holds popups too, without changing the user's own Do not disturb.
-        Services.dnd = Qt.binding(() => ShellState.setting("dnd", false) || Focus.active);
+        // A focus session and quiet hours hold popups too, without changing the user's own Do not disturb.
+        Services.dnd = Qt.binding(() => ShellState.setting("dnd", false) || Focus.active || ShellState.quietNow);
         Services.locked = Qt.binding(() => ShellState.locked);
         Services.amplification = Qt.binding(() => ShellState.setting("amplification", false));
-        Services.trackStreams = Qt.binding(() => ShellState.panel === "control" && ShellState.detail === "audio");
+        // App streams are bound while Control shows them: per-app levels on its main page and the mixer.
+        Services.trackStreams = Qt.binding(() => ShellState.panel === "control" && (ShellState.detail === "" || ShellState.detail === "audio"));
     }
     Connections {
         target: Services
@@ -56,9 +57,8 @@ ShellRoot {
         function onBatteryWarning(percent) {
             ShellState.message("Battery at " + percent + "% · Connect your charger", "error");
         }
-        function onLastErrorChanged() {
-            if (Services.lastError)
-                ShellState.message(Services.lastError, "error");
+        function onFailed(message) {
+            ShellState.message(message, "error");
         }
         function onNotificationsChanged() {
             historySave.restart();
@@ -118,6 +118,14 @@ ShellRoot {
             WallpaperTransition {
                 screen: output.modelData
                 outputName: output.modelData.name
+            }
+            // Desktop widgets: no window at all until Settings → Desktop turns them on.
+            LazyLoader {
+                active: ShellState.setting("widgets", false)
+                Widgets {
+                    screen: output.modelData
+                    outputName: output.modelData.name
+                }
             }
             PanelHost {
                 screen: output.modelData

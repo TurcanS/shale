@@ -18,10 +18,12 @@ import system  # noqa: E402  (hardware detection and the package plan)
 ROOT = Path(__file__).resolve().parents[1]
 BANNER = """Shale: a Quickshell desktop shell for Hyprland
 
-This installs the shell only: bar, launcher, control center, notifications, lock screen and
-the panels around them. It is not a full set of dotfiles: your Hyprland settings, terminal,
-editor, GTK/Qt themes and wallpapers stay yours. It only adds Shale's own shortcuts, asking
-before it replaces one of yours, and backs up every file it changes.
+This installs the shell: bar, launcher, control center, notifications, lock screen and the
+panels around them, with the apps it opens things in when there are none yet (a browser, a
+file manager, an image viewer, a video player and a terminal). It is not a full set of
+dotfiles: your Hyprland settings, editor, themes and wallpapers stay yours. It adds Shale's
+own shortcuts, asking before it replaces one of yours, gives kitty Shale's colours and GTK
+apps a dark look only where they have no settings yet, and backs up every file it changes.
 """
 MARKER = '-- Shale shell integration'
 WALLPAPER_MARKER = '-- Shale wallpaper shortcut'
@@ -46,6 +48,16 @@ WALLPAPER = next((item['keys'], item['action'], 'Shale ' + item['title'].lower()
 REQUIRED = {'quickshell': 'quickshell', 'hyprctl': 'hyprland', 'wl-copy': 'wl-clipboard', 'python:dbus_next': 'python-dbus-next'}
 OPTIONAL = {'hypridle': 'hypridle', 'hyprlock': 'hyprlock', 'cliphist': 'cliphist', 'grim': 'grim', 'slurp': 'slurp',
             'wf-recorder': 'wf-recorder', 'hyprpicker': 'hyprpicker', 'fd': 'fd'}
+# Settings for the apps around the shell, written by ./install.sh only where there are none yet: kitty in Shale's
+# colours, and GTK apps (Thunar, the file pickers) dark like the shell. A later install refreshes one only while it is
+# still Shale's unchanged copy.
+APP_SETTINGS = (('.config/kitty/kitty.conf', 'integration/kitty.conf'), ('.config/gtk-3.0/settings.ini', 'integration/gtk-settings.ini'),
+                ('.config/gtk-4.0/settings.ini', 'integration/gtk-settings.ini'))
+# Held while pacman runs; another install or update is still going (or one crashed) while it exists.
+PACMAN_LOCK = Path('/var/lib/pacman/db.lck')
+PACMAN_FAILED = ('pacman did not finish; nothing else was changed. If it could not download a package, your package lists are '
+                 'out of date: run sudo pacman -Syu, then ./install.sh again. If it said a signature is invalid or unknown, '
+                 'update the keyring first: sudo pacman -Sy archlinux-keyring && sudo pacman -Su')
 MINIMUM_QUICKSHELL = (0, 3, 1)
 MINIMUM_HYPRLAND = (0, 56)
 OTHER_SHELLS = ('waybar', 'mako', 'dunst', 'swaync', 'fnott', 'hyprpanel', 'ags')
@@ -484,6 +496,9 @@ def confirm(question, read=input, default=True):
 # Shale's launcher instead, and --uninstall puts it back.
 EXAMPLE_MENU = re.compile(r'^(local menu\s*=\s*)"hyprlauncher"', re.M)
 SHALE_MENU = r'\1os.getenv("HOME") .. "/.local/bin/shale launcher"'
+# Its file manager (Super+E) is Dolphin; the copy opens the one installed, or the Thunar ./install.sh adds. Uninstalling
+# leaves that line: the file manager is still there.
+EXAMPLE_FILE_MANAGER = re.compile(r'^(local fileManager\s*=\s*)"dolphin"', re.M)
 
 
 def example_menu():
@@ -496,10 +511,49 @@ def example_menu():
     return line, EXAMPLE_MENU.sub(SHALE_MENU, line, count=1)
 
 
-def setup_system(home, apply=False, yes=False, interactive=True, read=input, run=subprocess.run, detected=None, login_screen=True):
+def chosen_defaults(home, environ=os.environ, system_dirs=(Path('/etc/xdg'), Path('/usr/share/applications'))):
+    """MIME types that already have a default app in a mimeapps.list, the user's or the system's. Not `xdg-mime query
+    default`: without a choice it answers from the cache, which lists any app that claims the type."""
+    config = Path(environ.get('XDG_CONFIG_HOME') or home / '.config')
+    chosen = set()
+    for path in (config / 'mimeapps.list', home / '.local/share/applications/mimeapps.list', *(folder / 'mimeapps.list' for folder in system_dirs)):
+        try:
+            lines = path.read_text(errors='replace').splitlines()
+        except OSError:
+            continue
+        group = ''
+        for line in map(str.strip, lines):
+            if line.startswith('['):
+                group = line
+            elif group == '[Default Applications]' and '=' in line and line.split('=', 1)[1].strip():
+                chosen.add(line.split('=', 1)[0].strip())
+    return chosen
+
+
+def choose_defaults(home, apps, run=subprocess.run, folders=None):
+    """Makes each app ./install.sh just added the default for what it opens (`apps`: [(.desktop file names, MIME
+    types)]), where no default is chosen yet. Returns what it set, as "type=app.desktop"."""
+    if not apps or not shutil.which('xdg-mime'):
+        return []
+    taken, done = chosen_defaults(home), []
+    for files, types in apps:
+        desktop = system.desktop_file(files, home, folders)
+        for mime in types if desktop else ():
+            if mime in taken:
+                continue
+            try:
+                if run(['xdg-mime', 'default', desktop, mime], capture_output=True, timeout=20).returncode == 0:
+                    done.append(f'{mime}={desktop}')
+            except (OSError, subprocess.SubprocessError):
+                continue
+    return done
+
+
+def setup_system(home, apply=False, yes=False, interactive=True, read=input, run=subprocess.run, detected=None, login_screen=True,
+                 drivers=True, apps=True, lock=PACMAN_LOCK):
     """Install the packages and enable the services this machine needs, after showing why. Without `apply`, only
     show them. Returns the plan."""
-    needs = detected if detected is not None else system.plan(home)
+    needs = detected if detected is not None else system.plan(home, drivers=drivers, apps=apps)
     print('Checking this machine')
     for note in needs['notes']:
         print('  note: ' + note)
@@ -524,6 +578,8 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
         print('  Enabled from the next boot: ' + ', '.join(boot))
     if needs['config']:
         print("  Hyprland config: none yet, so Hyprland's example becomes ~/.config/hypr/hyprland.lua")
+    if needs.get('defaults') and own_home(home):
+        print('  Each app added becomes the default for what it opens, unless you have chosen one already')
     if not apply:
         print('  Preview only: with --apply, these are installed after you confirm.\n')
         return needs
@@ -535,6 +591,9 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
     if conflicts and not interactive:
         raise ValueError(f'pacman has to ask before it replaces {", ".join(conflicts)}, and this is not a terminal. '
                          'Run ./install.sh in a terminal.')
+    if needs['packages'] and lock.exists():
+        raise ValueError(f'pacman is busy: another install or update is running, or one stopped and left {lock} behind. '
+                         'Wait for it to finish (or remove that file once no pacman runs), then run ./install.sh again.')
     if not yes and not confirm('\nGo ahead?', read):
         raise ValueError('nothing was installed. Run ./install.sh --no-packages to install only the shell files.')
     root = privileged() if needs['packages'] or needs['services'] or boot else []
@@ -549,11 +608,23 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
             raise ValueError(f'cancelled while {os.path.basename(command[len(root)])} was running, so part of this step '
                              'may be done. Run ./install.sh again to finish.') from None
     if needs['packages']:
-        command = root + [PACMAN, '-S', '--needed'] + (['--noconfirm'] if yes and not conflicts else []) + [name for name, _ in needs['packages']]
-        if not step(command):
-            raise ValueError('pacman did not finish; nothing else was changed. If it could not download a package, '
-                             'your package lists are out of date: run sudo pacman -Syu, then ./install.sh again.')
-        remember_system(home, packages=[name for name, _ in needs['packages']])
+        names = [name for name, _ in needs['packages']]
+        quiet = ['--noconfirm'] if yes and not conflicts else []
+        if not step(root + [PACMAN, '-S', '--needed'] + quiet + names):
+            # Most often the package lists are older than the mirrors (an install some days old). Arch adds new packages
+            # after a full update (never after -Sy alone), so that is the retry; --yes didn't agree to updating the
+            # whole system, so it stops instead.
+            if yes or not interactive or not confirm('\npacman did not install them. If it could not download a package, its package lists '
+                                                     'are out of date. Update the whole system (pacman -Syu) and try again?', read):
+                raise ValueError(PACMAN_FAILED)
+            if not step(root + [PACMAN, '-Syu', '--needed'] + names):
+                raise ValueError(PACMAN_FAILED)
+        remember_system(home, packages=names)
+        if own_home(home):
+            chosen = choose_defaults(home, needs.get('defaults', []), run)
+            if chosen:
+                remember_system(home, defaults=chosen)
+                print('Default apps where you had none: ' + ', '.join(chosen))
     if needs['services']:
         if not step(root + [SYSTEMCTL, 'enable', '--now'] + [unit + '.service' for unit in needs['services']]):
             raise ValueError('could not enable ' + ', '.join(needs['services']) + '.')
@@ -566,7 +637,11 @@ def setup_system(home, apply=False, yes=False, interactive=True, read=input, run
     if needs['config']:
         config = home / '.config/hypr/hyprland.lua'
         config.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(config, EXAMPLE_MENU.sub(SHALE_MENU, system.EXAMPLE_CONFIG.read_text(), count=1).encode())
+        text = EXAMPLE_MENU.sub(SHALE_MENU, system.EXAMPLE_CONFIG.read_text(), count=1)
+        manager = needs.get('fileManager', '')
+        if manager and manager != 'dolphin' and shutil.which(manager):
+            text = EXAMPLE_FILE_MANAGER.sub(lambda match: f'{match[1]}"{manager}"', text, count=1)
+        atomic_write(config, text.encode())
         remember_system(home, config=[str(config)])
         print(f"Copied Hyprland's example config to {shown(config, home)}; its keyboard layout is US (kb_layout).")
     if 'sddm' in boot:
@@ -657,6 +732,26 @@ def payload(home, shell_only=False, wallpaper_shortcut=False, decide=replace_all
     if unchecked:
         report('luac (from the lua package) is not installed, so the edited Hyprland config was not syntax-checked.')
     return targets
+
+
+def app_settings(home, record):
+    """APP_SETTINGS to write: {path: (bytes, mode)}. Each goes where there is none yet, unless Shale wrote one that was
+    deleted since; one that is still Shale's unchanged copy is refreshed. A link (dotfiles) and anything changed stay."""
+    targets = {}
+    for relative, source in APP_SETTINGS:
+        path = home / relative
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            continue
+        known = record.get(str(real(path, home)))
+        if (path.exists() and known != digest(path.read_bytes())) or (not path.exists() and known):
+            continue
+        targets[path] = ((ROOT / source).read_bytes(), 0o644)
+    return targets
+
+
+def app_setting(path, home):
+    """Whether `path` is one of the APP_SETTINGS files."""
+    return any(Path(path) == real(home / relative, home) for relative, _ in APP_SETTINGS)
 
 
 def changed_shortcuts(home):
@@ -890,9 +985,11 @@ def undo_command(state, home):
 # ---- Installing and rolling back ----------------------------------------------------------------
 
 def install(home, apply=False, shell_only=False, wallpaper_shortcut=False, yes=False, force=False,
-            interactive=None, read=input, checks=None, verbose=False, ask_again=False, packages=(), hints=True):
+            interactive=None, read=input, checks=None, verbose=False, ask_again=False, packages=(), hints=True, reboot=False,
+            app_config=False):
     """Install Shale, or with apply=False show what that would change. `packages` are more missing packages to
-    mention (an update's). Returns whether anything was written."""
+    mention (an update's); `reboot` says a driver was just added, which loads from the next boot; `app_config` adds
+    APP_SETTINGS where there are none. Returns whether anything was written."""
     if not (ROOT / 'shell.qml').exists():
         raise ValueError('Missing shell.qml; installation is incomplete')
     check_location(home)
@@ -922,8 +1019,10 @@ def install(home, apply=False, shell_only=False, wallpaper_shortcut=False, yes=F
         decide = skip_all
     targets = payload(home, shell_only=shell_only, wallpaper_shortcut=wallpaper_shortcut, decide=decide,
                       kept=[keys for keys, choice in earlier.items() if choice == 'keep'])
-    resolved = {real(path, home): value for path, value in targets.items()}
     record = installed(home)
+    if app_config and not shell_only:
+        targets.update(app_settings(home, record))
+    resolved = {real(path, home): value for path, value in targets.items()}
     removed = stale(home, targets, record)
     report_files(home, resolved, removed, verbose)
     if not apply:
@@ -962,11 +1061,13 @@ def install(home, apply=False, shell_only=False, wallpaper_shortcut=False, yes=F
     if not hints:
         return bool(state)
     if os.environ.get('HYPRLAND_INSTANCE_SIGNATURE'):
-        print('\nStart it now:\n  ~/.local/bin/shale start && hyprctl reload')
+        print('\nStart it now:\n  ~/.local/bin/shale start && hyprctl reload'
+              + ('\nThe new graphics driver loads from the next boot.' if reboot else ''))
     elif system.service_state('display-manager'):
-        print('\nNext: reboot (or log out) and choose Hyprland on the login screen. Shale starts with it.')
+        print('\nNext: reboot' + ('' if reboot else ' (or log out)') + ' and choose Hyprland on the login screen. Shale starts with it.')
     else:
-        print('\nNext: log in on a TTY and run start-hyprland. Shale starts with Hyprland.')
+        print('\nNext: ' + ('reboot so the new graphics driver loads, then ' if reboot else '')
+              + 'log in on a TTY and run start-hyprland. Shale starts with Hyprland.')
     return bool(state)
 
 
@@ -1109,7 +1210,7 @@ def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=
     record, before = installed(home), originals(home)
     shell, hypr = real(home / '.config/quickshell/shale', home), home / '.config/hypr'
     unit, idle = home / '.config/systemd/user/shale.service', hypr / 'shale-hypridle.conf'
-    texts, actions, skips, done = {}, [], [], set()
+    texts, actions, skips, done, yours = {}, [], [], set(), []
 
     def config_file(path, current, original, mode):
         verb, data = without_shale(current, original)
@@ -1144,6 +1245,9 @@ def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=
             done.add(name)
         elif path.suffix == '.lua' and path.name not in OWN:
             config_file(path, current, original, mode)
+        elif digest(current) != record[name] and app_setting(path, home):
+            yours.append(path)  # an app's settings, changed since: they are the user's now
+            done.add(name)
         elif digest(current) != record[name]:
             skips.append((path, 'changed since Shale installed it'))
         elif original is None and path.name in OWN and still_loads(home, path.name, texts):
@@ -1194,9 +1298,11 @@ def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=
         print(f'  keep     {shown(path, home)}: not installed by Shale')
     if len(mine) > 5:
         print(f'  keep     {len(mine) - 5} more files in {shown(shell, home)}')
+    for path in yours:
+        print(f'  keep     {shown(path, home)}: Shale wrote it, and you changed it since')
     for path, why in skips:
         print(f'  skip     {shown(path, home)}: {why}')
-    if not actions and not skips:
+    if not actions and not skips and not yours:
         print('  nothing to remove')
     if purged:
         print('\nDeleted for good (--purge): ' + '; '.join(f'{shown(folder, home)} ({what})' for folder, what in purged))
@@ -1214,11 +1320,14 @@ def uninstall(home, apply=False, purge=False, yes=False, interactive=None, read=
             print('  services ./install.sh enabled: ' + ', '.join(setup['services']))
             print('    sudo systemctl disable --now ' + ' '.join(unit + '.service' for unit in setup['services']))
         if setup.get('boot'):
-            print('  enabled from boot: ' + ', '.join(setup['boot']) + " (the login screen; don't stop it while you're logged in through it)")
+            print('  enabled from boot: ' + ', '.join(setup['boot'])
+                  + (" (sddm is the login screen; don't stop it while you're logged in through it)" if 'sddm' in setup['boot'] else ''))
             print('    sudo systemctl disable ' + ' '.join(unit + '.service' for unit in setup['boot']))
         if setup.get('packages'):
             print('  packages ./install.sh installed (pacman refuses to remove one that something else still needs):')
             print('    sudo pacman -Rns ' + ' '.join(setup['packages']))
+        if setup.get('defaults'):
+            print('  default apps ./install.sh chose where you had none, in ~/.config/mimeapps.list: ' + ', '.join(setup['defaults']))
         for name in setup.get('config', []):
             print(f"  {shown(Path(name), home)}, copied from Hyprland's example"
                   + ("; its app menu (Super+R) goes back to the example's hyprlauncher" if menu and Path(name).resolve() == config else ''))
@@ -1348,6 +1457,12 @@ def main():
     parser.add_argument('--setup', action='store_true', help=hide('first install packages and services this machine needs (used by ./install.sh)'))
     parser.add_argument('--no-packages', action='store_true', help=('' if wrapper else 'with --setup: ') + 'skip packages and services')
     parser.add_argument('--no-login-screen', action='store_true', help=('' if wrapper else 'with --setup: ') + 'never add the SDDM login screen')
+    parser.add_argument('--no-drivers', action='store_true', help=('' if wrapper else 'with --setup: ')
+                        + 'never add graphics drivers, GPU or audio firmware')
+    parser.add_argument('--no-apps', action='store_true', help=('' if wrapper else 'with --setup: ')
+                        + 'never add the browser, file manager, image viewer or video player Shale opens things in')
+    parser.add_argument('--no-app-config', action='store_true', help=('' if wrapper else 'with --setup: ')
+                        + "never write kitty's colours or GTK's dark setting, even where there are none")
     parser.add_argument('--verbose', action='store_true', help='list every shell file')
     parser.add_argument('--version', action='version', version=f'Shale {version()}')
     args = parser.parse_args()
@@ -1378,18 +1493,23 @@ def main():
                   'copy as it is now.\n')
         if args.purge:
             print('Note: --purge only applies with --uninstall; ignored.\n')
-        if not args.setup and not updating and (args.no_packages or args.no_login_screen):
-            print('Note: --no-packages and --no-login-screen only apply with --setup (./install.sh); ignored.\n')
+        if not args.setup and not updating and (args.no_packages or args.no_login_screen or args.no_drivers or args.no_apps or args.no_app_config):
+            print('Note: --no-packages, --no-login-screen, --no-drivers, --no-apps and --no-app-config only apply with --setup '
+                  '(./install.sh); ignored.\n')
         check_config_format(home, args.shell_only, args.wallpaper_shortcut)
+        reboot = False
         if args.setup and not args.no_packages:
-            needs = setup_system(home, apply=args.apply, yes=args.yes, interactive=sys.stdin.isatty(), login_screen=not args.no_login_screen)
+            needs = setup_system(home, apply=args.apply, yes=args.yes, interactive=sys.stdin.isatty(), login_screen=not args.no_login_screen,
+                                 drivers=not args.no_drivers, apps=not args.no_apps)
+            reboot = args.apply and bool(needs.get('reboot'))
             if not args.apply and needs['config'] and not (home / '.config/hypr/hyprland.lua').exists():
                 print("The shell's own changes depend on that hyprland.lua, which --apply creates first.")
                 return
         session = own_home(home)
         running = updating and args.apply and session and shell_running()
         install(home, args.apply, args.shell_only, args.wallpaper_shortcut, yes=args.yes, force=args.force, verbose=args.verbose,
-                ask_again=args.ask_again, packages=missing_packages(home) if updating and not args.setup else (), hints=not running)
+                ask_again=args.ask_again, packages=missing_packages(home) if updating and not args.setup else (), hints=not running,
+                reboot=reboot, app_config=args.setup and not updating and not args.no_app_config)
         if updating and args.apply and not session:
             print()
             session_skipped(home)

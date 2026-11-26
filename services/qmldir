@@ -4,3 +4,6 @@ WallpaperAccent 1.0 WallpaperAccent.qml
 singleton NowPlaying 1.0 NowPlaying.qml
 singleton Focus 1.0 Focus.qml
 singleton Updates 1.0 Updates.qml
+singleton Note 1.0 Note.qml
+singleton Weather 1.0 Weather.qml
+singleton AirDrop 1.0 AirDrop.qml

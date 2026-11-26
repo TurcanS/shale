@@ -40,12 +40,33 @@ xdg-desktop-portal-gtk
 hyprpolkitagent
 noto-fonts
 playerctl
-# The terminal Hyprland's example config opens with Super+Q (the installer adds the one your config names).
+# The terminal Hyprland's example config opens with Super+Q (the installer adds the one your config names, or kitty
+# when there is no terminal at all). Shale runs terminal apps and its updates in it.
 kitty
+# The apps Shale opens things in, each added only when nothing installed opens that kind of thing yet (skipped with
+# --no-apps): links and web search, folders (with Thunar's trash, drives and thumbnails), screenshots, recordings.
+firefox
+thunar
+gvfs
+tumbler
+ristretto
+mpv
 # Power modes on a laptop. Keep any provider you already have (tuned-ppd, see README, is an
 # alternative that conflicts with it); with TLP, auto-cpufreq or TuneD alone, none is added.
 power-profiles-daemon
 # Login screen, only on a fresh setup with no display manager yet.
 sddm
+# Graphics, for the GPUs found (skipped with --no-drivers). AMD and Intel: firmware and Vulkan.
+linux-firmware-amdgpu
+vulkan-radeon
+linux-firmware-intel
+vulkan-intel
+# NVIDIA (GTX 16 / RTX 20 and newer), unless a driver is installed: the open module for your kernel
+# (nvidia-open-lts for linux-lts; nvidia-open-dkms with headers for others), its suspend services, and
+# prime-run on laptops with hybrid graphics.
+nvidia-open
+nvidia-prime
+# Audio chips driven by Sound Open Firmware.
+sof-firmware
 # Optional: media visualizer.
 # cava

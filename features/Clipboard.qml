@@ -4,11 +4,16 @@ import QtQuick.Layouts
 import "../core"
 import "../components" as C
 
+// Search across the top, filter chips, the history on the left (pins first) and the selected entry on the right.
+// Removing hides the entry at once and only deletes it when the undo bar goes, or the panel closes.
 FocusScope {
     id: root
     readonly property string title: "Clipboard"
     readonly property bool showHeader: false
+    readonly property int panelWidth: 560
+    readonly property int panelHeight: 600
     property alias query: search.text
+    // Pins (with `pin` and `pinned`) and then cliphist's history (with `raw`), newest first.
     property var entries: []
     property var staleEntries: []
     property string error: ""
@@ -17,8 +22,36 @@ FocusScope {
     property bool confirmClear: false
     property bool mutating: false
     property bool hasHistory: false
-    property bool alive: true
-    Component.onDestruction: alive = false
+    property string filter: "all"
+    readonly property var filters: [{key: "all", text: "All"}, {key: "text", text: "Text"}, {key: "image", text: "Images"},
+                                    {key: "link", text: "Links"}, {key: "color", text: "Colours"}, {key: "pinned", text: "Pinned"}]
+    // The entry hidden here and waiting for the undo bar to go.
+    property var pending: null
+    readonly property var shown: (busy && staleEntries.length ? staleEntries : entries)
+        .filter(entry => (!pending || keyOf(entry) !== keyOf(pending)) && matches(entry, filter))
+    readonly property var current: list.currentIndex >= 0 && list.currentIndex < shown.length ? shown[list.currentIndex] : null
+    readonly property bool openable: !!current && (current.kind === "link" || current.kind === "path")
+    Component.onDestruction: commit()
+    function keyOf(entry) {
+        return entry ? (entry.pin ? "pin:" + entry.pin : entry.raw) : "";
+    }
+    function typeOf(entry) {
+        if (!entry)
+            return "text";
+        if (entry.label)
+            return entry.label.startsWith("Image") ? "image" : "data";
+        return entry.kind === "color" ? "color" : entry.kind === "link" ? "link" : entry.kind === "path" ? (entry.folder ? "folder" : "file") : "text";
+    }
+    function matches(entry, key) {
+        const type = typeOf(entry);
+        return key === "all" || (key === "pinned" ? !!entry.pinned : key === "text" ? ["text", "file", "folder"].indexOf(type) >= 0 : key === type);
+    }
+    readonly property var typeNames: ({image: "Image", data: "Data", color: "Colour", link: "Link", folder: "Folder", file: "File", text: "Text"})
+    readonly property var typeGlyphs: ({image: "image", data: "clipboard", color: "drop", link: "link", folder: "folder", file: "folder", text: "text"})
+    function stepFilter(delta) {
+        const index = filters.findIndex(f => f.key === filter);
+        filter = filters[(index + delta + filters.length) % filters.length].key;
+    }
     property point lastPointer: Qt.point(-1, -1)
     function pointerMoved(position) {
         const moved = lastPointer.x >= 0 && (Math.abs(position.x - lastPointer.x) > 1 || Math.abs(position.y - lastPointer.y) > 1);
@@ -47,6 +80,38 @@ FocusScope {
             if (method === "clipboard.clear") hasHistory = false;
             refresh();
             search.forceActiveFocus();
+        }, {owner: root});
+    }
+    function togglePin(entry) {
+        if (!entry)
+            return;
+        if (entry.pinned)
+            mutate("clipboard.unpin", {pin: entry.pin});
+        else
+            mutate("clipboard.pin", {entry: entry.raw});
+    }
+    // Hides the entry now; the backend only hears of it when the undo bar goes.
+    function remove(entry) {
+        if (!entry || busy || mutating)
+            return;
+        commit();
+        const index = list.currentIndex;
+        pending = entry;
+        list.currentIndex = Math.min(index, list.count - 1);
+        confirmClear = false;
+        undoBar.show(entry.pinned ? "Pin removed" : "Removed from history");
+    }
+    function commit() {
+        const entry = pending;
+        if (!entry)
+            return;
+        pending = null;
+        Backend.request(entry.pinned ? "clipboard.unpin" : "clipboard.delete", entry.pinned ? {pin: entry.pin, forget: true} : {entry: entry.raw}, (result, failure) => {
+            if (failure)
+                ShellState.message(failure.message, "error");
+            // Sent as the panel closes, so the answer may find it gone.
+            if (root)
+                root.refresh();
         });
     }
     Keys.onEscapePressed: event => {
@@ -63,7 +128,7 @@ FocusScope {
         const generation = ++requestGeneration;
         const query = search.text;
         const previousIndex = list.currentIndex;
-        const previousEntry = (entries.length ? entries : staleEntries)[previousIndex];
+        const previousEntry = current;
         Backend.request("clipboard.list", {
             query: query,
             limit: 500
@@ -72,19 +137,22 @@ FocusScope {
                 return;
             busy = false;
             error = e ? e.message : "";
-            entries = e ? [] : r.entries;
+            entries = e ? [] : (r.pins || []).map(pin => Object.assign({pinned: true}, pin)).concat(r.entries);
             staleEntries = [];
-            if (!e && query === "") hasHistory = entries.length > 0;
-            else if (!e && entries.length > 0) hasHistory = true;
-            const retainedIndex = previousEntry ? entries.findIndex(entry => entry.raw === previousEntry.raw) : -1;
-            list.currentIndex = entries.length ? (retainedIndex >= 0 ? retainedIndex : Math.max(0, Math.min(previousIndex, entries.length - 1))) : -1;
-        });
+            if (!e && query === "") hasHistory = r.entries.length > 0;
+            else if (!e && r.entries.length > 0) hasHistory = true;
+            // The same entry again; a pin or unpin moves it between the pins and the history, so its text decides then.
+            let retainedIndex = previousEntry ? shown.findIndex(entry => keyOf(entry) === keyOf(previousEntry)) : -1;
+            if (retainedIndex < 0 && previousEntry)
+                retainedIndex = shown.findIndex(entry => entry.text === previousEntry.text);
+            list.currentIndex = shown.length ? (retainedIndex >= 0 ? retainedIndex : Math.max(0, Math.min(previousIndex, shown.length - 1))) : -1;
+        }, {owner: root});
     }
     function copy(entry) {
         if (!entry || busy || mutating)
             return;
         mutating = true;
-        Backend.request("clipboard.copy", {entry: entry.raw}, (result, failure) => {
+        Backend.request("clipboard.copy", entry.pinned ? {pin: entry.pin} : {entry: entry.raw}, (result, failure) => {
             mutating = false;
             if (failure) {
                 error = failure.message;
@@ -93,17 +161,15 @@ FocusScope {
             }
             ShellState.close();
             ShellState.message("Copied to clipboard", "success");
-        });
+        }, {owner: root});
     }
     // Links open in the browser; paths in their app or the file manager.
     function open(entry) {
         if (!entry || (entry.kind !== "link" && entry.kind !== "path") || busy || mutating)
             return;
         mutating = true;
-        Backend.request("clipboard.open", {entry: entry.raw}, (result, failure) => {
-            // Closed while cliphist was decoding: the user moved on, so open nothing.
-            if (!root.alive)
-                return;
+        // Closed while cliphist was decoding: the user moved on, so the owner drops the answer and nothing opens.
+        Backend.request("clipboard.open", entry.pinned ? {pin: entry.pin} : {entry: entry.raw}, (result, failure) => {
             mutating = false;
             if (failure) {
                 ShellState.message(failure.message, "error");
@@ -112,7 +178,53 @@ FocusScope {
             ShellState.close();
             if (result.url) ShellState.openUrl(result.url);
             else ShellState.openPath(result.path);
-        });
+        }, {owner: root});
+    }
+    // The selected entry in full: the whole text (the list only has cliphist's first line) or the image.
+    property string previewKey: ""
+    property string previewText: ""
+    property bool previewCut: false
+    property string previewImage: ""
+    property bool previewLoading: false
+    onCurrentChanged: if (keyOf(current) !== previewKey) previewTimer.restart()
+    function loadPreview() {
+        const entry = current;
+        const key = keyOf(entry);
+        if (key === previewKey)
+            return;
+        previewKey = key;
+        previewText = "";
+        previewCut = false;
+        previewImage = "";
+        if (!entry || entry.kind === "color" || entry.label && !entry.label.startsWith("Image")) {
+            previewLoading = false;
+            return;
+        }
+        if (entry.label && entry.pinned) {
+            previewLoading = false;
+            previewImage = entry.image ? "file://" + entry.image.split("/").map(encodeURIComponent).join("/") : "";
+            return;
+        }
+        previewLoading = true;
+        const image = !!entry.label;
+        Backend.request(image ? "clipboard.thumbnail" : "clipboard.text", entry.pinned ? {pin: entry.pin} : {entry: entry.raw}, (r, e) => {
+            if (root.previewKey !== key)
+                return;
+            previewLoading = false;
+            if (e)
+                return;
+            if (image) {
+                previewImage = r.path ? "file://" + r.path : "";
+            } else {
+                previewText = r.text;
+                previewCut = !!r.cut;
+            }
+        }, {owner: root});
+    }
+    Timer {
+        id: previewTimer
+        interval: 60
+        onTriggered: root.loadPreview()
     }
     Component.onCompleted: refresh()
     Connections {
@@ -121,15 +233,46 @@ FocusScope {
             if (Backend.ready) root.refresh();
         }
     }
+    readonly property var footerKeys: {
+        if (!current)
+            return [];
+        const keys = [{key: "↵", text: "Copy"}];
+        if (openable)
+            keys.push({key: "Ctrl ↵", text: current.kind === "path" && !current.folder ? "Show" : "Open"});
+        keys.push({key: "Ctrl P", text: current.pinned ? "Unpin" : "Pin"});
+        keys.push({key: search.text === "" ? "Del" : "Shift Del", text: "Remove"});
+        return keys;
+    }
     ColumnLayout {
         anchors.fill: parent
-        spacing: Theme.gapL
-        RowLayout {
+        spacing: 0
+        // The 56 px search row across the top of the case, with a hairline under it from edge to edge.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 56 - Theme.casePadding
+            C.Icon {
+                id: searchIcon
+                anchors.left: parent.left
+                anchors.leftMargin: 2
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: -Theme.casePadding / 2
+                name: "search"
+                size: 18
+                color: Theme.textDim
+            }
             C.Field {
                 id: search
-                Layout.fillWidth: true
+                anchors.left: searchIcon.right
+                anchors.leftMargin: Theme.gapM
+                anchors.right: countLabel.left
+                anchors.rightMargin: Theme.gapS
+                anchors.verticalCenter: searchIcon.verticalCenter
                 focus: true
+                leftPadding: 0
+                rightPadding: 0
+                font.pixelSize: 16
                 placeholderText: "Search clipboard history…"
+                background: Item {}
                 onTextChanged: {
                     ++root.requestGeneration;
                     root.busy = true;
@@ -144,190 +287,474 @@ FocusScope {
                     if (event.key === Qt.Key_PageDown || event.key === Qt.Key_PageUp) {
                         root.moveSelection(event.key === Qt.Key_PageDown ? 6 : -6);
                         event.accepted = true;
-                    } else if (event.key === Qt.Key_Delete && (event.modifiers & Qt.ShiftModifier)) {
-                        // Shift+Delete removes the selected entry; plain Delete keeps editing the search.
-                        const entry = root.entries[list.currentIndex];
-                        if (entry)
-                            root.mutate("clipboard.delete", {entry: entry.raw});
+                    } else if (event.key === Qt.Key_Delete && ((event.modifiers & Qt.ShiftModifier) || search.text === "")) {
+                        // Shift+Delete removes the selected entry; plain Delete does too while there is no search to edit.
+                        root.remove(root.current);
+                        event.accepted = true;
+                    } else if (event.key === Qt.Key_P && (event.modifiers & Qt.ControlModifier)) {
+                        root.togglePin(root.current);
+                        event.accepted = true;
+                    } else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & Qt.ControlModifier)) {
+                        root.stepFilter(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1);
                         event.accepted = true;
                     } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ControlModifier)) {
                         // Entries with nothing to open fall through to onAccepted and copy.
-                        const entry = root.entries[list.currentIndex];
-                        if (entry && (entry.kind === "link" || entry.kind === "path")) {
-                            root.open(entry);
+                        if (root.openable) {
+                            root.open(root.current);
                             event.accepted = true;
                         }
                     }
                 }
-                onAccepted: root.copy(root.entries[list.currentIndex])
+                onAccepted: root.copy(root.current)
+            }
+            C.Label {
+                id: countLabel
+                anchors.right: parent.right
+                anchors.rightMargin: 2
+                anchors.verticalCenter: searchIcon.verticalCenter
+                text: root.mutating ? "Updating…" : root.busy ? (search.text ? "Searching…" : "Loading…")
+                    : root.shown.length + (search.text ? (root.shown.length === 1 ? " match" : " matches") : (root.shown.length === 1 ? " item" : " items"))
+                color: Theme.textDim
+                font.pixelSize: 12
+                font.features: ({"tnum": 1})
+            }
+            Rectangle {
+                anchors.bottom: parent.bottom
+                x: -Theme.casePadding
+                width: parent.width + 2 * Theme.casePadding
+                height: 1
+                color: Theme.hairline
             }
         }
         RowLayout {
             Layout.fillWidth: true
-            spacing: Theme.gapS
-            visible: root.confirmClear
-            C.Label {
-                text: "Delete all clipboard history?"
+            Layout.topMargin: 10
+            Layout.bottomMargin: 6
+            Layout.leftMargin: -2
+            spacing: 6
+            Repeater {
+                model: root.filters
+                C.Chip {
+                    required property var modelData
+                    text: modelData.text
+                    selected: root.filter === modelData.key
+                    focusPolicy: Qt.NoFocus
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.checked: selected
+                    onClicked: {
+                        root.filter = modelData.key;
+                        search.forceActiveFocus();
+                    }
+                }
+            }
+            Item {
                 Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-            }
-            C.Button {
-                text: "Cancel"
-                enabled: !root.mutating
-                onClicked: { root.confirmClear = false; search.forceActiveFocus(); }
-            }
-            C.Button {
-                text: "Clear"
-                danger: true
-                enabled: !root.mutating && !root.busy
-                onClicked: root.mutate("clipboard.clear", {})
             }
         }
         C.Label {
             visible: root.error !== "" && root.entries.length > 0
             text: root.error
-            color: Theme.danger
+            color: Theme.dangerText
+            font.pixelSize: 12
             Layout.fillWidth: true
+            Layout.bottomMargin: 4
             wrapMode: Text.WordWrap
         }
-        ListView {
-            id: list
-            model: root.busy && root.staleEntries.length ? root.staleEntries : root.entries
+        // The list on the left, a hairline, and the selected entry on the right.
+        Item {
+            id: main
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            spacing: Theme.gapXs
-            boundsBehavior: Flickable.StopAtBounds
-            highlightMoveDuration: Theme.fast
-            highlight: Rectangle {
-                color: Theme.raised
-                width: list.width - 8
-                radius: Theme.controlRadius
+            readonly property int listWidth: 250 - Theme.casePadding
+            readonly property bool empty: list.count === 0
+            ListView {
+                id: list
+                // Rows reach 8 px from the case edge.
+                x: -(Theme.casePadding - 8)
+                y: 4
+                width: main.listWidth - x - 8
+                height: parent.height - 8
+                clip: true
+                model: root.shown
+                spacing: 2
+                boundsBehavior: Flickable.StopAtBounds
+                highlightMoveDuration: Theme.fast
+                ScrollBar.vertical: C.ScrollBar {}
+                delegate: C.ListRow {
+                    id: row
+                    required property var modelData
+                    required property int index
+                    readonly property string type: root.typeOf(modelData)
+                    width: list.width
+                    height: 48
+                    // Opening the panel, the rows print in from the top like a receipt.
+                    opacity: (enabled ? 1 : Theme.disabledOpacity) * printIn.shown
+                    transform: [
+                        Translate {
+                            y: row.sunk
+                        },
+                        C.Cascade {
+                            id: printIn
+                            panel: "clipboard"
+                            order: row.index
+                            dy: -8
+                            spacing: 1.7
+                            limit: 12
+                        }
+                    ]
+                    topPadding: 9
+                    bottomPadding: 9
+                    leftPadding: 8
+                    rightPadding: 8
+                    quiet: true
+                    focusPolicy: Qt.NoFocus
+                    glyph: root.typeGlyphs[type]
+                    // Links without their scheme, like an address bar.
+                    text: modelData.label || (type === "link" ? modelData.text.replace(/^https?:\/\//i, "") : modelData.text)
+                    subtitle: (modelData.pinned ? "Pinned · " : "") + root.typeNames[type]
+                    selected: ListView.isCurrentItem
+                    checkmark: false
+                    Accessible.name: (modelData.pinned ? "Pinned " : "") + root.typeNames[type] + ": " + text
+                    onClicked: {
+                        list.currentIndex = index;
+                        search.forceActiveFocus();
+                    }
+                    onDoubleClicked: root.copy(modelData)
+                    HoverHandler {
+                        onPointChanged: if (hovered && root.pointerMoved(point.scenePosition)) list.currentIndex = row.index
+                    }
+                    trailing: [
+                        Rectangle {
+                            visible: row.type === "color"
+                            implicitWidth: 12
+                            implicitHeight: 12
+                            radius: 6
+                            color: row.modelData.color || "transparent"
+                            border.width: 1
+                            border.color: Theme.edge
+                        },
+                        C.Icon {
+                            visible: !!row.modelData.pinned
+                            name: "pin"
+                            size: 12
+                            color: Theme.accentText
+                            Layout.rightMargin: 2
+                        }
+                    ]
+                }
             }
-            ScrollBar.vertical: C.ScrollBar {}
-            delegate: Item {
-                id: row
-                required property var modelData
-                required property int index
-                property string thumbnail: ""
-                Component.onCompleted: if (modelData.label) {
-                    const requestedEntry = modelData.raw;
-                    Backend.request("clipboard.thumbnail", {
-                        entry: requestedEntry
-                    }, (r, e) => {
-                        if (!e && r.path && row.modelData.raw === requestedEntry)
-                            thumbnail = "file://" + r.path;
-                    })
-                }
-                width: list.width - 8
-                height: Math.max(68, Theme.body * 2 + 32)
-                MouseArea {
-                    anchors.fill: parent
-                    enabled: !root.busy && !root.mutating
-                    hoverEnabled: true
-                    onPositionChanged: mouse => {
-                        if (root.pointerMoved(mapToItem(null, mouse.x, mouse.y)))
-                            list.currentIndex = row.index;
-                    }
-                    onClicked: root.copy(row.modelData)
-                }
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: Theme.gapL
-                    C.Icon {
-                        visible: row.thumbnail === "" && row.modelData.kind !== "color"
-                        name: row.modelData.kind === "link" ? "link" : row.modelData.kind === "path" ? "folder" : "clipboard"
-                        color: Theme.muted
-                    }
-                    Rectangle {
-                        visible: row.modelData.kind === "color"
-                        color: row.modelData.color || "transparent"
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 32
-                        radius: Theme.radiusSmall
-                        border.width: 1
-                        border.color: Theme.border
+            Rectangle {
+                visible: !main.empty
+                x: main.listWidth
+                width: 1
+                height: parent.height
+                color: Theme.hairline
+            }
+            // The selected entry: its contents, what it is, and Copy, Pin and Remove.
+            ColumnLayout {
+                visible: !main.empty && !!root.current
+                x: main.listWidth + Theme.casePadding
+                y: 12
+                width: parent.width - x
+                height: parent.height - 24
+                spacing: 10
+                Rectangle {
+                    id: previewBox
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 14
+                    color: Theme.module
+                    clip: true
+                    readonly property string type: root.current ? root.typeOf(root.current) : ""
+                    ScrollView {
+                        id: textScroll
+                        anchors.fill: parent
+                        visible: ["text", "link", "file", "folder"].indexOf(previewBox.type) >= 0
+                        contentWidth: availableWidth
+                        ScrollBar.vertical: C.ScrollBar {
+                            parent: textScroll
+                            x: textScroll.width - width - 2
+                            y: 6
+                            height: textScroll.height - 12
+                        }
+                        C.Label {
+                            width: textScroll.availableWidth
+                            padding: 14
+                            text: root.previewText !== "" ? root.previewText + (root.previewCut ? "…" : "") : root.current ? root.current.text : ""
+                            color: root.previewLoading && root.previewText === "" ? Theme.textSecondary : Theme.text
+                            font.pixelSize: 15
+                            lineHeight: 1.3
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            elide: Text.ElideNone
+                            verticalAlignment: Text.AlignTop
+                        }
                     }
                     Image {
-                        visible: row.thumbnail !== ""
-                        source: row.thumbnail
-                        Layout.preferredWidth: 44
-                        Layout.preferredHeight: 44
-                        sourceSize.width: 88
-                        sourceSize.height: 88
+                        visible: previewBox.type === "image"
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        source: previewBox.type === "image" ? root.previewImage : ""
+                        sourceSize.width: 520
+                        sourceSize.height: 520
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
+                        C.Icon {
+                            visible: parent.status !== Image.Ready && !root.previewLoading
+                            anchors.centerIn: parent
+                            name: "image"
+                            size: 28
+                            color: Theme.textFaint
+                        }
                     }
-                    C.Label {
-                        text: row.modelData.label || row.modelData.text
-                        color: row.modelData.label ? Theme.muted : Theme.text
+                    // A colour: the swatch, then its hex and RGB values.
+                    ColumnLayout {
+                        visible: previewBox.type === "color"
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 10
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: Theme.radiusKey
+                            color: root.current && root.current.color ? root.current.color : "transparent"
+                            border.width: 1
+                            border.color: Theme.edge
+                        }
+                        Repeater {
+                            model: {
+                                const value = root.current && root.current.color ? Qt.color(root.current.color) : null;
+                                return value ? [{name: "Hex", value: String(root.current.color)},
+                                                {name: "RGB", value: [value.r, value.g, value.b].map(c => Math.round(c * 255)).join(", ")}] : [];
+                            }
+                            RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 4
+                                Layout.rightMargin: 4
+                                C.Label {
+                                    text: parent.modelData.name
+                                    color: Theme.textDim
+                                    font.pixelSize: 12
+                                    Layout.preferredWidth: 44
+                                }
+                                C.Label {
+                                    text: parent.modelData.value
+                                    font.family: Theme.mono
+                                    font.pixelSize: 13
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+                    }
+                    C.EmptyState {
+                        visible: previewBox.type === "data"
+                        anchors.centerIn: parent
+                        width: parent.width - 28
+                        glyph: "clipboard"
+                        title: "No preview"
+                        description: root.current && root.current.label || ""
+                    }
+                }
+                // What the entry is; cliphist keeps no source app or copy time, so neither is shown.
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: 2
+                    columnSpacing: 12
+                    rowSpacing: 4
+                    Repeater {
+                        model: {
+                            const entry = root.current;
+                            if (!entry)
+                                return [];
+                            const type = root.typeOf(entry);
+                            const rows = [{name: "Type", value: root.typeNames[type]}];
+                            if (type === "image" || type === "data")
+                                rows.push({name: "Size", value: entry.label.split(" · ").slice(1).join(" · ")});
+                            else if (type === "link")
+                                rows.push({name: "Site", value: (entry.text.match(/^https?:\/\/([^\/?#]+)/i) || ["", ""])[1]});
+                            else if (type === "text" && root.previewText !== "")
+                                rows.push({name: "Length", value: root.previewText.length + (root.previewCut ? "+" : "") + (root.previewText.length === 1 ? " character" : " characters")});
+                            rows.push({name: "Kept", value: entry.pinned ? "Pinned, stays after Clear" : "In history"});
+                            return rows.reduce((cells, row) => cells.concat([{text: row.name, dim: true}, {text: row.value, dim: false}]), []);
+                        }
+                        C.Label {
+                            required property var modelData
+                            text: modelData.text
+                            color: modelData.dim ? Theme.textDim : Theme.text
+                            font.pixelSize: 12
+                            Layout.fillWidth: !modelData.dim
+                        }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    C.Button {
+                        text: "Copy"
+                        accent: true
+                        labelSize: 13
+                        hint: "Copy and close (Enter)"
                         Layout.fillWidth: true
-                        maximumLineCount: 2
-                        wrapMode: Text.Wrap
+                        enabled: !root.mutating && !root.busy
+                        onClicked: root.copy(root.current)
                     }
                     C.Button {
-                        visible: row.modelData.kind === "link" || row.modelData.kind === "path"
-                        text: row.modelData.kind === "path" && !row.modelData.folder ? "Show in folder" : "Open"
-                        flat: true
-                        hint: text + " (Ctrl+Enter)"
-                        implicitHeight: 32
+                        visible: root.openable
+                        text: root.current && root.current.kind === "path" && !root.current.folder ? "Show" : "Open"
+                        hint: (root.current && root.current.kind === "path" && !root.current.folder ? "Show in folder" : "Open") + " (Ctrl+Enter)"
+                        labelSize: 13
+                        padding: 12
                         enabled: !root.mutating && !root.busy
-                        onClicked: root.open(row.modelData)
+                        onClicked: root.open(root.current)
+                    }
+                    C.Button {
+                        text: root.current && root.current.pinned ? "Pinned" : "Pin"
+                        selected: !!root.current && !!root.current.pinned
+                        hint: (selected ? "Unpin" : "Pin: keep it after Clear") + " (Ctrl+P)"
+                        labelSize: 13
+                        padding: 12
+                        enabled: !root.mutating && !root.busy
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.checkable: true
+                        Accessible.checked: selected
+                        onClicked: root.togglePin(root.current)
                     }
                     C.Button {
                         glyph: "trash"
-                        flat: true
-                        hint: "Delete entry"
-                        implicitWidth: 32
-                        implicitHeight: 32
+                        hint: "Remove (Delete)"
+                        implicitWidth: 36
                         enabled: !root.mutating && !root.busy
-                        onClicked: root.mutate("clipboard.delete", {entry: row.modelData.raw})
+                        onClicked: root.remove(root.current)
                     }
                 }
             }
             C.EmptyState {
                 anchors.centerIn: parent
-                width: parent.width - 30
-                visible: list.count === 0 && !root.busy
+                width: parent.width - 60
+                visible: main.empty && !root.busy
                 glyph: "clipboard"
-                title: root.error ? "History unavailable" : search.text ? "No matches" : "Clipboard is empty"
-                description: root.error || (search.text ? "No saved items match this search." : "Copied text and images will appear here.")
-            }
-            C.EmptyState {
-                anchors.centerIn: parent
-                width: parent.width - 30
-                visible: list.count === 0 && root.busy
-                glyph: "clipboard"
-                title: search.text ? "Searching history…" : "Loading history…"
-                description: ""
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.gapS
-            C.Label {
-                text: root.mutating ? "Updating history…" : root.busy ? (search.text ? "Searching history…" : "Loading history…") : root.entries.length + (search.text ? root.entries.length === 1 ? " match" : " matches" : root.entries.length === 1 ? " item" : " items")
-                color: Theme.muted
-                font.pixelSize: Theme.small
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
+                title: root.error ? "History unavailable" : search.text ? "No matches"
+                    : root.filter === "pinned" ? "Nothing pinned" : root.filter !== "all" && root.entries.length ? "Nothing of this kind" : "Clipboard is empty"
+                description: root.error || (search.text ? "No saved items match this search."
+                    : root.filter === "pinned" ? "Pin an entry to keep it after the history is cleared."
+                    : root.filter !== "all" && root.entries.length ? "Try All." : "Copied text and images will appear here.")
             }
             C.Button {
-                visible: root.error !== "" && !root.busy
+                visible: main.empty && !root.busy && root.error !== ""
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.verticalCenter
+                anchors.topMargin: 64
                 text: "Retry"
                 glyph: "refresh"
                 enabled: !root.mutating
                 onClicked: root.refresh()
             }
-            C.Button {
-                text: "Clear all"
-                glyph: "trash"
-                danger: true
-                enabled: !root.busy && !root.mutating && root.hasHistory
-                onClicked: root.confirmClear = !root.confirmClear
+            C.EmptyState {
+                anchors.centerIn: parent
+                width: parent.width - 60
+                visible: main.empty && root.busy
+                glyph: "clipboard"
+                title: search.text ? "Searching history…" : "Loading history…"
+                description: ""
             }
         }
+        // Key hints, or the Clear confirmation; a hairline above it from edge to edge.
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 38 - Theme.casePadding
+            Rectangle {
+                anchors.top: parent.top
+                x: -Theme.casePadding
+                width: parent.width + 2 * Theme.casePadding
+                height: 1
+                color: Theme.hairline
+            }
+            RowLayout {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 2
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: Theme.casePadding / 2
+                spacing: 16
+                Repeater {
+                    model: root.confirmClear ? [] : root.footerKeys
+                    RowLayout {
+                        required property var modelData
+                        spacing: 6
+                        C.KeyHint {
+                            text: parent.modelData.key
+                        }
+                        C.Label {
+                            text: parent.modelData.text
+                            color: Theme.textDim
+                            font.pixelSize: 12
+                            elide: Text.ElideNone
+                        }
+                    }
+                }
+                C.Label {
+                    visible: root.confirmClear
+                    text: "Delete all clipboard history? Pins stay."
+                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                }
+                Item {
+                    visible: !root.confirmClear
+                    Layout.fillWidth: true
+                }
+                C.Button {
+                    visible: root.confirmClear
+                    text: "Cancel"
+                    flat: true
+                    labelSize: 12
+                    implicitHeight: 26
+                    cornerRadius: 7
+                    enabled: !root.mutating
+                    onClicked: { root.confirmClear = false; search.forceActiveFocus(); }
+                }
+                C.Button {
+                    visible: root.confirmClear
+                    text: "Clear"
+                    danger: true
+                    labelSize: 12
+                    implicitHeight: 26
+                    cornerRadius: 7
+                    enabled: !root.mutating && !root.busy
+                    onClicked: {
+                        root.commit();
+                        root.mutate("clipboard.clear", {});
+                    }
+                }
+                C.Button {
+                    visible: !root.confirmClear
+                    text: "Clear history"
+                    flat: true
+                    labelSize: 12
+                    implicitHeight: 26
+                    cornerRadius: 7
+                    leftPadding: 8
+                    rightPadding: 8
+                    foreground: !enabled ? Theme.textFaint : hovered || visualFocus ? Theme.text : Theme.textDim
+                    hint: "Delete everything but the pins"
+                    enabled: !root.busy && !root.mutating && root.hasHistory
+                    onClicked: root.confirmClear = true
+                }
+            }
+        }
+    }
+    // Over the bottom of the list, clear of the footer and the selected entry's keys.
+    C.UndoBar {
+        id: undoBar
+        x: -(Theme.casePadding - 8)
+        width: main.listWidth - x - 8
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 38 - Theme.casePadding + 8
+        onUndone: {
+            const index = list.currentIndex;
+            root.pending = null;
+            list.currentIndex = Math.max(0, Math.min(index, list.count - 1));
+        }
+        onExpired: root.commit()
     }
     Timer {
         id: debounce

@@ -27,8 +27,32 @@ QtObject {
     readonly property string timeFormat: setting("clock24h", true) ? "HH:mm" : "h:mm AP"
     // 0 is Sunday. Settings → General may choose instead of the locale.
     readonly property int firstDayOfWeek: ({monday: 1, sunday: 0, saturday: 6})[setting("weekStart", "locale")] ?? Qt.locale().firstDayOfWeek % 7
+    // Quiet hours (Settings → Notifications): popups wait as with Do not disturb, without turning it on.
+    readonly property var quietHours: setting("quietHours", [])
+    property bool quietNow: false
+    function checkQuiet() {
+        const hours = quietHours;
+        if (hours.length !== 2) {
+            quietNow = false;
+            return;
+        }
+        const hour = new Date().getHours();
+        quietNow = hours[0] < hours[1] ? hour >= hours[0] && hour < hours[1] : hour >= hours[0] || hour < hours[1];
+    }
+    onQuietHoursChanged: checkQuiet()
+    property Timer quietClock: Timer {
+        interval: 30000
+        repeat: true
+        running: root.quietHours.length === 2
+        triggeredOnStart: true
+        onTriggered: root.checkQuiet()
+    }
     // Where the bar ends (its height plus its gap from the screen edge); panels and popups open below it.
-    readonly property int barBottom: setting("barStyle", "floating") === "edge" ? 32 : 37
+    readonly property int barBottom: setting("barStyle", "floating") === "edge" ? 38 : 46
+    // The same for one screen: a screen whose bar is turned off in Settings → Bar has none to leave room for.
+    function barBottomOn(output) {
+        return setting("hiddenOutputs", []).indexOf(output) >= 0 ? 0 : barBottom;
+    }
     property bool lidAwake: false
     property bool lidBusy: false
     function toggleLidAwake() {
@@ -131,7 +155,7 @@ QtObject {
         });
     }
     property real brightness: -1
-    readonly property var panels: ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system"]
+    readonly property var panels: ["launcher", "clipboard", "control", "notifications", "calendar", "overview", "capture", "settings", "power", "wallpaper", "activity", "system", "airdrop"]
     signal activitySnapshotRequested()
     property var wallpaperChange: ({})
     property bool wallpaperBusy: false
@@ -202,12 +226,45 @@ QtObject {
     function setting(key, fallback) {
         return settings[key] === undefined ? fallback : settings[key];
     }
+    // The settings changed here that the helper hasn't confirmed saving. Only these are sent, so a value the helper
+    // wrote meanwhile is never overwritten, and they survive a helper that restarts before it saved them.
+    property var unsaved: ({})
     function setSetting(key, value) {
         const next = Object.assign({}, settings);
         next[key] = value;
         settings = next;
+        unsaved[key] = true;
         save.restart();
     }
+    // How Shale comes, from the helper: a setting that differs gets a reset key on its Settings row.
+    property var defaults: ({})
+    function differs(key) {
+        return defaults[key] !== undefined && settings[key] !== undefined && JSON.stringify(settings[key]) !== JSON.stringify(defaults[key]);
+    }
+    // Reads the settings from the helper, keeping what was changed here and not saved yet.
+    function loadSettings() {
+        Backend.request("settings.defaults", {}, (r, e) => {
+            if (!e)
+                root.defaults = r;
+        });
+        Backend.request("settings.get", {}, (r, e) => {
+            if (e)
+                return;
+            const loaded = Object.assign({}, r.settings || r);
+            const keys = Object.keys(unsaved);
+            for (const key of keys)
+                loaded[key] = settings[key];
+            settings = loaded;
+            if (keys.length)
+                save.restart();
+            // Said once: the same file is read again each time the helper restarts.
+            if (loaded.diagnostic && !settingsNoticed) {
+                settingsNoticed = true;
+                message(loaded.diagnostic, "error");
+            }
+        });
+    }
+    property bool settingsNoticed: false
     // Settings back to their defaults; a pending save goes first so it can't bring old values back.
     function resetSettings(keys, done) {
         if (save.running) {
@@ -219,8 +276,29 @@ QtObject {
                 message(e.message, "error");
                 return;
             }
+            for (const key of keys)
+                delete unsaved[key];
             settings = r;
             settingsSaved();
+            if (done)
+                done();
+        });
+    }
+    // Puts back the settings from before the last reset or import (the helper keeps them in config.previous.json).
+    function restoreSettings(done) {
+        if (save.running) {
+            save.stop();
+            save.triggered();
+        }
+        Backend.request("settings.restore", {}, (r, e) => {
+            if (e) {
+                message(e.message, "error");
+                return;
+            }
+            unsaved = {};
+            settings = r.settings;
+            settingsSaved();
+            message(r.problem ? "Settings put back. " + r.problem : "Settings put back", r.problem ? "error" : "success");
             if (done)
                 done();
         });
@@ -253,7 +331,14 @@ QtObject {
     function close() {
         panel = "";
     }
+    // Messages that came while one with an action (Undo) was showing: they wait so the action stays reachable.
+    property var waitingMessages: []
     function message(text, kind, action) {
+        const withAction = !!(action && action.label && action.run);
+        if (toast !== "" && toastAction && !withAction) {
+            waitingMessages = waitingMessages.concat([{text: text, kind: kind, action: action}]).slice(-3);
+            return;
+        }
         toastKind = kind || "info";
         toastAction = action && action.label && action.run ? action : null;
         toast = text;
@@ -488,13 +573,26 @@ QtObject {
             if (method === "capture.record.start")
                 root.refreshRecording();
             else if (r && r.color)
-                root.message("Color copied · " + r.color, "success");
+                root.message("Colour copied · " + r.color, "success");
             else if (r && r.path) {
                 const path = r.path;
                 root.message((r.copied ? "Screenshot copied and saved · " : "Screenshot saved · ") + root.fileName(path), "success", {label: "Open", run: () => root.openPath(path)});
             } else
                 root.message("Done", "success");
         })
+    }
+    // The next waiting message follows a moment after the last one went, so the two don't read as one.
+    onToastChanged: if (toast === "" && waitingMessages.length)
+        nextMessage.restart()
+    property Timer nextMessage: Timer {
+        interval: 250
+        onTriggered: {
+            if (root.toast !== "" || !root.waitingMessages.length)
+                return;
+            const next = root.waitingMessages[0];
+            root.waitingMessages = root.waitingMessages.slice(1);
+            root.message(next.text, next.kind, next.action);
+        }
     }
     property Timer messageTimer: Timer {
         interval: 6000
@@ -517,12 +615,39 @@ QtObject {
     }
     property Timer save: Timer {
         interval: 350
-        onTriggered: Backend.request("settings.set", {
-            settings: root.settings
-        }, (r, e) => {
-            if (!e)
+        onTriggered: {
+            const keys = Object.keys(root.unsaved);
+            if (!keys.length)
+                return;
+            const changes = {};
+            for (const key of keys)
+                changes[key] = root.settings[key];
+            Backend.request("settings.set", {
+                settings: changes
+            }, (r, e) => {
+                if (e) {
+                    // A helper that stopped says so itself, and gets these again once it is back.
+                    if (Backend.ready)
+                        root.message("Settings weren't saved: " + e.message, "error");
+                    return;
+                }
+                // A setting changed again since it was sent stays unsaved for the next round.
+                for (const key of keys)
+                    if (JSON.stringify(root.settings[key]) === JSON.stringify(changes[key]))
+                        delete root.unsaved[key];
+                const rejected = r.rejected || [];
+                if (rejected.length) {
+                    const next = Object.assign({}, root.settings);
+                    for (const item of rejected) {
+                        next[item.key] = r[item.key];
+                        delete root.unsaved[item.key];
+                    }
+                    root.settings = next;
+                    root.message(rejected[0].message + (rejected.length > 1 ? " " + (rejected.length - 1) + " more settings weren't saved either." : " That setting is back as it was."), "error");
+                }
                 root.settingsSaved();
-        })
+            });
+        }
     }
     property bool helperDown: false
     property Timer helperStable: Timer {
@@ -541,10 +666,7 @@ QtObject {
                 return;
             }
             helperStable.restart();
-            Backend.request("settings.get", {}, (r, e) => {
-                if (!e)
-                    root.settings = r.settings || r;
-            });
+            root.loadSettings();
             // Changes made while the helper was down never reached logind. At the shell's own start an
             // unlocked state is left alone: hyprlock may be covering for a shell that died locked.
             if (root.locked || root.helperDown)
@@ -564,6 +686,9 @@ QtObject {
                 root.profiles = Object.assign({}, root.profiles, {
                     active: data.active
                 });
+            // Caps Lock outside the lock screen (which has its own note under the password).
+            if (name === "capslock")
+                root.osd(data.on ? "On · Caps Lock" : "Off · Caps Lock", -1, "keyboard");
             if (name === "brightness") {
                 root.brightness = data.available ? data.value : -1;
                 if (data.available && !data.initial)
@@ -572,10 +697,7 @@ QtObject {
         }
     }
     Component.onCompleted: if (Backend.ready) {
-        Backend.request("settings.get", {}, (r, e) => {
-            if (!e)
-                root.settings = r.settings || r;
-        });
+        root.loadSettings();
         root.refreshRecording();
         root.refreshWifi();
         root.refreshProfiles();
@@ -633,6 +755,8 @@ QtObject {
         function status(): string {
             return JSON.stringify({
                 panel: root.panel,
+                detail: root.detail,
+                screen: root.panel ? root.screenName : "",
                 helperReady: Backend.ready,
                 lastError: Backend.lastError,
                 recording: root.recording.active
@@ -640,6 +764,11 @@ QtObject {
         }
         function toggle(panel: string): void {
             root.toggle(panel);
+        }
+        // Opens a panel, or leaves it open: for scripts that must not close what is already showing.
+        function open(panel: string): void {
+            if (root.panel !== panel)
+                root.open(panel);
         }
         function close(): void {
             root.close();
@@ -662,6 +791,8 @@ QtObject {
             }
         }
         function dnd(state: string): void {
+            if (["on", "off", "toggle"].indexOf(state) < 0)
+                return;
             const on = state === "toggle" ? !root.setting("dnd", false) : state === "on";
             root.setSetting("dnd", on);
             root.osd(on ? "Do not disturb on" : "Do not disturb off", -1, on ? "bell-off" : "bell");
@@ -670,10 +801,12 @@ QtObject {
             root.openSettings(name);
         }
         function page(name: string): void {
-            if (["wifi", "bluetooth", "audio", "power", "media", "tray", "update"].indexOf(name) < 0)
+            if (["wifi", "bluetooth", "audio", "power", "media", "tray", "update", "focus"].indexOf(name) < 0)
                 return;
             root.open("control");
-            root.detail = name;
+            // Not while locked: the page would be waiting behind the lock screen.
+            if (root.panel === "control")
+                root.detail = name;
         }
     }
 }

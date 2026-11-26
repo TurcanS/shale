@@ -15,8 +15,14 @@ QtObject {
     property real recordedUntil: 0
     property real now: Date.now()
     readonly property bool active: endsAt > 0
-    readonly property int remainingSeconds: active ? Math.max(0, Math.ceil((endsAt - now) / 1000)) : 0
-    readonly property real progress: active && endsAt > startedAt ? Math.max(0, Math.min(1, (endsAt - now) / (endsAt - startedAt))) : 0
+    // A paused session stays active, so popups stay held; only its countdown stops. Resuming moves the end on by the
+    // pause, and the ring leaves the time spent paused out.
+    property real pausedAt: 0
+    property real pausedFor: 0
+    readonly property bool paused: active && pausedAt > 0
+    readonly property real counted: paused ? pausedAt : now
+    readonly property int remainingSeconds: active ? Math.max(0, Math.ceil((endsAt - counted) / 1000)) : 0
+    readonly property real progress: active && endsAt - startedAt - pausedFor > 0 ? Math.max(0, Math.min(1, (endsAt - counted) / (endsAt - startedAt - pausedFor))) : 0
     readonly property int lastMinutes: ShellState.setting("focusMinutes", 25)
     // {minutes, total, groups: [{appName, appIcon, count, latest}]} after a session that let something in; null otherwise.
     property var digest: null
@@ -40,8 +46,10 @@ QtObject {
         if (!active) {
             startedAt = now;
             recordedUntil = 0;
+            pausedFor = 0;
             digest = null;
         }
+        pausedAt = 0;
         endsAt = now + length * 60000;
         if ([25, 50, 90].indexOf(length) >= 0)
             ShellState.setSetting("focusMinutes", length);
@@ -52,25 +60,44 @@ QtObject {
         if (!active)
             return;
         now = Date.now();
-        endsAt = Math.min(now + 240 * 60000, Math.max(now + 60000, endsAt + minutes * 60000));
+        endsAt = Math.min(counted + 240 * 60000, Math.max(counted + 60000, endsAt + minutes * 60000));
+        persist();
+    }
+    function pause() {
+        if (!active || paused)
+            return;
+        now = Date.now();
+        pausedAt = now;
+        persist();
+    }
+    function unpause() {
+        if (!paused)
+            return;
+        now = Date.now();
+        const span = Math.max(0, now - pausedAt);
+        endsAt += span;
+        pausedFor += span;
+        pausedAt = 0;
         persist();
     }
     function end(early) {
         if (!active)
             return;
-        const started = startedAt, ends = endsAt;
-        const finished = Math.min(Date.now(), ends);
+        const started = startedAt, ends = endsAt, pauses = pausedFor, heldAt = pausedAt;
+        const finished = Math.min(paused ? pausedAt : Date.now(), ends);
         const from = Math.max(started, recordedUntil);
         let recorded = recordedUntil;
         startedAt = 0;
         endsAt = 0;
         recordedUntil = 0;
+        pausedAt = 0;
+        pausedFor = 0;
         persist();
         if (ShellState.setting("activityTracking", "ask") === "on" && finished - from >= 60000) {
             Backend.request("activity.focus", {start: from, end: finished});
             recorded = finished;
         }
-        const minutes = Math.max(1, Math.round((finished - started) / 60000));
+        const minutes = Math.max(1, Math.round((finished - started - pauses) / 60000));
         const missed = Services.notifications.filter(n => !n.transient && n.timestamp >= started);
         if (missed.length) {
             const groups = {};
@@ -88,23 +115,32 @@ QtObject {
                 ShellState.message(minutes + " min of focus · Nothing missed", "success");
         }
         if (early)
-            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends, recorded)});
+            ShellState.message("Focus ended", "info", {label: "Undo", run: () => root.resume(started, ends, recorded, pauses, heldAt)});
         else
             chime();
     }
-    function resume(started, ends, recorded) {
-        if (active || ends <= Date.now())
+    // Undo after ending early: the session comes back as it was, paused again if it was paused.
+    function resume(started, ends, recorded, pauses, heldAt) {
+        if (active || ends <= (heldAt || Date.now()))
             return;
         digest = null;
         startedAt = started;
         endsAt = ends;
         recordedUntil = recorded || 0;
+        pausedFor = pauses || 0;
+        pausedAt = heldAt || 0;
         now = Date.now();
         persist();
     }
     function persist() {
-        ShellState.setSetting("focusSession", !active ? {} : recordedUntil > startedAt ? {started: startedAt, ends: endsAt, recorded: recordedUntil}
-                                                                                       : {started: startedAt, ends: endsAt});
+        const session = {started: startedAt, ends: endsAt};
+        if (recordedUntil > startedAt)
+            session.recorded = recordedUntil;
+        if (paused)
+            session.paused = pausedAt;
+        if (pausedFor > 0)
+            session.pausedFor = pausedFor;
+        ShellState.setSetting("focusSession", active ? session : {});
     }
 
     property int timerSerial: 0
@@ -139,7 +175,7 @@ QtObject {
         running: root.active || root.timers.length > 0
         onTriggered: {
             root.now = Date.now();
-            if (root.active && root.now >= root.endsAt)
+            if (root.active && !root.paused && root.now >= root.endsAt)
                 root.end(false);
             for (const timer of root.timers.slice())
                 if (root.now >= timer.endsAt)
@@ -162,10 +198,13 @@ QtObject {
         root.restored = true;
         const session = ShellState.setting("focusSession", {});
         const current = Date.now();
-        if (session && session.ends > current && session.started > 0 && !root.active) {
+        // A paused session waits for its owner however long the shell was down.
+        if (session && session.ends > (session.paused || current) && session.started > 0 && !root.active) {
             root.startedAt = session.started;
             root.endsAt = session.ends;
             root.recordedUntil = session.recorded || 0;
+            root.pausedAt = session.paused || 0;
+            root.pausedFor = session.pausedFor || 0;
             root.now = current;
         } else if (session && session.ends)
             ShellState.setSetting("focusSession", {}); // ended while the shell was down
@@ -188,6 +227,13 @@ QtObject {
                 root.end(true);
             else
                 root.start(root.lastMinutes);
+        }
+        // Pauses a running session, or carries on with a paused one.
+        function pause(): void {
+            if (root.paused)
+                root.unpause();
+            else
+                root.pause();
         }
         function timer(seconds: int, label: string): void {
             if (seconds > 0)

@@ -1,14 +1,14 @@
 import QtQuick
 import QtQuick.Effects
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import "../core"
 import "../components" as C
 
-// Your picture from ~/.face when there is one, otherwise your initial.
-Rectangle {
+// Your picture from ~/.face when there is one, otherwise a person on a disc shaded from the accent to its second colour.
+Item {
     id: root
-    readonly property string user: Quickshell.env("USER") || ""
     readonly property string face: Quickshell.env("HOME") + "/.face"
     property bool hasFace: false
     Process {
@@ -16,28 +16,45 @@ Rectangle {
         running: true
         onExited: code => root.hasFace = code === 0
     }
-    implicitWidth: 72
-    implicitHeight: 72
-    radius: width / 2
-    color: Theme.selection
-    border.width: 2
-    border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
-    C.Label {
+    implicitWidth: 64
+    implicitHeight: 64
+    Shape {
+        anchors.fill: parent
+        visible: avatar.status !== Image.Ready
+        preferredRendererType: Shape.CurveRenderer
+        ShapePath {
+            strokeWidth: -1
+            fillGradient: LinearGradient {
+                x1: 0
+                y1: 0
+                x2: root.width
+                y2: root.height
+                GradientStop { position: 0; color: Theme.accent }
+                GradientStop { position: 1; color: Theme.second }
+            }
+            PathAngleArc {
+                centerX: root.width / 2
+                centerY: root.height / 2
+                radiusX: root.width / 2
+                radiusY: root.height / 2
+                startAngle: 0
+                sweepAngle: 360
+            }
+        }
+    }
+    C.Icon {
         anchors.centerIn: parent
         visible: avatar.status !== Image.Ready
-        text: root.user.charAt(0).toUpperCase()
-        color: Theme.accentText
-        font.pixelSize: Math.round(root.width * 0.42)
-        font.weight: Font.Medium
-        elide: Text.ElideNone
+        name: "user"
+        size: Math.round(root.width * 0.47)
+        color: Theme.accentInk
     }
     Image {
         id: avatar
         anchors.fill: parent
-        anchors.margins: 3
         source: root.hasFace ? "file://" + root.face.split("/").map(encodeURIComponent).join("/") : ""
-        sourceSize.width: 144
-        sourceSize.height: 144
+        sourceSize.width: 128
+        sourceSize.height: 128
         fillMode: Image.PreserveAspectCrop
         visible: false
     }

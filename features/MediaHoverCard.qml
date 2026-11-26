@@ -4,9 +4,10 @@ import Quickshell
 import "../core"
 import "../services"
 import "../components" as C
+import "../core/format.js" as Format
 
-// Quick controls that open while the pointer rests on the bar's now-playing button.
-// Clicking the button still opens the full media page.
+// A small Player that opens while the pointer rests on the bar's now-playing button: cover, source, title, a
+// position line and the transport. Clicking the button still opens the full Player.
 PopupWindow {
     id: root
     required property var bar
@@ -55,9 +56,7 @@ PopupWindow {
         onTriggered: root.player.positionChanged()
     }
     function time(seconds) {
-        if (!isFinite(seconds) || seconds < 0)
-            return "0:00";
-        return Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+        return Format.clock(seconds);
     }
     anchor.window: bar
     anchor.item: button
@@ -75,10 +74,10 @@ PopupWindow {
         id: card
         width: parent.width
         implicitHeight: content.implicitHeight + 28
-        radius: Theme.panelRadius
-        color: Theme.panel
+        radius: Theme.radiusCase
+        color: Theme.caseColor
         border.width: 1
-        border.color: Theme.border
+        border.color: Theme.hairline
         opacity: root.reveal
         transform: Translate { y: Theme.reduced ? 0 : (1 - root.reveal) * -6 }
         HoverHandler {
@@ -88,29 +87,45 @@ PopupWindow {
             id: content
             anchors.fill: parent
             anchors.margins: 14
-            spacing: Theme.gapM
+            spacing: 10
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.gapM
                 C.CoverArt {
                     Layout.preferredWidth: 56
                     Layout.preferredHeight: 56
+                    radius: Theme.radiusCard
                     source: NowPlaying.artFile
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 2
+                    spacing: 1
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Rectangle {
+                            implicitWidth: 6
+                            implicitHeight: 6
+                            radius: 3
+                            color: NowPlaying.playing ? Theme.accent : Theme.textFaint
+                        }
+                        C.Label {
+                            text: root.player ? root.player.identity : ""
+                            color: Theme.textDim
+                            font.pixelSize: 12
+                            Layout.fillWidth: true
+                        }
+                    }
                     C.Label {
                         text: root.player ? root.player.trackTitle || "Unknown track" : ""
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                        font.pixelSize: 15
+                        font.weight: 650
                         Layout.fillWidth: true
                     }
                     C.Label {
                         text: root.player ? root.player.trackArtist || root.player.identity : ""
-                        color: Theme.muted
-                        font.pixelSize: Theme.small
-                        elide: Text.ElideRight
+                        color: Theme.textMuted
+                        font.pixelSize: 13
                         Layout.fillWidth: true
                     }
                 }
@@ -123,42 +138,38 @@ PopupWindow {
                     Layout.fillWidth: true
                     implicitHeight: 4
                     radius: 2
-                    color: Theme.raised
+                    color: Theme.key
                     Rectangle {
                         width: root.player && root.player.length > 0 ? parent.width * Math.min(1, root.player.position / root.player.length) : 0
                         height: parent.height
                         radius: 2
-                        color: NowPlaying.artColors[0]
+                        color: Theme.accent
                     }
                 }
                 RowLayout {
                     Layout.fillWidth: true
                     C.Label {
                         text: root.player ? root.time(root.player.position) : ""
-                        font.family: Theme.mono
-                        font.pixelSize: Theme.caption
-                        color: Theme.muted
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        font.features: ({"tnum": 1})
                     }
                     Item {
                         Layout.fillWidth: true
                     }
                     C.Label {
                         text: root.player ? root.time(root.player.length) : ""
-                        font.family: Theme.mono
-                        font.pixelSize: Theme.caption
-                        color: Theme.muted
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        font.features: ({"tnum": 1})
                     }
                 }
             }
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.gapM
-                C.Button {
+                TransportKey {
                     glyph: "previous"
-                    flat: true
-                    implicitWidth: 38
-                    implicitHeight: 38
-                    cornerRadius: 19
                     hint: "Previous track"
                     enabled: !!root.player && root.player.canGoPrevious
                     onClicked: root.player.previous()
@@ -166,22 +177,35 @@ PopupWindow {
                 C.Button {
                     glyph: NowPlaying.playing ? "pause" : "play"
                     accent: true
-                    implicitWidth: 44
-                    implicitHeight: Theme.controlLarge
-                    cornerRadius: 22
+                    implicitWidth: 42
+                    implicitHeight: 42
+                    cornerRadius: 21
                     hint: NowPlaying.playing ? "Pause" : "Play"
                     enabled: !!root.player && root.player.canTogglePlaying
                     onClicked: root.player.togglePlaying()
                 }
-                C.Button {
+                TransportKey {
                     glyph: "next"
-                    flat: true
-                    implicitWidth: 38
-                    implicitHeight: 38
-                    cornerRadius: 19
                     hint: "Next track"
                     enabled: !!root.player && root.player.canGoNext
                     onClicked: root.player.next()
+                }
+            }
+        }
+    }
+    // Previous and next as module keys, like the Player's.
+    component TransportKey: C.Button {
+        id: key
+        implicitWidth: 34
+        implicitHeight: 34
+        cornerRadius: Theme.radiusKey
+        background: Rectangle {
+            radius: Theme.radiusKey
+            color: key.hovered || key.down || key.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.06) : Theme.module
+            opacity: key.enabled ? 1 : Theme.disabledOpacity
+            Behavior on color {
+                ColorAnimation {
+                    duration: Theme.fast
                 }
             }
         }

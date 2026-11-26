@@ -4,26 +4,29 @@ import "../core"
 import "../services"
 import "../components" as C
 
-// The control center's Update page: what a newer Shale changes, each commit message as it was written, and what
-// the last update brought until it has been seen.
+// Control's Update page: what a newer Shale changes, each commit message as it was written, and what the last update
+// brought until it has been seen.
 ColumnLayout {
     id: root
-    spacing: Theme.gapS
+    spacing: 10
 
-    // One commit: its first line, then the rest of the message, then the commit and when it was made.
-    component Change: C.Card {
+    // One commit on the list: its first line, then the rest of the message, then the commit and when it was made.
+    component Change: Item {
         id: change
         required property var modelData
         readonly property string message: String(modelData.message || "")
         readonly property string subject: message.split("\n")[0]
         readonly property string body: message.slice(subject.length).replace(/^\n+/, "")
         Layout.fillWidth: true
-        implicitHeight: changeText.implicitHeight + 2 * Theme.gapM
+        implicitHeight: changeText.implicitHeight + 20
         ColumnLayout {
             id: changeText
-            anchors.fill: parent
-            anchors.margins: Theme.gapM
-            spacing: Theme.gapXs
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
+            spacing: 3
             C.Label {
                 text: change.subject
                 font.weight: Font.Medium
@@ -34,7 +37,7 @@ ColumnLayout {
             C.Label {
                 visible: change.body !== ""
                 text: change.body
-                color: Theme.muted
+                color: Theme.textDim
                 font.pixelSize: Theme.small
                 wrapMode: Text.Wrap
                 elide: Text.ElideNone
@@ -43,8 +46,43 @@ ColumnLayout {
             C.Label {
                 text: String(change.modelData.sha || "").slice(0, 7) + (change.modelData.time ? " · " + Updates.ago(change.modelData.time) : "")
                 font.family: Theme.mono
-                font.pixelSize: Theme.caption
-                color: Theme.muted
+                font.pixelSize: 11
+                color: Theme.textDim
+                Layout.fillWidth: true
+                Layout.topMargin: 1
+            }
+        }
+    }
+    // The version line at the top of a section: an icon key (accent while something new waits), the versions and a
+    // line under them.
+    component Heading: RowLayout {
+        id: heading
+        property string title: ""
+        property string note: ""
+        property bool fresh: false
+        Layout.fillWidth: true
+        spacing: Theme.gapM
+        C.GlyphTile {
+            size: 36
+            glyph: "update"
+            selected: heading.fresh
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+            C.Label {
+                text: heading.title
+                font.family: Theme.mono
+                font.pixelSize: Theme.label
+                font.weight: Font.DemiBold
+                Layout.fillWidth: true
+            }
+            C.Label {
+                visible: text !== ""
+                text: heading.note
+                color: Theme.textDim
+                font.pixelSize: Theme.small
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
         }
@@ -54,58 +92,70 @@ ColumnLayout {
     ColumnLayout {
         visible: Updates.available
         Layout.fillWidth: true
-        spacing: Theme.gapS
-        C.Label {
-            text: "Shale " + Updates.installed + "  →  " + Updates.latest
-            font.family: Theme.mono
-            font.weight: Font.Medium
+        spacing: 10
+        C.Card {
             Layout.fillWidth: true
-        }
-        C.Label {
-            readonly property var newest: Updates.commits.length ? Updates.commits[0] : null
-            text: Updates.changes(Updates.count) + (newest && newest.time ? " · newest " + Updates.ago(newest.time) : "")
-            color: Theme.muted
-            font.pixelSize: Theme.small
-            Layout.fillWidth: true
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.gapXs
-            spacing: Theme.gapS
-            C.Button {
-                text: "Update now"
-                glyph: "update"
-                accent: true
-                enabled: Updates.source !== ""
-                hint: "Runs ./install.sh --update in a terminal"
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                onClicked: Updates.install()
+            implicitHeight: available.implicitHeight + 2 * Theme.modulePadding + 2
+            ColumnLayout {
+                id: available
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.modulePadding + 1
+                spacing: Theme.gapM
+                Heading {
+                    readonly property var newest: Updates.commits.length ? Updates.commits[0] : null
+                    fresh: true
+                    title: "Shale " + Updates.installed + "  →  " + Updates.latest
+                    note: Updates.changes(Updates.count) + (newest && newest.time ? " · newest " + Updates.ago(newest.time) : "")
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.gapS
+                    C.Button {
+                        text: "Update now"
+                        glyph: "update"
+                        accent: true
+                        enabled: Updates.source !== ""
+                        hint: "Runs ./install.sh --update in a terminal"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        onClicked: Updates.install()
+                    }
+                    C.Button {
+                        text: "View on GitHub"
+                        glyph: "link"
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        onClicked: ShellState.openUrl(Updates.info.compare)
+                    }
+                }
+                C.Label {
+                    visible: Updates.source === ""
+                    text: "This copy doesn't know which folder it was installed from. Run ./install.sh --update in your Shale folder once; after that, Update now works from here."
+                    color: Theme.textDim
+                    font.pixelSize: Theme.small
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
-            C.Button {
-                text: "View on GitHub"
-                glyph: "link"
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                onClicked: ShellState.openUrl(Updates.info.compare)
+        }
+        C.SectionHeader {
+            visible: Updates.commits.length > 0
+            text: "What it changes"
+        }
+        C.Group {
+            visible: Updates.commits.length > 0
+            color: Theme.module
+            Repeater {
+                model: Updates.commits
+                Change {}
             }
-        }
-        C.Label {
-            visible: Updates.source === ""
-            text: "This copy doesn't know which folder it was installed from. Run ./install.sh --update in your Shale folder once; after that, Update now works from here."
-            color: Theme.muted
-            font.pixelSize: Theme.small
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-        Repeater {
-            model: Updates.commits
-            Change {}
         }
         C.Label {
             visible: Updates.count > Updates.commits.length
             text: "And " + Updates.changes(Updates.count - Updates.commits.length) + " more on GitHub."
-            color: Theme.muted
+            color: Theme.textDim
             font.pixelSize: Theme.small
             Layout.fillWidth: true
         }
@@ -125,28 +175,31 @@ ColumnLayout {
         readonly property var brought: recent.commits || []
         visible: !!Updates.recent
         Layout.fillWidth: true
-        Layout.topMargin: Updates.available ? Theme.gapL : 0
-        spacing: Theme.gapS
-        C.Label {
-            text: "Updated  " + (recentSection.recent.from || "") + "  →  " + (recentSection.recent.to || "")
-            font.family: Theme.mono
-            font.weight: Font.Medium
+        Layout.topMargin: Updates.available ? Theme.gapM : 0
+        spacing: 10
+        C.Card {
             Layout.fillWidth: true
+            implicitHeight: recentHeading.implicitHeight + 2 * Theme.modulePadding + 2
+            Heading {
+                id: recentHeading
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.modulePadding + 1
+                title: "Updated  " + (recentSection.recent.from || "") + "  →  " + (recentSection.recent.to || "")
+                note: recentSection.brought.length ? Updates.changes(recentSection.brought.length) + " in this update" : "The list of changes wasn't saved before this update; GitHub has it."
+            }
         }
-        C.Label {
-            text: recentSection.brought.length ? Updates.changes(recentSection.brought.length) + " in this update" : "The list of changes wasn't saved before this update; GitHub has it."
-            color: Theme.muted
-            font.pixelSize: Theme.small
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-        Repeater {
-            model: recentSection.brought
-            Change {}
+        C.Group {
+            visible: recentSection.brought.length > 0
+            color: Theme.module
+            Repeater {
+                model: recentSection.brought
+                Change {}
+            }
         }
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: Theme.gapXs
             spacing: Theme.gapS
             C.Button {
                 visible: !recentSection.brought.length

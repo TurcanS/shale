@@ -20,16 +20,19 @@ PanelWindow {
         left: true
         right: true
     }
+    // Floating, the bar sits 8 px from the screen edges; ShellState.barBottom must match where it ends.
     margins {
-        top: bar.edge ? 0 : 5
+        top: bar.edge ? 0 : 8
         left: bar.edge ? 0 : 8
         right: bar.edge ? 0 : 8
     }
-    implicitHeight: 32
+    implicitHeight: 38
     color: "transparent"
     WlrLayershell.namespace: "shale-bar"
     WlrLayershell.layer: WlrLayer.Top
-    exclusionMode: ExclusionMode.Auto
+    // Windows keep clear of the bar's height; the compositor adds the top margin to it.
+    exclusionMode: ExclusionMode.Normal
+    exclusiveZone: implicitHeight
     // Stays mapped under the lock screen: unmapping would hand its space to the windows, and they would all
     // shrink back into place as the session unlocks.
     visible: !(ShellState.setting("hideFullscreen", true) && content.monitor && content.monitor.hasFullscreen) && ShellState.setting("hiddenOutputs", []).indexOf(bar.outputName) < 0

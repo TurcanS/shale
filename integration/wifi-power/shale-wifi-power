@@ -1,0 +1,37 @@
+#!/bin/sh
+# Wi-Fi power saving follows the power mode: off in Performance, on in Balanced and Power saver.
+# Installed root-owned by scripts/install-wifi-power.py and run only through shale-wifi-power.service, which
+# shale-wifi-power.path starts at boot and whenever power-profiles-daemon or tuned-ppd saves a new mode.
+# It takes no input: the mode is read from the PowerProfiles D-Bus service both daemons provide.
+set -u
+NM_CONF=/run/NetworkManager/conf.d/50-shale-wifi-power.conf
+RTW89=/sys/module/rtw89_core/parameters/disable_ps_mode
+
+profile=$(busctl --system get-property net.hadess.PowerProfiles /net/hadess/PowerProfiles \
+    net.hadess.PowerProfiles ActiveProfile 2>/dev/null | sed -n 's/^s "\(.*\)"$/\1/p')
+[ -n "$profile" ] || { echo "No power mode service answered; leaving Wi-Fi power saving as it is." >&2; exit 0; }
+
+if [ "$profile" = performance ]; then
+    state=off; nm=2; rtw=Y
+else
+    state=on; nm=3; rtw=N
+fi
+
+# NetworkManager applies its setting at every connect, so a reconnect keeps the mode's choice. /run is cleared
+# at boot, when this runs again.
+mkdir -p "${NM_CONF%/*}"
+printf '# Written by shale-wifi-power for the "%s" power mode.\n[connection]\nwifi.powersave = %s\n' "$profile" "$nm" \
+    > "$NM_CONF.tmp" && mv -f "$NM_CONF.tmp" "$NM_CONF"
+command -v nmcli >/dev/null && nmcli general reload conf >/dev/null 2>&1
+
+# The connections that are up now.
+for dev in /sys/class/net/*; do
+    [ -e "$dev/phy80211" ] || continue
+    iw dev "${dev##*/}" set power_save "$state" >/dev/null 2>&1
+done
+
+# Realtek rtw89 cards also have the driver's own low-power mode, read each time the card would enter it.
+[ -w "$RTW89" ] && echo "$rtw" > "$RTW89"
+
+echo "Power mode $profile: Wi-Fi power saving $state."
+exit 0

@@ -3,10 +3,14 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import QtQuick.Effects
 import Quickshell.Services.Mpris
+import Quickshell.Widgets
 import "../core"
 import "../services"
 import "../components" as C
+import "../core/format.js" as Format
 
+// The Player: the cover with a live level strip on the left; source, title, seek and transport on the right. The
+// equalizer lives in Control → Sound; "on <output>" goes there.
 ColumnLayout {
     id: root
     property bool active: false
@@ -14,17 +18,27 @@ ColumnLayout {
     readonly property bool playing: !!player && player.isPlaying
     readonly property bool showRemaining: ShellState.setting("mediaRemaining", false)
     readonly property bool visualizerOn: ShellState.setting("visualizer", true)
+    readonly property bool seekable: !!player && player.lengthSupported && player.positionSupported && player.length > 0
     function timeLabel(seconds) {
-        if (!isFinite(seconds) || seconds < 0)
-            return "0:00";
-        return Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+        return Format.clock(seconds);
     }
-    readonly property var artColors: NowPlaying.artColors
     function cycleLoop() {
         const order = [MprisLoopState.None, MprisLoopState.Playlist, MprisLoopState.Track];
         player.loopState = order[(order.indexOf(player.loopState) + 1) % order.length];
     }
-    spacing: Theme.gapL
+    // The default output as its kind of device ("Headphones", "Speakers", "HDMI"), or its own short name.
+    readonly property string outputLabel: {
+        const sink = Services.output;
+        if (!sink)
+            return "";
+        const name = sink.description || sink.nickname || sink.name || "";
+        if (/hdmi|displayport/i.test(name))
+            return "HDMI";
+        if (/head(phone|set)|earbud|earphone|airpods|buds/i.test(name))
+            return "Headphones";
+        return name.replace(/\s+(analog|digital) (stereo|surround|mono).*$/i, "").replace(/^built-in audio$/i, "Speakers") || name;
+    }
+    spacing: Theme.gapM
     C.EmptyState {
         visible: !root.player
         Layout.fillWidth: true
@@ -34,349 +48,428 @@ ColumnLayout {
         title: "Nothing playing"
         description: "Play audio in an app to control it here"
     }
-    Rectangle {
-        visible: !!root.player
-        Layout.fillWidth: true
-        Layout.preferredHeight: 176
-        radius: Theme.controlRadius
-        color: Theme.surface
-        clip: true
-        Image {
-            id: artwork
-            anchors.fill: parent
-            source: NowPlaying.artFile
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            sourceSize.width: 700
-            visible: false
-        }
-        // Blurred, dimmed backdrop so square covers are shown whole instead of cropped to a banner.
-        MultiEffect {
-            anchors.fill: parent
-            source: artwork
-            visible: artwork.status === Image.Ready
-            blurEnabled: !Theme.lowPower
-            blur: 1
-            blurMax: 48
-            brightness: -0.35
-            saturation: -0.1
-            opacity: artwork.status === Image.Ready ? 1 : 0
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.reduced ? 0 : Theme.enter
-                }
-            }
-        }
-        Image {
-            id: cover
-            anchors.centerIn: parent
-            width: parent.height - 32
-            height: width
-            source: artwork.source
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            sourceSize.width: 400
-            visible: artwork.status === Image.Ready
-            opacity: status === Image.Ready ? 1 : 0
-            layer.enabled: !Theme.lowPower
-            layer.effect: MultiEffect {
-                shadowEnabled: true
-                shadowBlur: 0.8
-                shadowOpacity: 0.55
-                shadowVerticalOffset: 4
-            }
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.reduced ? 0 : Theme.enter
-                }
-            }
-        }
-        Rectangle {
-            anchors.centerIn: parent
-            width: 124
-            height: 124
-            radius: Theme.panelRadius
-            color: Theme.raised
-            visible: artwork.status !== Image.Ready
-            Rectangle {
-                anchors.centerIn: parent
-                width: 76
-                height: 76
-                radius: Theme.controlRadius
-                color: Theme.hover
-                C.Icon {
-                    anchors.centerIn: parent
-                    name: "music"
-                    size: 26
-                    opacity: 0.8
-                }
-            }
-        }
-        // Darkens the lower edge so the bars stay readable over bright covers.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 84
-            opacity: spectrum.opacity
-            gradient: Gradient {
-                GradientStop { position: 0; color: "transparent" }
-                GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.55) }
-            }
-        }
-        // Drawn over the cover, tinted from the artwork's own palette.
-        C.Spectrum {
-            id: spectrum
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            height: 64
-            color: root.artColors[0]
-            secondary: root.artColors[1]
-            // Motion-sensitive and battery-saving setups never start cava.
-            active: root.active && root.playing && root.visualizerOn && !Theme.reduced && !Theme.lowPower && !ShellState.locked
-            opacity: active ? 0.9 : 0
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: Theme.enter
-                }
-            }
-        }
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.margins: 10
-            width: Math.min(parent.width / 2 - 20, playerName.implicitWidth + 16)
-            height: 24
-            radius: Theme.controlRadius
-            color: Qt.rgba(0, 0, 0, 0.4)
-            C.Label {
-                id: playerName
-                anchors.centerIn: parent
-                width: Math.min(implicitWidth, parent.width - 16)
-                text: root.player ? root.player.identity : ""
-                font.pixelSize: Theme.caption
-            }
-        }
-        C.Button {
-            visible: spectrum.available && !Theme.reduced
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 6
-            implicitWidth: 32
-            implicitHeight: 32
-            cornerRadius: 16
-            flat: true
-            glyph: "visualizer"
-            selected: root.visualizerOn
-            opacity: selected || hovered ? 1 : 0.6
-            hint: root.visualizerOn ? "Hide visualizer" : "Show visualizer"
-            Accessible.role: Accessible.CheckBox
-            Accessible.checkable: true
-            Accessible.checked: selected
-            onClicked: ShellState.setSetting("visualizer", !root.visualizerOn)
-        }
-    }
-    ColumnLayout {
-        visible: !!root.player
-        Layout.fillWidth: true
-        spacing: Theme.gapXs
-        C.Label {
-            text: root.player ? (root.player.trackTitle || "Unknown track") : ""
-            font.pixelSize: Math.max(20, Theme.body + 4)
-            font.weight: Font.DemiBold
-            Layout.fillWidth: true
-            maximumLineCount: 2
-            wrapMode: Text.Wrap
-        }
-        C.Label {
-            text: root.player ? [root.player.trackArtist || root.player.identity, root.player.trackAlbum].filter(part => !!part).join(" · ") : ""
-            color: Theme.muted
-            Layout.fillWidth: true
-            maximumLineCount: 2
-            wrapMode: Text.WordWrap
-        }
-    }
-    ColumnLayout {
-        visible: !!root.player && root.player.lengthSupported && root.player.positionSupported && root.player.length > 0
-        Layout.fillWidth: true
-        spacing: 2
-        Slider {
-            id: seek
-            Layout.fillWidth: true
-            enabled: !!root.player && root.player.canSeek
-            from: 0
-            to: root.player ? Math.max(1, root.player.length) : 1
-            value: root.player ? root.player.position : 0
-            stepSize: 5
-            hoverEnabled: true
-            Accessible.name: "Track position"
-            // Seek once on release rather than on every drag step.
-            onPressedChanged: if (!pressed && root.player)
-                root.player.position = value
-            onMoved: if (!pressed && root.player)
-                root.player.position = value
-            implicitHeight: 24
-            background: Rectangle {
-                x: seek.leftPadding
-                y: (seek.height - height) / 2
-                width: seek.availableWidth
-                height: seek.hovered || seek.pressed ? 6 : 4
-                radius: height / 2
-                color: Theme.raised
-                Behavior on height {
-                    NumberAnimation {
-                        duration: Theme.fast
-                    }
-                }
-                Rectangle {
-                    width: parent.width * seek.visualPosition
-                    height: parent.height
-                    radius: parent.radius
-                    color: Theme.accent
-                }
-            }
-            handle: Rectangle {
-                x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
-                y: (seek.height - height) / 2
-                visible: seek.enabled
-                width: seek.pressed ? 16 : seek.hovered ? 14 : 10
-                height: width
-                radius: width / 2
-                color: Theme.accent
-                Behavior on width {
-                    NumberAnimation {
-                        duration: Theme.fast
-                    }
-                }
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            C.Label {
-                text: root.timeLabel(seek.value)
-                font.family: Theme.mono
-                font.pixelSize: Theme.caption
-                color: Theme.muted
-            }
-            Item {
-                Layout.fillWidth: true
-            }
-            C.Label {
-                text: root.showRemaining ? "-" + root.timeLabel((root.player ? root.player.length : 0) - seek.value) : root.timeLabel(root.player ? root.player.length : 0)
-                font.family: Theme.mono
-                font.pixelSize: Theme.caption
-                color: remainingArea.containsMouse ? Theme.text : Theme.muted
-                Accessible.role: Accessible.Button
-                Accessible.name: root.showRemaining ? "Show track length" : "Show remaining time"
-                MouseArea {
-                    id: remainingArea
-                    anchors.fill: parent
-                    anchors.margins: -6
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: ShellState.setSetting("mediaRemaining", !root.showRemaining)
-                }
-            }
-        }
-    }
     RowLayout {
         visible: !!root.player
-        Layout.alignment: Qt.AlignHCenter
-        spacing: Theme.gapM
-        // Unsupported modes keep their space so play/pause stays centred.
-        C.Button {
-            glyph: "shuffle"
-            implicitWidth: 36
-            implicitHeight: Theme.controlHeight
-            cornerRadius: 18
-            flat: true
-            enabled: !!root.player && root.player.shuffleSupported
-            opacity: enabled ? 1 : 0
-            selected: enabled && root.player.shuffle
-            hint: selected ? "Turn off shuffle" : "Shuffle"
-            Accessible.role: Accessible.CheckBox
-            Accessible.checkable: true
-            Accessible.checked: selected
-            onClicked: root.player.shuffle = !root.player.shuffle
+        Layout.fillWidth: true
+        Layout.preferredHeight: 232
+        spacing: 14
+        // The cover, whole at the top, its blurred copy filling the rest; the level strip sits along the bottom.
+        ClippingRectangle {
+            id: coverTile
+            Layout.preferredWidth: 150
+            Layout.fillHeight: true
+            radius: Theme.radiusModule
+            color: Theme.module
+            Image {
+                id: artwork
+                anchors.fill: parent
+                source: NowPlaying.artFile
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                sourceSize.width: 300
+                visible: false
+            }
+            MultiEffect {
+                anchors.fill: parent
+                source: artwork
+                visible: artwork.status === Image.Ready
+                blurEnabled: !Theme.lowPower
+                blur: 1
+                blurMax: 48
+                brightness: -0.4
+                saturation: -0.1
+                opacity: artwork.status === Image.Ready ? 1 : 0
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.enter
+                    }
+                }
+            }
+            Image {
+                id: cover
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                height: width
+                source: artwork.source
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                sourceSize.width: 300
+                sourceSize.height: 300
+                opacity: status === Image.Ready ? 1 : 0
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.enter
+                    }
+                }
+            }
+            // The cover's lower edge melts into the blur, so the strip below reads as one tile.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                y: cover.height - height
+                height: 36
+                visible: cover.status === Image.Ready
+                gradient: Gradient {
+                    GradientStop { position: 0; color: "transparent" }
+                    GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.35) }
+                }
+            }
+            C.Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 75 - height / 2
+                visible: artwork.status !== Image.Ready
+                name: "music"
+                size: 30
+                color: Theme.textDim
+            }
+            // Live levels from the shared cava while playing; quiet stubs otherwise. Motion-sensitive and
+            // battery-saving setups never start cava.
+            C.Spectrum {
+                id: spectrum
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                height: 26
+                bars: 12
+                spacing: 3
+                maxRadius: 2
+                curve: 0.7
+                color: Theme.accent
+                secondary: Theme.accent
+                active: root.active && root.playing && root.visualizerOn && !Theme.reduced && !Theme.lowPower && !ShellState.locked
+                visible: active && available
+            }
+            Row {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                visible: !spectrum.visible
+                spacing: 3
+                Repeater {
+                    model: 12
+                    Rectangle {
+                        width: (126 - 11 * 3) / 12
+                        height: 3
+                        radius: 1.5
+                        color: root.playing ? Theme.accent : Theme.key
+                        opacity: root.playing ? 0.6 : 1
+                    }
+                }
+            }
+            HoverHandler {
+                id: coverHover
+            }
+            C.Button {
+                visible: spectrum.available && !Theme.reduced
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 6
+                implicitWidth: 28
+                implicitHeight: 28
+                cornerRadius: 14
+                flat: true
+                glyph: "visualizer"
+                foreground: root.visualizerOn ? Theme.accent : Theme.text
+                opacity: coverHover.hovered || visualFocus ? 1 : 0
+                hint: root.visualizerOn ? "Hide visualizer" : "Show visualizer"
+                Accessible.role: Accessible.CheckBox
+                Accessible.checkable: true
+                Accessible.checked: root.visualizerOn
+                onClicked: ShellState.setSetting("visualizer", !root.visualizerOn)
+                background: Rectangle {
+                    radius: 14
+                    color: Qt.rgba(0, 0, 0, 0.45)
+                }
+                Behavior on opacity {
+                    NumberAnimation {
+                        duration: Theme.fast
+                    }
+                }
+            }
         }
-        C.Button {
-            glyph: "previous"
-            implicitWidth: 44
-            implicitHeight: Theme.controlLarge
-            cornerRadius: 22
-            hint: "Previous track"
-            enabled: !!root.player && root.player.canGoPrevious
-            onClicked: root.player.previous()
-        }
-        C.Button {
-            glyph: root.playing ? "pause" : "play"
-            accent: true
-            hint: root.playing ? "Pause" : "Play"
-            implicitWidth: 56
-            implicitHeight: 56
-            cornerRadius: 28
-            enabled: !!root.player && root.player.canTogglePlaying
-            onClicked: root.player.togglePlaying()
-        }
-        C.Button {
-            glyph: "next"
-            implicitWidth: 44
-            implicitHeight: Theme.controlLarge
-            cornerRadius: 22
-            hint: "Next track"
-            enabled: !!root.player && root.player.canGoNext
-            onClicked: root.player.next()
-        }
-        C.Button {
-            readonly property int loop: enabled ? root.player.loopState : MprisLoopState.None
-            glyph: loop === MprisLoopState.Track ? "repeat-one" : "repeat"
-            implicitWidth: 36
-            implicitHeight: Theme.controlHeight
-            cornerRadius: 18
-            flat: true
-            enabled: !!root.player && root.player.loopSupported
-            opacity: enabled ? 1 : 0
-            selected: loop !== MprisLoopState.None
-            hint: loop === MprisLoopState.None ? "Repeat all" : loop === MprisLoopState.Playlist ? "Repeat this track" : "Turn off repeat"
-            onClicked: root.cycleLoop()
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumWidth: 0
+            spacing: 4
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                // The source: which app plays, its dot lit while it plays.
+                Rectangle {
+                    implicitWidth: sourceRow.implicitWidth + 16
+                    implicitHeight: 24
+                    radius: 12
+                    color: Theme.module
+                    Layout.maximumWidth: 160
+                    Row {
+                        id: sourceRow
+                        anchors.centerIn: parent
+                        width: Math.min(implicitWidth, parent.width - 16)
+                        spacing: 6
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: root.playing ? Theme.accent : Theme.textFaint
+                        }
+                        C.Label {
+                            width: Math.min(implicitWidth, 130)
+                            text: root.player ? root.player.identity : ""
+                            color: Theme.textSecondary
+                            font.pixelSize: 12
+                        }
+                    }
+                }
+                C.Button {
+                    visible: root.outputLabel !== ""
+                    text: "on " + root.outputLabel
+                    flat: true
+                    implicitHeight: 24
+                    leftPadding: 4
+                    rightPadding: 4
+                    labelSize: 12
+                    cornerRadius: 8
+                    foreground: hovered || visualFocus ? Theme.textSecondary : Theme.textDim
+                    hint: "Sound and equalizer"
+                    Layout.minimumWidth: 0
+                    onClicked: ShellState.detail = "audio"
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+            C.Label {
+                text: root.player ? (root.player.trackTitle || "Unknown track") : ""
+                font.pixelSize: 19
+                font.weight: 650
+                lineHeight: 1.1
+                maximumLineCount: 2
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+            }
+            C.Label {
+                text: root.player ? [root.player.trackArtist || root.player.identity, root.player.trackAlbum].filter(part => !!part).join(" · ") : ""
+                color: Theme.textMuted
+                font.pixelSize: 14
+                Layout.fillWidth: true
+            }
+            Item {
+                Layout.fillHeight: true
+            }
+            Slider {
+                id: seek
+                visible: root.seekable
+                Layout.fillWidth: true
+                implicitHeight: 18
+                padding: 0
+                enabled: !!root.player && root.player.canSeek
+                from: 0
+                to: root.player ? Math.max(1, root.player.length) : 1
+                value: root.player ? root.player.position : 0
+                stepSize: 5
+                hoverEnabled: true
+                Accessible.name: "Track position"
+                // Seek once on release rather than on every drag step.
+                onPressedChanged: if (!pressed && root.player)
+                    root.player.position = value
+                onMoved: if (!pressed && root.player)
+                    root.player.position = value
+                background: Rectangle {
+                    x: seek.leftPadding
+                    y: (seek.height - height) / 2
+                    width: seek.availableWidth
+                    height: 4
+                    radius: 2
+                    color: Theme.key
+                    Rectangle {
+                        width: parent.width * seek.visualPosition
+                        height: parent.height
+                        radius: parent.radius
+                        color: Theme.accent
+                    }
+                }
+                handle: Rectangle {
+                    x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
+                    y: (seek.height - height) / 2
+                    visible: seek.enabled
+                    width: 12
+                    height: 12
+                    radius: 6
+                    color: Theme.knob
+                    border.width: 1
+                    border.color: Qt.rgba(0, 0, 0, 0.35)
+                    C.FocusRing {
+                        visible: seek.visualFocus
+                        inset: 4
+                    }
+                    scale: seek.pressed && !Theme.reduced ? 1.2 : 1
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Theme.fast
+                        }
+                    }
+                }
+            }
+            RowLayout {
+                visible: root.seekable
+                Layout.fillWidth: true
+                C.Label {
+                    text: root.timeLabel(seek.value)
+                    color: Theme.textDim
+                    font.pixelSize: 11
+                    font.features: ({"tnum": 1})
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                C.Label {
+                    text: root.showRemaining ? "-" + root.timeLabel((root.player ? root.player.length : 0) - seek.value) : root.timeLabel(root.player ? root.player.length : 0)
+                    color: remainingArea.containsMouse ? Theme.text : Theme.textDim
+                    font.pixelSize: 11
+                    font.features: ({"tnum": 1})
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.showRemaining ? "Show track length" : "Show remaining time"
+                    MouseArea {
+                        id: remainingArea
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: ShellState.setSetting("mediaRemaining", !root.showRemaining)
+                    }
+                }
+            }
+            // Shuffle, previous, the big round play, next, repeat. Unsupported modes keep their space.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                spacing: 0
+                C.Button {
+                    readonly property bool lit: enabled && root.player.shuffle
+                    glyph: "shuffle"
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    flat: true
+                    enabled: !!root.player && root.player.shuffleSupported
+                    opacity: enabled ? 1 : 0
+                    foreground: lit ? Theme.accent : hovered || visualFocus ? Theme.text : Theme.textDim
+                    hint: lit ? "Turn off shuffle" : "Shuffle"
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.checkable: true
+                    Accessible.checked: lit
+                    onClicked: root.player.shuffle = !root.player.shuffle
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                TransportKey {
+                    glyph: "previous"
+                    hint: "Previous track"
+                    enabled: !!root.player && root.player.canGoPrevious
+                    onClicked: root.player.previous()
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                Item {
+                    implicitWidth: 50
+                    implicitHeight: 50
+                    // A soft accent glow under the play key.
+                    RectangularShadow {
+                        anchors.fill: playKey
+                        visible: !Theme.lowPower && playKey.enabled
+                        radius: 25
+                        blur: 18
+                        offset.y: 6
+                        color: Theme.tint(Theme.accent, 0.3)
+                    }
+                    C.Button {
+                        id: playKey
+                        anchors.fill: parent
+                        glyph: root.playing ? "pause" : "play"
+                        accent: true
+                        cornerRadius: 25
+                        hint: root.playing ? "Pause" : "Play"
+                        enabled: !!root.player && root.player.canTogglePlaying
+                        onClicked: root.player.togglePlaying()
+                    }
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                TransportKey {
+                    glyph: "next"
+                    hint: "Next track"
+                    enabled: !!root.player && root.player.canGoNext
+                    onClicked: root.player.next()
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                C.Button {
+                    readonly property int loop: enabled ? root.player.loopState : MprisLoopState.None
+                    glyph: loop === MprisLoopState.Track ? "repeat-one" : "repeat"
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    flat: true
+                    enabled: !!root.player && root.player.loopSupported
+                    opacity: enabled ? 1 : 0
+                    foreground: loop !== MprisLoopState.None ? Theme.accent : hovered || visualFocus ? Theme.text : Theme.textDim
+                    hint: loop === MprisLoopState.None ? "Repeat all" : loop === MprisLoopState.Playlist ? "Repeat this track" : "Turn off repeat"
+                    onClicked: root.cycleLoop()
+                }
+            }
         }
     }
+    // More than one player: choose which one this page follows.
     Flow {
         visible: Services.players.length > 1 || Services.selectedPlayer !== ""
         Layout.fillWidth: true
         spacing: Theme.gapS
-        C.Button {
+        C.Chip {
             text: "Automatic"
-            implicitHeight: 30
-            cornerRadius: 15
             hint: "Follow the active player"
             selected: Services.selectedPlayer === ""
             onClicked: Services.selectedPlayer = ""
         }
         Repeater {
             model: Services.players
-            C.Button {
+            C.Chip {
                 required property var modelData
                 text: modelData.identity
-                implicitHeight: 30
-                cornerRadius: 15
                 hint: "Control " + modelData.identity
                 selected: Services.selectedPlayer === modelData.dbusName
                 onClicked: Services.selectedPlayer = modelData.dbusName
             }
         }
     }
-    Equalizer {
-        Layout.fillWidth: true
-        active: root.active
-    }
     Timer {
         interval: 1000
         repeat: true
         running: root.active && root.playing && !seek.pressed
         onTriggered: root.player.positionChanged()
+    }
+    // Previous and next: 38 px module keys with 12 px corners.
+    component TransportKey: C.Button {
+        id: key
+        implicitWidth: 38
+        implicitHeight: 38
+        cornerRadius: Theme.radiusCard
+        background: Rectangle {
+            radius: Theme.radiusCard
+            color: key.hovered || key.down || key.visualFocus ? Theme.mix(Theme.module, Theme.text, 0.06) : Theme.module
+            opacity: key.enabled ? 1 : Theme.disabledOpacity
+            Behavior on color {
+                ColorAnimation {
+                    duration: Theme.fast
+                }
+            }
+        }
     }
 }

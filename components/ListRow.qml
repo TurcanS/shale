@@ -11,6 +11,10 @@ Button {
     property string image: ""
     property bool positive: false
     property bool interactive: true
+    // Lists on a case (Find): no fill at rest, the subtitle on the title's line, the image inside the tile.
+    property bool quiet: false
+    property bool inline: false
+    property bool tileImage: false
     // A trailing check marks the current choice in single-choice lists.
     property bool checkmark: selected
     property alias trailing: trailingRow.data
@@ -25,12 +29,25 @@ Button {
     focusPolicy: interactive ? Qt.StrongFocus : Qt.NoFocus
     implicitHeight: rowContent.implicitHeight + topPadding + bottomPadding
     padding: Theme.gapM - 2
-    topPadding: Theme.gapS
-    bottomPadding: Theme.gapS
+    topPadding: 7
+    bottomPadding: 7
+    cornerRadius: Theme.radiusKey + 2
+    // A whole row only gives a little under the pointer.
+    scale: down && !Theme.reduced ? Theme.rowPressScale : 1
+    pressDepth: 0
+    // A module at rest; the chosen row lays the accent wash over it.
     background: Rectangle {
-        radius: Theme.controlRadius
-        color: root.selected && root.interactive ? (root.highlighted ? Theme.selectionHover : Theme.selection) : root.highlighted ? Theme.hover : Theme.surface
+        radius: root.cornerRadius
+        color: root.quiet ? (root.highlighted && !root.selected ? root.wash : "transparent")
+             : root.highlighted ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
         Behavior on color { ColorAnimation { duration: Theme.fast } }
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: Theme.accentSoft
+            opacity: root.selected && root.interactive ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        }
     }
     contentItem: ColumnLayout {
         // Named: contentItem is created late, and a binding through it doesn't see later size changes.
@@ -39,16 +56,30 @@ Button {
         opacity: root.enabled ? 1 : Theme.disabledOpacity
         RowLayout {
             Layout.fillWidth: true
-            Layout.minimumHeight: 36
+            Layout.minimumHeight: 30
             spacing: Theme.gapM
             GlyphTile {
-                visible: root.image === ""
-                glyph: root.glyph
+                size: 30
+                color: selected ? Theme.accent : Theme.keyTile
+                glyphColor: selected ? Theme.accentInk : Theme.textSecondary
+                visible: root.image === "" || root.tileImage
+                glyph: tileIcon.visible ? "" : root.glyph
                 selected: root.selected && root.interactive
                 positive: root.positive
+                Image {
+                    id: tileIcon
+                    anchors.centerIn: parent
+                    visible: root.tileImage && status === Image.Ready
+                    source: root.tileImage ? root.image : ""
+                    sourceSize.width: 20
+                    sourceSize.height: 20
+                    width: 20
+                    height: 20
+                    fillMode: Image.PreserveAspectFit
+                }
             }
             Image {
-                visible: root.image !== ""
+                visible: root.image !== "" && !root.tileImage
                 source: root.image
                 sourceSize.width: 24
                 sourceSize.height: 24
@@ -58,20 +89,25 @@ Button {
                 Layout.rightMargin: 4
                 fillMode: Image.PreserveAspectFit
             }
-            ColumnLayout {
+            GridLayout {
+                id: titles
                 Layout.fillWidth: true
-                spacing: 2
+                columns: root.inline ? 2 : 1
+                columnSpacing: Theme.gapS
+                rowSpacing: 2
                 Label {
                     text: root.text
-                    color: root.selected && root.interactive ? Theme.accentText : Theme.text
-                    font.weight: Font.Medium
-                    Layout.fillWidth: true
+                    color: Theme.text
+                    font.weight: root.inline || root.selected && root.interactive ? Font.DemiBold : Font.Medium
+                    Layout.fillWidth: !root.inline
+                    // From the row's own width: bound to the grid's width, it laid the grid out again and again.
+                    Layout.maximumWidth: root.inline ? root.availableWidth * 0.6 : Infinity
                 }
                 Label {
                     visible: root.subtitle !== ""
                     text: root.subtitle
-                    color: Theme.muted
-                    font.pixelSize: Theme.small
+                    color: Theme.textDim
+                    font.pixelSize: root.inline ? Theme.label : Theme.small
                     Layout.fillWidth: true
                 }
             }

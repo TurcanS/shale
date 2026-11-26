@@ -135,7 +135,11 @@ async def active(run, daemon='hyprpaper'):
     output = (await run('hyprctl', 'hyprpaper', 'listactive')).decode()
     return dict(line.split(': ', 1) for line in output.splitlines() if ': ' in line)
 
-async def apply(run, path, monitor, error, daemon='hyprpaper'):
+# How a picture meets a screen of another shape: hyprpaper's fit modes. cover crops it to fill, contain shows all of
+# it with bars, fill stretches it, tile repeats it.
+FITS = ('cover', 'contain', 'fill', 'tile')
+
+async def apply(run, path, monitor, error, daemon='hyprpaper', fit='cover'):
     image = Path(path).expanduser().resolve()
     if not image.is_file() or image.suffix.lower() not in EXTENSIONS:
         raise error('invalid', 'Choose an existing JPG, PNG, WebP, or BMP image.')
@@ -146,9 +150,11 @@ async def apply(run, path, monitor, error, daemon='hyprpaper'):
         raise error('unavailable', 'The selected monitor is no longer connected.')
     if daemon in ('awww', 'swww'):
         # Shale crossfades itself, so the daemon switches instantly underneath.
-        await run(daemon, 'img', '--outputs', monitor, '--transition-type', 'none', str(image))
+        # awww and swww fit a whole picture with --resize fit; their other modes don't match hyprpaper's, so they crop.
+        resize = ['--resize', 'fit'] if fit == 'contain' else []
+        await run(daemon, 'img', '--outputs', monitor, '--transition-type', 'none', *resize, str(image))
     else:
-        response = (await run('hyprctl', 'hyprpaper', 'wallpaper', f'{monitor},{image},cover')).decode().strip()
+        response = (await run('hyprctl', 'hyprpaper', 'wallpaper', f'{monitor},{image},{fit if fit in FITS else "cover"}')).decode().strip()
         if response and response.lower() != 'ok':
             raise error('failed', 'Hyprpaper could not set this image. Check that it is a supported image.')
     reported = (await active(run, daemon)).get(monitor, '')

@@ -2,18 +2,19 @@ import QtQuick
 import QtQuick.Layouts
 import "../core"
 
-// Settings rows on one card, divided by hairlines. Toggles placed here draw flat and light up on hover only.
+// Settings rows on one grouped card, divided by hairlines. Toggles placed here draw flat and light up on hover only.
 Card {
     id: root
     default property alias rows: column.data
+    color: Theme.group
+    radius: Theme.radiusCard + 2
     Layout.fillWidth: true
-    implicitHeight: column.implicitHeight + 8
+    implicitHeight: column.implicitHeight
     ColumnLayout {
         id: column
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 4
         spacing: 0
     }
     // Rows that take up space; a Repeater is a visible child too, but has no size.
@@ -25,12 +26,11 @@ Card {
             required property int index
             readonly property Item above: root.shown[index] || null
             visible: !!above
-            x: 16
-            width: root.width - 32
+            x: 0
+            width: root.width
             height: 1
             y: above ? column.y + above.y + above.height : 0
-            color: Theme.border
-            opacity: 0.6
+            color: Theme.separator
         }
     }
 }
