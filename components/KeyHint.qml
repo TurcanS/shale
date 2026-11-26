@@ -13,6 +13,10 @@ Rectangle {
     radius: 6
     color: Theme.module
     Accessible.ignored: true
+    // A little keycap.
+    Raise {
+        resting: true
+    }
     Label {
         id: label
         anchors.centerIn: parent

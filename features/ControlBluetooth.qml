@@ -57,6 +57,11 @@ C.Card {
                             duration: Theme.fast
                         }
                     }
+                    C.Raise {
+                        shown: bluetoothScan.enabled
+                        resting: !Services.bluetoothScanning
+                        sunk: bluetoothScan.sunk
+                    }
                 }
                 contentItem: RowLayout {
                     spacing: 6

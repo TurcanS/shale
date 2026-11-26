@@ -85,6 +85,11 @@ C.Button {
         color: root.destructive ? (lit ? Theme.dangerSoft : Theme.dangerWash) : lit ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
         border.width: root.destructive ? 1 : 0
         border.color: Theme.dangerLine
+        C.Raise {
+            shown: !root.destructive && root.enabled
+            resting: true
+            sunk: root.sunk
+        }
 
         // Clipped square on the right, so the fill keeps the key's rounded left end as it grows.
         Item {

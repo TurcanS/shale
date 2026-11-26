@@ -163,7 +163,9 @@ FocusScope {
                         opacity: tile.enabled || tile.on ? 1 : Theme.disabledOpacity
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         C.Raise {
-                            shown: tile.on
+                            shown: tile.enabled || tile.on
+                            resting: !tile.on
+                            sunk: tile.sunk
                         }
                     }
                     contentItem: Item {
@@ -480,6 +482,11 @@ FocusScope {
                         radius: action.cornerRadius
                         color: !action.enabled ? Theme.module : action.accent ? (lit ? Theme.accentHover : Theme.accent) : (lit ? Theme.keyHover : Theme.keySelected)
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
+                        C.Raise {
+                            shown: action.enabled
+                            resting: true
+                            sunk: action.sunk
+                        }
                     }
                     // A blinking dot before "Stop" while recording; steady with reduced motion or power saving.
                     contentItem: Item {

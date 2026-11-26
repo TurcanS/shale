@@ -17,7 +17,8 @@ C.Button {
             }
         }
         C.Raise {
-            shown: powerKey.selected
+            resting: !powerKey.selected
+            sunk: powerKey.sunk
         }
     }
 }

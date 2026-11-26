@@ -180,16 +180,7 @@ ColumnLayout {
                             height: 24
                             color: shortcut.active ? Theme.raisedOnKey : Theme.key
                             textColor: shortcut.active ? Theme.accentText : Theme.textSecondary
-                            // The cap's lower lip.
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.leftMargin: 3
-                                anchors.rightMargin: 3
-                                height: 1
-                                color: Theme.raisedLip
-                            }
+
                         }
                     }
                 }

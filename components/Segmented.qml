@@ -48,8 +48,7 @@ Rectangle {
         item.forceActiveFocus(Qt.TabFocusReason);
         root.activated(root.model[next].key);
     }
-    // The chosen option, drawn once under the labels so it can slide; a 1 px darker edge below stands in for its
-    // small drop shadow.
+    // The chosen option, drawn once under the labels so it can slide; a raised key like every "on" thing.
     Item {
         id: indicator
         readonly property bool placed: !!root.currentItem && root.currentItem.width > 0
@@ -74,15 +73,9 @@ Rectangle {
         }
         Rectangle {
             anchors.fill: parent
-            anchors.topMargin: 1
-            anchors.bottomMargin: -1
             radius: root.radius - 3
-            color: Qt.rgba(0, 0, 0, 0.4)
-        }
-        Rectangle {
-            anchors.fill: parent
-            radius: root.radius - 3
-            color: Theme.keySelected
+            color: Theme.raised
+            Raise {}
         }
     }
     RowLayout {

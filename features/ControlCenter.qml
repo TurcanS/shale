@@ -114,6 +114,10 @@ FocusScope {
                         duration: Theme.fast
                     }
                 }
+                C.Raise {
+                    resting: true
+                    sunk: settingsKey.sunk
+                }
             }
             onClicked: ShellState.open("settings")
         }

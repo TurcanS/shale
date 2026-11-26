@@ -755,6 +755,11 @@ FocusScope {
                                         color: !endKey.enabled ? Theme.module : processRow.sure ? Theme.tint(Theme.danger, 0.18)
                                              : endKey.hovered || endKey.visualFocus ? Theme.keyHover : Theme.key
                                         Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                        C.Raise {
+                                            shown: endKey.enabled && !processRow.sure
+                                            resting: true
+                                            sunk: endKey.sunk
+                                        }
                                     }
                                 }
                             }

@@ -88,8 +88,12 @@ AbstractButton {
                 duration: Theme.fast
             }
         }
+        // Keys sit up a little; an "on" key a little more. Flat keys only when on; danger keys keep their edge.
         C.Raise {
-            shown: root.enabled && root.selected && !root.accent && !root.danger
+            readonly property bool on: root.selected && !root.accent && !root.danger
+            shown: root.enabled && (on || !root.flat && !root.danger)
+            resting: !on
+            sunk: root.sunk
         }
         // Hovering an "on" key lays a light wash on top instead of swapping colours.
         Rectangle {

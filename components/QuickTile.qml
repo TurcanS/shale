@@ -26,7 +26,8 @@ Button {
         color: root.selected ? Theme.raised : root.bodyActive ? Theme.mix(Theme.module, Theme.text, 0.05) : Theme.module
         Behavior on color { ColorAnimation { duration: Theme.fast } }
         Raise {
-            shown: root.selected
+            resting: !root.selected
+            sunk: root.sunk
         }
         // Hover on an "on" tile: a light wash over the raised key.
         Rectangle {

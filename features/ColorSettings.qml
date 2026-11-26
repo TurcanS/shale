@@ -105,6 +105,10 @@ ColumnLayout {
                     radius: 14
                     color: wallpaperKey.hovered || wallpaperKey.visualFocus || wallpaperKey.down ? Theme.keyHover : Theme.key
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
+                    C.Raise {
+                        resting: true
+                        sunk: wallpaperKey.sunk
+                    }
                     Ring {
                         visible: wallpaperKey.selected
                     }

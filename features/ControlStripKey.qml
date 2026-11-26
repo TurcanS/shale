@@ -27,7 +27,8 @@ C.Button {
             }
         }
         C.Raise {
-            shown: stripKey.selected
+            resting: !stripKey.selected
+            sunk: stripKey.sunk
         }
         C.WarmUp {
             id: lamp

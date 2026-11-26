@@ -470,6 +470,11 @@ ColumnLayout {
                     duration: Theme.fast
                 }
             }
+            C.Raise {
+                shown: key.enabled
+                resting: true
+                sunk: key.sunk
+            }
         }
     }
 }

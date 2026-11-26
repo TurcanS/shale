@@ -21,6 +21,11 @@ C.Button {
                 duration: Theme.fast
             }
         }
+        C.Raise {
+            shown: smallKey.enabled
+            resting: true
+            sunk: smallKey.sunk
+        }
         Rectangle {
             anchors.fill: parent
             radius: parent.radius

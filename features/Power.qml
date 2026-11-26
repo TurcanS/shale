@@ -130,7 +130,8 @@ FocusScope {
                 }
             }
             C.Raise {
-                shown: tile.selected
+                resting: !tile.selected
+                sunk: tile.sunk
             }
         }
         contentItem: ColumnLayout {
