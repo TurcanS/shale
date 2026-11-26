@@ -19,7 +19,7 @@ A compact top bar, animated panels, desktop widgets and AirDrop: the everyday co
 
 <br>
 
-![Shale in motion: desktop widgets, Find, Control, AirDrop, a wallpaper change carrying the accent through the shell, the system monitor, Focus, Clock and sky, Activity, Settings and the session menu](docs/screenshots/tour.webp)
+![Shale in motion: desktop widgets, Find, Control, AirDrop and a wallpaper change carrying the accent through the shell](docs/screenshots/tour.gif)
 
 <table>
   <tr>
