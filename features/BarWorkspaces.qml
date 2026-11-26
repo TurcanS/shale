@@ -158,8 +158,12 @@ Rectangle {
         remove: Transition {
             NumberAnimation { property: "opacity"; to: 0; duration: Theme.fast }
         }
+        // At start-up the list changes several times within a few milliseconds while the pages arrive, and the current
+        // page is shifted aside while it fades in. Qt then leaves it at the opacity it had when its fade was cut
+        // off, often 0: an invisible page. Finishing the fade here keeps it.
         displaced: Transition {
             NumberAnimation { property: "x"; duration: Theme.reduced ? 0 : Theme.lowPower ? 120 : 200; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "opacity"; to: 1; duration: Theme.fast }
         }
     }
     WheelHandler {
